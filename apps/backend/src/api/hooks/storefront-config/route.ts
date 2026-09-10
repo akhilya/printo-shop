@@ -1,6 +1,10 @@
 import type { MedusaRequest, MedusaResponse } from "@medusajs/framework/http"
 import { ContainerRegistrationKeys } from "@medusajs/framework/utils"
 
+export async function OPTIONS(_req: MedusaRequest, res: MedusaResponse) {
+  res.status(204).end()
+}
+
 export async function GET(req: MedusaRequest, res: MedusaResponse) {
   const query = req.scope.resolve(ContainerRegistrationKeys.QUERY)
   const { data: keys } = await query.graph({

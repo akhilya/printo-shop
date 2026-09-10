@@ -7,6 +7,7 @@ import {
 import { clientIp } from "../lib/client-ip"
 import { BLOCKED_MESSAGE, isIpBlocked } from "../lib/ip-block"
 import { getShopSetting } from "../lib/shop-setting"
+import { applyStoreCors } from "../lib/store-cors"
 
 async function rejectBlockedIp(
   req: MedusaRequest,
@@ -58,6 +59,11 @@ export default defineMiddlewares({
       matcher: "/hooks/tbank",
       methods: ["POST"],
       middlewares: [warmShopSettings],
+    },
+    {
+      matcher: "/hooks/storefront-config",
+      methods: ["GET", "OPTIONS", "HEAD"],
+      middlewares: [applyStoreCors],
     },
     {
       matcher: "/admin/delegat*",
