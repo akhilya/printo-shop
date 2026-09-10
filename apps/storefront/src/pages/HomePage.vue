@@ -8,10 +8,12 @@ import SiteBanner from "../components/SiteBanner.vue"
 import {
   HOME_GROUPS,
   HOME_PRODUCTS,
+  BACKEND_URL,
   listShopGroups,
   productFields,
   REGION_ID,
   sdk,
+  storeHeaders,
 } from "../lib/sdk.js"
 
 const route = useRoute()
@@ -27,14 +29,9 @@ function bannerBySlot(slot) {
 }
 
 async function loadBanners() {
-  const res = await fetch(
-    `${import.meta.env.VITE_MEDUSA_BACKEND_URL}/store/banners`,
-    {
-      headers: {
-        "x-publishable-api-key": import.meta.env.VITE_MEDUSA_PUBLISHABLE_KEY,
-      },
-    }
-  )
+  const res = await fetch(`${BACKEND_URL}/store/banners`, {
+    headers: storeHeaders(),
+  })
   if (!res.ok) return []
   const data = await res.json()
   return data.banners || []

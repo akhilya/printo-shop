@@ -78,8 +78,6 @@ services:
       dockerfile: docker/storefront.Dockerfile
       args:
         VITE_MEDUSA_BACKEND_URL: ${VITE_MEDUSA_BACKEND_URL}
-        VITE_MEDUSA_PUBLISHABLE_KEY: ${VITE_MEDUSA_PUBLISHABLE_KEY}
-        VITE_MEDUSA_REGION_ID: ${VITE_MEDUSA_REGION_ID}
     restart: unless-stopped
     depends_on:
       backend:

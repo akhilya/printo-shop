@@ -1,6 +1,7 @@
 <script setup>
 import { computed, onMounted, ref, watch } from "vue"
 import { useRoute } from "vue-router"
+import { BACKEND_URL, storeHeaders } from "../lib/sdk.js"
 
 const props = defineProps({
   title: { type: String, default: "" },
@@ -32,12 +33,8 @@ async function load() {
   error.value = ""
   try {
     const res = await fetch(
-      `${import.meta.env.VITE_MEDUSA_BACKEND_URL}/store/legal-pages/${encodeURIComponent(slug.value)}`,
-      {
-        headers: {
-          "x-publishable-api-key": import.meta.env.VITE_MEDUSA_PUBLISHABLE_KEY,
-        },
-      }
+      `${BACKEND_URL}/store/legal-pages/${encodeURIComponent(slug.value)}`,
+      { headers: storeHeaders() }
     )
     if (!res.ok) {
       error.value = "Страница не найдена"

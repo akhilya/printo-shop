@@ -1,4 +1,5 @@
 import {
+  defaultTbankUrls,
   parseShopSettingUpdate,
   presentShopSetting,
   tbankOptionsFromRow,
@@ -40,6 +41,21 @@ describe("tbankOptionsFromRow", () => {
   })
 })
 
+describe("defaultTbankUrls", () => {
+  it("builds shop and webhook urls from cors and backend url", () => {
+    expect(
+      defaultTbankUrls({
+        STORE_CORS: "https://shop.example.com,http://localhost:8000",
+        MEDUSA_BACKEND_URL: "https://api.example.com/",
+      })
+    ).toEqual({
+      successUrl: "https://shop.example.com/checkout/success",
+      failUrl: "https://shop.example.com/checkout/fail",
+      notificationUrl: "https://api.example.com/hooks/tbank",
+    })
+  })
+})
+
 describe("presentShopSetting", () => {
   it("hides the password from the admin payload", () => {
     const presented = presentShopSetting(
@@ -49,6 +65,9 @@ describe("presentShopSetting", () => {
     expect(presented).not.toHaveProperty("tbank_password")
     expect(presented.tbank_password_set).toBe(true)
     expect(presented.tbank_terminal_key).toBe("term")
+    expect(presented.tbank_success_url).toMatch(/\/checkout\/success$/)
+    expect(presented.tbank_fail_url).toMatch(/\/checkout\/fail$/)
+    expect(presented.tbank_notification_url).toMatch(/\/hooks\/tbank$/)
   })
 })
 

@@ -2,6 +2,7 @@
 import { onMounted, ref } from "vue"
 import SiteHeader from "./components/SiteHeader.vue"
 import CartDrawer from "./components/CartDrawer.vue"
+import { BACKEND_URL, storeHeaders } from "./lib/sdk.js"
 import { loadCart } from "./lib/cart.js"
 import { legalPages, loadLegalPages } from "./lib/legal.js"
 import { loadCatalogSales } from "./lib/sales.js"
@@ -12,14 +13,9 @@ const closedMessage = ref("Магазин в разработке.")
 
 onMounted(async () => {
   try {
-    const res = await fetch(
-      `${import.meta.env.VITE_MEDUSA_BACKEND_URL}/store/shop-status`,
-      {
-        headers: {
-          "x-publishable-api-key": import.meta.env.VITE_MEDUSA_PUBLISHABLE_KEY,
-        },
-      }
-    )
+    const res = await fetch(`${BACKEND_URL}/store/shop-status`, {
+      headers: storeHeaders(),
+    })
     if (res.ok) {
       const data = await res.json()
       closed.value = data.shop?.closed === true

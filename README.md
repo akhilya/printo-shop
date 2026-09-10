@@ -109,6 +109,6 @@ Compose-файл: `docker-compose.dokploy.yml`.
 docker compose -f docker-compose.dokploy.yml exec backend npx medusa user -e you@shop.local -p 'пароль'
 ```
 
-В админке (`https://api.example.com/app`): publishable key → `VITE_MEDUSA_PUBLISHABLE_KEY`, регион Россия → `VITE_MEDUSA_REGION_ID`. Пересоберите витрину, если ключ задали после первого билда — он зашивается в бандл на `docker build`.
+Витрине нужен только `VITE_MEDUSA_BACKEND_URL` (адрес API). Publishable key и id региона она запрашивает у бэкенда сама.
 
 Т-Банк webhook: `https://api.example.com/hooks/tbank`. Режим витрины «в разработке» — в админке **Витрина**.

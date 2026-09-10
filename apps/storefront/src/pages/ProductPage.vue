@@ -14,9 +14,11 @@ import {
   productGroup,
   productSpecs,
   realVariants,
+  BACKEND_URL,
   REGION_ID,
   sdk,
   shopError,
+  storeHeaders,
 } from "../lib/sdk.js"
 import { variantSalePrice } from "../lib/sales.js"
 
@@ -112,12 +114,8 @@ async function loadRelated(p) {
 async function loadReviews(productId) {
   try {
     const res = await fetch(
-      `${import.meta.env.VITE_MEDUSA_BACKEND_URL}/store/reviews?product_id=${encodeURIComponent(productId)}`,
-      {
-        headers: {
-          "x-publishable-api-key": import.meta.env.VITE_MEDUSA_PUBLISHABLE_KEY,
-        },
-      }
+      `${BACKEND_URL}/store/reviews?product_id=${encodeURIComponent(productId)}`,
+      { headers: storeHeaders() }
     )
     if (!res.ok) {
       reviews.value = []
@@ -213,11 +211,11 @@ async function submitReview(event) {
         payload.images.push({ content: await fileToBase64(item.file) })
       }
     }
-    const res = await fetch(`${import.meta.env.VITE_MEDUSA_BACKEND_URL}/store/reviews`, {
+    const res = await fetch(`${BACKEND_URL}/store/reviews`, {
       method: "POST",
       headers: {
         "Content-Type": "application/json",
-        "x-publishable-api-key": import.meta.env.VITE_MEDUSA_PUBLISHABLE_KEY,
+        ...storeHeaders(),
       },
       body: JSON.stringify(payload),
     })

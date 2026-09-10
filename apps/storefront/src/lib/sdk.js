@@ -1,12 +1,35 @@
 import Medusa from "@medusajs/js-sdk"
 
-export const REGION_ID = import.meta.env.VITE_MEDUSA_REGION_ID
+export const BACKEND_URL =
+  import.meta.env.VITE_MEDUSA_BACKEND_URL || "http://localhost:9000"
 
-export const sdk = new Medusa({
-  baseUrl: import.meta.env.VITE_MEDUSA_BACKEND_URL || "http://localhost:9000",
-  publishableKey: import.meta.env.VITE_MEDUSA_PUBLISHABLE_KEY,
+export let REGION_ID = ""
+let publishableKey = ""
+
+export let sdk = new Medusa({
+  baseUrl: BACKEND_URL,
+  publishableKey: "",
   debug: import.meta.env.DEV,
 })
+
+export function storeHeaders() {
+  return { "x-publishable-api-key": publishableKey }
+}
+
+export async function loadShopConfig() {
+  const res = await fetch(`${BACKEND_URL}/hooks/storefront-config`)
+  if (!res.ok) {
+    throw new Error("Не удалось получить настройки витрины")
+  }
+  const data = await res.json()
+  REGION_ID = data.region_id || ""
+  publishableKey = data.publishable_key || ""
+  sdk = new Medusa({
+    baseUrl: BACKEND_URL,
+    publishableKey,
+    debug: import.meta.env.DEV,
+  })
+}
 
 export const PAGE_SIZE = 12
 export const HOME_GROUPS = 8

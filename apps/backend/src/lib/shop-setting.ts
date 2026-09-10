@@ -7,6 +7,27 @@ export const DEFAULT_CLOSED_MESSAGE = "Магазин в разработке."
 export const DEFAULT_TBANK_API = "https://securepay.tinkoff.ru/v2"
 export const TBANK_TEST_API = "https://rest-api-test.tinkoff.ru/v2"
 
+function firstOrigin(cors?: string): string {
+  const raw = String(cors || "")
+    .split(",")[0]
+    .trim()
+    .replace(/\/$/, "")
+  return /^https?:\/\//i.test(raw) ? raw : ""
+}
+
+export function defaultTbankUrls(env: NodeJS.ProcessEnv = process.env) {
+  const store = firstOrigin(env.STORE_CORS) || "http://localhost:8000"
+  const api = String(env.MEDUSA_BACKEND_URL || "http://localhost:9000").replace(
+    /\/$/,
+    ""
+  )
+  return {
+    successUrl: `${store}/checkout/success`,
+    failUrl: `${store}/checkout/fail`,
+    notificationUrl: `${api}/hooks/tbank`,
+  }
+}
+
 export const TBANK_TAXATION = [
   "osn",
   "usn_income",
@@ -74,13 +95,14 @@ export function tbankOptionsFromRow(
   const password = text(row, "tbank_password")
   if (!terminalKey || !password) return null
   const payType = text(row, "tbank_pay_type") === "T" ? "T" : "O"
+  const urls = defaultTbankUrls()
   return {
     terminalKey,
     password,
     apiUrl: text(row, "tbank_api_url") || DEFAULT_TBANK_API,
-    successUrl: text(row, "tbank_success_url") || undefined,
-    failUrl: text(row, "tbank_fail_url") || undefined,
-    notificationUrl: text(row, "tbank_notification_url") || undefined,
+    successUrl: text(row, "tbank_success_url") || urls.successUrl,
+    failUrl: text(row, "tbank_fail_url") || urls.failUrl,
+    notificationUrl: text(row, "tbank_notification_url") || urls.notificationUrl,
     payType,
     receipt: row.tbank_receipt === true,
     taxation: asTaxation(text(row, "tbank_taxation")),
@@ -98,14 +120,16 @@ export function presentShopSetting(
     message: text(row, "message") || DEFAULT_CLOSED_MESSAGE,
   }
   if (!opts.admin) return base
+  const urls = defaultTbankUrls()
   return {
     ...base,
     tbank_terminal_key: text(row, "tbank_terminal_key"),
     tbank_password_set: Boolean(text(row, "tbank_password")),
     tbank_api_url: text(row, "tbank_api_url") || DEFAULT_TBANK_API,
-    tbank_success_url: text(row, "tbank_success_url"),
-    tbank_fail_url: text(row, "tbank_fail_url"),
-    tbank_notification_url: text(row, "tbank_notification_url"),
+    tbank_success_url: text(row, "tbank_success_url") || urls.successUrl,
+    tbank_fail_url: text(row, "tbank_fail_url") || urls.failUrl,
+    tbank_notification_url:
+      text(row, "tbank_notification_url") || urls.notificationUrl,
     tbank_pay_type: text(row, "tbank_pay_type") === "T" ? "T" : "O",
     tbank_receipt: row.tbank_receipt === true,
     tbank_taxation: asTaxation(text(row, "tbank_taxation")),

@@ -1,18 +1,13 @@
 import { ref } from "vue"
-import { formatPrice, priceParts } from "./sdk.js"
+import { BACKEND_URL, formatPrice, priceParts, storeHeaders } from "./sdk.js"
 
 export const catalogSales = ref([])
 
 export async function loadCatalogSales() {
   try {
-    const res = await fetch(
-      `${import.meta.env.VITE_MEDUSA_BACKEND_URL}/store/catalog-sales`,
-      {
-        headers: {
-          "x-publishable-api-key": import.meta.env.VITE_MEDUSA_PUBLISHABLE_KEY,
-        },
-      }
-    )
+    const res = await fetch(`${BACKEND_URL}/store/catalog-sales`, {
+      headers: storeHeaders(),
+    })
     if (!res.ok) return
     const data = await res.json()
     catalogSales.value = data.sales || []

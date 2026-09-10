@@ -2,7 +2,7 @@
 import { computed, onMounted, ref } from "vue"
 import { useRoute } from "vue-router"
 import SelectField from "../components/SelectField.vue"
-import { productFields, REGION_ID, sdk, shopError } from "../lib/sdk.js"
+import { BACKEND_URL, productFields, REGION_ID, sdk, shopError, storeHeaders } from "../lib/sdk.js"
 
 const MAX_PHOTOS = 6
 const MAX_PHOTO_BYTES = 2 * 1024 * 1024
@@ -161,17 +161,14 @@ async function submit(event) {
         payload.images.push({ content: await fileToBase64(item.file) })
       }
     }
-    const res = await fetch(
-      `${import.meta.env.VITE_MEDUSA_BACKEND_URL}/store/custom-orders`,
-      {
-        method: "POST",
-        headers: {
-          "Content-Type": "application/json",
-          "x-publishable-api-key": import.meta.env.VITE_MEDUSA_PUBLISHABLE_KEY,
-        },
-        body: JSON.stringify(payload),
-      }
-    )
+    const res = await fetch(`${BACKEND_URL}/store/custom-orders`, {
+      method: "POST",
+      headers: {
+        "Content-Type": "application/json",
+        ...storeHeaders(),
+      },
+      body: JSON.stringify(payload),
+    })
     if (!res.ok) {
       const data = await res.json().catch(() => ({}))
       error.value = shopError(data.message, "Не удалось отправить заявку")

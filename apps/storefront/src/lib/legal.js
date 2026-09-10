@@ -1,4 +1,5 @@
 import { ref } from "vue"
+import { BACKEND_URL, storeHeaders } from "./sdk.js"
 
 export const LEGAL_FALLBACK = [
   { slug: "delivery", title: "Доставка" },
@@ -11,14 +12,9 @@ export const legalPages = ref([...LEGAL_FALLBACK])
 
 export async function loadLegalPages() {
   try {
-    const res = await fetch(
-      `${import.meta.env.VITE_MEDUSA_BACKEND_URL}/store/legal-pages`,
-      {
-        headers: {
-          "x-publishable-api-key": import.meta.env.VITE_MEDUSA_PUBLISHABLE_KEY,
-        },
-      }
-    )
+    const res = await fetch(`${BACKEND_URL}/store/legal-pages`, {
+      headers: storeHeaders(),
+    })
     if (!res.ok) return
     const data = await res.json()
     const pages = (data.pages || []).filter((page) => page.enabled !== false)
