@@ -76,6 +76,88 @@ export function pickAmount(price?: number | null, salePrice?: number | null): nu
   return price ?? 0
 }
 
+const RESERVED_FIELD_KEYS = new Set([
+  "delegat_product_id",
+  "product_id",
+  "local_product_id",
+  "sku",
+  "name",
+  "title",
+  "handle",
+  "description",
+  "short_description",
+  "price",
+  "sale_price",
+  "quantity",
+  "barcode",
+  "brand",
+  "status",
+  "category_ids",
+  "category_id",
+  "group_id",
+  "groupId",
+  "group_name",
+  "groupName",
+  "image_urls",
+  "image_keys",
+  "images",
+  "attributes",
+  "specs",
+  "variants",
+  "raw_fields",
+  "id",
+  "options",
+  "thumbnail",
+  "collection_id",
+  "collection",
+  "collections",
+  "categories",
+])
+
+export function stringifySpecValue(value: unknown): string {
+  if (value == null) return ""
+  if (typeof value === "string") return value.trim()
+  if (typeof value === "number" && Number.isFinite(value)) return String(value)
+  if (typeof value === "boolean") return value ? "Да" : ""
+  if (Array.isArray(value)) {
+    return value.map(stringifySpecValue).filter(Boolean).join(", ")
+  }
+  if (typeof value === "object") {
+    const rec = value as Record<string, unknown>
+    if (rec.label != null || rec.value != null || rec.name != null) {
+      return stringifySpecValue(rec.label ?? rec.value ?? rec.name)
+    }
+  }
+  return ""
+}
+
+export function specLabelFromKey(key: string): string {
+  const spaced = key.replace(/[_-]+/g, " ").trim()
+  if (!spaced) return key
+  return spaced.charAt(0).toUpperCase() + spaced.slice(1)
+}
+
+function asRecord(value: unknown): Record<string, unknown> {
+  return value && typeof value === "object" && !Array.isArray(value)
+    ? (value as Record<string, unknown>)
+    : {}
+}
+
+export function customFieldsFromPayload(
+  payload: DelegatProductPayload
+): Record<string, string> {
+  const extra: Record<string, string> = {}
+  const bags = [asRecord(payload), asRecord(payload.raw_fields)]
+  for (const bag of bags) {
+    for (const [key, value] of Object.entries(bag)) {
+      if (RESERVED_FIELD_KEYS.has(key) || key.startsWith("_")) continue
+      const text = stringifySpecValue(value)
+      if (text) extra[key] = text
+    }
+  }
+  return extra
+}
+
 export function mapProduct(payload: DelegatProductPayload): DelegatMappedProduct {
   const title = payload.name?.trim() || "Untitled"
   const variants = mapVariants(payload)
@@ -106,11 +188,23 @@ export function mapProduct(payload: DelegatProductPayload): DelegatMappedProduct
   if (payload.sale_price != null) {
     metadata.sale_price = String(payload.sale_price)
   }
-  if (payload.attributes) {
-    metadata.attributes = JSON.stringify(payload.attributes)
+  const extra = customFieldsFromPayload(payload)
+  const attributes = { ...(payload.attributes ?? {}), ...extra }
+  const specs = [...(payload.specs ?? [])]
+  for (const [key, value] of Object.entries(extra)) {
+    const exists = specs.some(
+      (item) =>
+        String(item.key || "") === key || String(item.label || "") === key
+    )
+    if (!exists) {
+      specs.push({ key, label: specLabelFromKey(key), value })
+    }
   }
-  if (payload.specs) {
-    metadata.specs = JSON.stringify(payload.specs)
+  if (Object.keys(attributes).length) {
+    metadata.attributes = JSON.stringify(attributes)
+  }
+  if (specs.length) {
+    metadata.specs = JSON.stringify(specs)
   }
   if (payload.image_keys?.length) {
     metadata.image_keys = JSON.stringify(payload.image_keys)

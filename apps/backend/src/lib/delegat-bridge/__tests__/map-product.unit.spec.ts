@@ -75,6 +75,46 @@ describe("delegat map-product", () => {
     })
   })
 
+  it("keeps mapped custom fields on specs and attributes", () => {
+    const mapped = mapProduct({
+      name: "Nahida",
+      sku: "GE32",
+      specs: [],
+      raw_fields: { test_field: "hello", "64field": 64, _localGroupId: "1" },
+    })
+    const extraPayload = mapProduct({
+      name: "Nahida",
+      sku: "GE32",
+      test_field: "from-map",
+      "64field": "sixty",
+    } as never)
+    expect(JSON.parse(mapped.metadata.attributes)).toMatchObject({
+      test_field: "hello",
+      "64field": "64",
+    })
+    expect(JSON.parse(mapped.metadata.specs)).toEqual(
+      expect.arrayContaining([
+        { key: "test_field", label: "Test field", value: "hello" },
+        { key: "64field", label: "64field", value: "64" },
+      ])
+    )
+    expect(JSON.parse(extraPayload.metadata.specs)).toEqual(
+      expect.arrayContaining([
+        { key: "test_field", label: "Test field", value: "from-map" },
+        { key: "64field", label: "64field", value: "sixty" },
+      ])
+    )
+  })
+
+  it("does not store an empty specs list", () => {
+    const mapped = mapProduct({
+      name: "Nahida",
+      sku: "GE32",
+      specs: [],
+    })
+    expect(mapped.metadata.specs).toBeUndefined()
+  })
+
   it("stores PIM shop specs on metadata", () => {
     const mapped = mapProduct({
       name: "Nahida",

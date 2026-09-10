@@ -114,13 +114,29 @@ function parseAttributes(raw) {
 }
 
 function formatSpecValue(value) {
-  const text = String(value ?? "").trim()
+  if (value == null) return ""
+  if (typeof value === "object") {
+    if (Array.isArray(value)) {
+      return value.map(formatSpecValue).filter(Boolean).join(", ")
+    }
+    if (value.label != null || value.value != null || value.name != null) {
+      return formatSpecValue(value.label ?? value.value ?? value.name)
+    }
+    return ""
+  }
+  const text = String(value).trim()
   if (!text) return ""
   const lower = text.toLowerCase()
   if (lower === "false" || lower === "нет бренда") return ""
   if (lower === "true" || lower === "да") return "Да"
-  if (text.length > 80) return ""
+  if (text.length > 240) return ""
   return text
+}
+
+function humanizeSpecKey(key) {
+  const spaced = String(key || "").replace(/[_-]+/g, " ").trim()
+  if (!spaced) return key
+  return spaced.charAt(0).toUpperCase() + spaced.slice(1)
 }
 
 function parseShopSpecs(raw) {
@@ -138,35 +154,35 @@ function withSku(rows, product) {
 }
 
 /**
- * Shopper-facing specs.
- * If PIM sent `metadata.specs` (category attributes flagged "show in shop"),
- * that list is the source of truth. Otherwise fall back to a heuristic over
- * the marketplace attribute dump so older exports still render.
+ * Shopper-facing specs: PIM `metadata.specs`, then leftover attributes
+ * (including custom mapped fields like test_field). Empty specs must not
+ * hide the attribute dump.
  */
 export function productSpecs(product) {
   const explicit = parseShopSpecs(product?.metadata?.specs)
-  if (explicit) {
-    const rows = []
+  const attrs = parseAttributes(product?.metadata?.attributes)
+  const title = (product?.title || "").trim().toLowerCase()
+  const seen = new Set()
+  const fromSpecs = []
+
+  if (Array.isArray(explicit)) {
     for (const item of explicit) {
       const label = String(item?.label || "").trim()
       const value = String(item?.value ?? "").trim()
       if (!label || !value) continue
-      rows.push({
-        key: String(item?.key || label),
-        label,
-        value,
-      })
+      const key = String(item?.key || label)
+      seen.add(label.toLowerCase())
+      seen.add(key.toLowerCase())
+      fromSpecs.push({ key, label, value })
     }
-    return withSku(rows, product)
   }
 
-  const attrs = parseAttributes(product?.metadata?.attributes)
-  const title = (product?.title || "").trim().toLowerCase()
-  const rows = new Map()
-
+  const fromAttrs = new Map()
   const brand = String(product?.metadata?.brand || "").trim()
   if (brand && brand.toLowerCase() !== "нет бренда") {
-    rows.set("Бренд", brand)
+    fromAttrs.set("Бренд", { key: "brand", label: "Бренд", value: brand })
+    seen.add("бренд")
+    seen.add("brand")
   }
 
   for (const [rawKey, rawValue] of Object.entries(attrs)) {
@@ -175,23 +191,27 @@ export function productSpecs(product) {
     let value = formatSpecValue(rawValue)
     if (!value) continue
     if (title && value.toLowerCase() === title) continue
-    const label = SPEC_LABELS[key.toLowerCase()] || key
+    const label = SPEC_LABELS[key.toLowerCase()] || humanizeSpecKey(key)
+    if (seen.has(label.toLowerCase()) || seen.has(key.toLowerCase())) continue
     if (/^\d+([.,]\d+)?$/.test(value)) {
       if (label === "Вес") value = `${value} г`
       else if (label === "Высота" || label === "Ширина") value = `${value} см`
     }
-    if (!rows.has(label)) rows.set(label, value)
+    seen.add(label.toLowerCase())
+    seen.add(key.toLowerCase())
+    fromAttrs.set(label, { key, label, value })
   }
 
-  const ordered = []
+  const ordered = [...fromSpecs]
   for (const label of SPEC_ORDER) {
-    if (rows.has(label)) {
-      ordered.push({ key: label, label, value: rows.get(label) })
-      rows.delete(label)
+    const row = fromAttrs.get(label)
+    if (row) {
+      ordered.push(row)
+      fromAttrs.delete(label)
     }
   }
-  for (const [label, value] of rows) {
-    ordered.push({ key: label, label, value })
+  for (const row of fromAttrs.values()) {
+    ordered.push(row)
   }
   return withSku(ordered, product)
 }
