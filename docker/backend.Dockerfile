@@ -24,12 +24,14 @@ ENV NODE_ENV=production
 ENV HOST=0.0.0.0
 
 RUN apt-get update \
-  && apt-get install -y --no-install-recommends ca-certificates \
+  && apt-get install -y --no-install-recommends python3 make g++ ca-certificates \
   && rm -rf /var/lib/apt/lists/*
 
-COPY --from=build /app /app
+COPY --from=build /app/apps/backend/.medusa/server ./
+COPY docker/backend-start.sh ./start.sh
 
-WORKDIR /app/apps/backend
+RUN chmod +x ./start.sh \
+  && npm install --omit=dev
+
 EXPOSE 9000
-
-CMD ["sh", "-c", "npx medusa db:migrate && npx medusa start"]
+CMD ["./start.sh"]

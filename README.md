@@ -101,7 +101,7 @@ Compose-файл: `docker-compose.dokploy.yml`.
 2. Укажите compose path: `docker-compose.dokploy.yml`.
 3. В Environment вставьте переменные из `.env.dokploy.example` (свои домены и секреты).
 4. DNS: A-записи `shop.example.com` и `api.example.com` на сервер Dokploy.
-5. Deploy.
+5. Deploy. После `Frontend build completed successfully` Docker ещё собирает финальный образ — это может быть несколько минут без новых строк в логе. Первый старт бэкенда тоже молчит, пока идут миграции (`Running database migrations...`).
 
 После первого запуска создайте админа:
 
