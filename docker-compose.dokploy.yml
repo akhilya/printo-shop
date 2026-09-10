@@ -2,14 +2,12 @@ services:
   postgres:
     image: postgres:16-alpine
     restart: unless-stopped
-    environment:
-      POSTGRES_USER: ${POSTGRES_USER:-medusa}
-      POSTGRES_PASSWORD: ${POSTGRES_PASSWORD:-medusa}
-      POSTGRES_DB: ${POSTGRES_DB:-medusa}
+    env_file:
+      - .env
     volumes:
       - shop_postgres:/var/lib/postgresql/data
     healthcheck:
-      test: ["CMD-SHELL", "pg_isready -U ${POSTGRES_USER:-medusa} -d ${POSTGRES_DB:-medusa}"]
+      test: ["CMD-SHELL", "pg_isready -U \"$$POSTGRES_USER\" -d \"$$POSTGRES_DB\""]
       interval: 5s
       timeout: 5s
       retries: 10
@@ -39,9 +37,7 @@ services:
     environment:
       NODE_ENV: production
       HOST: 0.0.0.0
-      POSTGRES_USER: ${POSTGRES_USER:-medusa}
-      POSTGRES_PASSWORD: ${POSTGRES_PASSWORD:-medusa}
-      POSTGRES_DB: ${POSTGRES_DB:-medusa}
+      POSTGRES_HOST: postgres
       REDIS_URL: redis://redis:6379
     depends_on:
       postgres:

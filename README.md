@@ -99,7 +99,7 @@ Compose-файл: `docker-compose.dokploy.yml`.
 
 1. В Dokploy создайте **Compose** и подключите репозиторий.
 2. Укажите compose path: `docker-compose.dokploy.yml`.
-3. В Environment вставьте переменные из `.env.dokploy.example` (свои домены и секреты). **Не копируйте `DATABASE_URL`** — только `POSTGRES_USER`, `POSTGRES_PASSWORD`, `POSTGRES_DB`. Если уже деплоили и пароль не подходит, в Dokploy удалите volume `shop_postgres` и задеплойте снова.
+3. В Environment вставьте переменные из `.env.dokploy.example` (свои домены и секреты). Нужны `POSTGRES_USER`, `POSTGRES_PASSWORD`, `POSTGRES_DB`. **Не задавайте `DATABASE_URL`** — бэкенд собирает его сам. Пароль не оборачивайте в кавычки. Если volume `shop_postgres` уже есть (или пароль когда-то меняли) — удалите его в Dokploy и задеплойте снова.
 4. DNS: A-записи `shop.example.com` и `api.example.com` на сервер Dokploy.
 5. Deploy. После `Frontend build completed successfully` Docker ещё собирает финальный образ — это может быть несколько минут без новых строк в логе. Первый старт бэкенда тоже молчит, пока идут миграции (`Running database migrations...`).
 

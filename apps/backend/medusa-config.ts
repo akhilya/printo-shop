@@ -2,9 +2,21 @@ import { loadEnv, defineConfig } from '@medusajs/framework/utils'
 
 loadEnv(process.env.NODE_ENV || 'development', process.cwd())
 
+function databaseUrl() {
+  const password = process.env.POSTGRES_PASSWORD
+  if (password) {
+    const user = encodeURIComponent(process.env.POSTGRES_USER || "medusa-js")
+    const pass = encodeURIComponent(password)
+    const db = encodeURIComponent(process.env.POSTGRES_DB || "medusa")
+    const host = process.env.POSTGRES_HOST || "postgres"
+    return `postgres://${user}:${pass}@${host}:5432/${db}`
+  }
+  return process.env.DATABASE_URL
+}
+
 module.exports = defineConfig({
   projectConfig: {
-    databaseUrl: process.env.DATABASE_URL,
+    databaseUrl: databaseUrl(),
     redisUrl: process.env.REDIS_URL,
     http: {
       storeCors: process.env.STORE_CORS!,
