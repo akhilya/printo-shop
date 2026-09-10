@@ -77,35 +77,19 @@ shop/
 
 ## Подключение Delegat.Module
 
-1. Secret API key (`sk_…`):
+В админке Medusa: **Делегат** — URL моста, счётчики каталога и создание секретного ключа.
 
-```bash
-cd apps/backend
-npx medusa exec ./src/scripts/create-delegat-key.ts
-```
-
-Или в админке: **Settings → Developer → Secret API Keys**.
-2. В Delegat создайте подключение **Medusa**:
-   - URL: `http://localhost:9000/admin/delegat` (с хоста Docker: `http://host.docker.internal:9000/admin/delegat`)
-   - API-ключ: тот же `sk_…`
+В PIM создайте подключение **Medusa**:
+- URL: `https://api.example.com/admin/delegat` (локально `http://localhost:9000/admin/delegat`)
+- API-ключ: `sk_…` со страницы Делегат
 
 Плагин адаптера: `dashboard/plugins/Delegat.Marketplace.Medusa`.
 
 ## Т-Банк
 
-Провайдер `pp_tbank_tbank`. Одностадийная оплата (`PayType=O`): покупатель уходит на `PaymentURL`, банк бьёт webhook `POST /hooks/tbank` (ответ `OK`).
+Провайдер `pp_tbank_tbank`. Ключ, пароль, контур и URL задаются в админке: **Настройки**.
 
-В `apps/backend/.env`:
-
-```
-TBANK_TERMINAL_KEY=
-TBANK_PASSWORD=
-TBANK_API_URL=https://rest-api-test.tinkoff.ru/v2
-```
-
-Тестовый контур: `rest-api-test.tinkoff.ru`. Бой: `https://securepay.tinkoff.ru/v2`.
-
-После старта сервера включите провайдер в админке: **Settings → Regions → Россия → Payment providers**.
+Webhook: `POST /hooks/tbank` (ответ `OK`). После старта включите провайдер: **Settings → Regions → Россия → Payment providers**.
 
 Дальше: витрина.
 

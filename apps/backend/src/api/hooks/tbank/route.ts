@@ -1,5 +1,6 @@
 import type { MedusaRequest, MedusaResponse } from "@medusajs/framework/http"
 import { Modules, PaymentWebhookEvents } from "@medusajs/framework/utils"
+import { getShopSetting } from "../../../lib/shop-setting"
 
 /**
  * T-Bank NotificationURL. Must respond with the literal body "OK".
@@ -7,6 +8,7 @@ import { Modules, PaymentWebhookEvents } from "@medusajs/framework/utils"
  */
 export async function POST(req: MedusaRequest, res: MedusaResponse) {
   try {
+    await getShopSetting(req.scope)
     const eventBus = req.scope.resolve(Modules.EVENT_BUS)
     await eventBus.emit(
       {

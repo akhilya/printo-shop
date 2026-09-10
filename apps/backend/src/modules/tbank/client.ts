@@ -18,6 +18,9 @@ export type TbankInitInput = {
   customerEmail?: string
   customerPhone?: string
   payType?: "O" | "T"
+  receipt?: boolean
+  taxation?: string
+  vat?: string
 }
 
 export type TbankApiResponse = {
@@ -67,6 +70,25 @@ export class TbankClient {
     }
     if (Object.keys(data).length) {
       body.DATA = data
+    }
+    if (input.receipt) {
+      const email = input.customerEmail?.slice(0, 64)
+      const receipt: Record<string, unknown> = {
+        Taxation: input.taxation || "usn_income",
+        Items: [
+          {
+            Name: (input.description || "Заказ").slice(0, 128),
+            Price: input.amountKopecks,
+            Quantity: 1,
+            Amount: input.amountKopecks,
+            Tax: input.vat || "none",
+            PaymentMethod: "full_payment",
+            PaymentObject: "commodity",
+          },
+        ],
+      }
+      if (email) receipt.Email = email
+      body.Receipt = receipt
     }
     return this.request("Init", body)
   }

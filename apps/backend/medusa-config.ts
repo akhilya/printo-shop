@@ -55,17 +55,8 @@ module.exports = defineConfig({
             resolve: "./src/modules/tbank",
             id: "tbank",
             options: {
-              terminalKey: process.env.TBANK_TERMINAL_KEY || "",
-              password: process.env.TBANK_PASSWORD || "",
-              apiUrl:
-                process.env.TBANK_API_URL ||
-                "https://rest-api-test.tinkoff.ru/v2",
-              successUrl: process.env.TBANK_SUCCESS_URL,
-              failUrl: process.env.TBANK_FAIL_URL,
-              notificationUrl:
-                process.env.TBANK_NOTIFICATION_URL ||
-                `${process.env.MEDUSA_BACKEND_URL || "http://localhost:9000"}/hooks/tbank`,
-              payType: process.env.TBANK_PAY_TYPE || "O",
+              terminalKey: "",
+              password: "",
             },
           },
         ],

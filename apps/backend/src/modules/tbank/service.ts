@@ -27,6 +27,13 @@ import type {
   UpdatePaymentOutput,
   WebhookActionResult,
 } from "@medusajs/framework/types"
+import {
+  peekShopSetting,
+  tbankOptionsFromRow,
+  type TbankLiveOptions,
+} from "../../lib/shop-setting"
+import { SHOP_SETTING_MODULE } from "../shop-setting"
+import type ShopSettingModuleService from "../shop-setting/service"
 import { TbankClient } from "./client"
 import { fromKopecks, mapTbankStatus, toKopecks } from "./status"
 import { verifyTbankToken } from "./token"
@@ -43,6 +50,7 @@ export type TbankOptions = {
 
 type InjectedDependencies = {
   logger: Logger
+  [key: string]: unknown
 }
 
 class TbankPaymentProviderService extends AbstractPaymentProvider<TbankOptions> {
@@ -50,17 +58,63 @@ class TbankPaymentProviderService extends AbstractPaymentProvider<TbankOptions> 
 
   protected logger_: Logger
   protected options_: TbankOptions
-  protected client: TbankClient
+  protected container_: InjectedDependencies
 
   constructor(container: InjectedDependencies, options: TbankOptions) {
     super(container, options)
+    this.container_ = container
     this.logger_ = container.logger
     this.options_ = options
-    this.client = new TbankClient({
+  }
+
+  private fallbackOptions(): TbankLiveOptions {
+    return {
+      terminalKey: this.options_.terminalKey || "",
+      password: this.options_.password || "",
+      apiUrl: this.options_.apiUrl || "https://securepay.tinkoff.ru/v2",
+      successUrl: this.options_.successUrl,
+      failUrl: this.options_.failUrl,
+      notificationUrl: this.options_.notificationUrl,
+      payType: this.options_.payType === "T" ? "T" : "O",
+      receipt: false,
+      taxation: "usn_income",
+      vat: "none",
+    }
+  }
+
+  private async liveOptions(): Promise<TbankLiveOptions> {
+    const cached = tbankOptionsFromRow(peekShopSetting())
+    if (cached) return cached
+    try {
+      const service = this.container_.resolve?.(
+        SHOP_SETTING_MODULE
+      ) as ShopSettingModuleService | undefined
+      if (service) {
+        const rows = await service.listShopSettings(
+          { key: "storefront" },
+          { take: 1 }
+        )
+        const fromDb = tbankOptionsFromRow(
+          rows[0] as unknown as Record<string, unknown>
+        )
+        if (fromDb) return fromDb
+      }
+    } catch {
+      // Payment provider container may not include shop settings.
+    }
+    return this.fallbackOptions()
+  }
+
+  private clientFor(options: TbankLiveOptions) {
+    return new TbankClient({
       terminalKey: options.terminalKey,
       password: options.password,
-      apiUrl: options.apiUrl || "https://securepay.tinkoff.ru/v2",
+      apiUrl: options.apiUrl,
     })
+  }
+
+  private async bank() {
+    return this.clientFor(await this.liveOptions())
   }
 
   static validateOptions(_options: Record<string, unknown>) {
@@ -70,26 +124,30 @@ class TbankPaymentProviderService extends AbstractPaymentProvider<TbankOptions> 
   async initiatePayment(
     input: InitiatePaymentInput
   ): Promise<InitiatePaymentOutput> {
-    if (!this.options_.terminalKey || !this.options_.password) {
+    const options = await this.liveOptions()
+    if (!options.terminalKey || !options.password) {
       throw new MedusaError(
         MedusaError.Types.INVALID_DATA,
-        "T-Bank terminalKey and password are not configured"
+        "Т-Банк не настроен. Укажите ключ и пароль в админке."
       )
     }
     const sessionId =
       (input.data?.session_id as string) ||
       input.context?.idempotency_key ||
       crypto.randomUUID()
-    const result = await this.client.init({
+    const result = await this.clientFor(options).init({
       orderId: String(sessionId).slice(0, 50),
       amountKopecks: toKopecks(input.amount),
       description: "Оплата заказа",
-      notificationUrl: this.options_.notificationUrl,
-      successUrl: this.options_.successUrl,
-      failUrl: this.options_.failUrl,
+      notificationUrl: options.notificationUrl,
+      successUrl: options.successUrl,
+      failUrl: options.failUrl,
       sessionId,
       customerEmail: input.context?.customer?.email,
-      payType: this.options_.payType ?? "O",
+      payType: options.payType,
+      receipt: options.receipt,
+      taxation: options.taxation,
+      vat: options.vat,
     })
 
     return {
@@ -111,7 +169,7 @@ class TbankPaymentProviderService extends AbstractPaymentProvider<TbankOptions> 
     const existingId = input.data?.PaymentId ?? input.data?.id
     if (existingId) {
       try {
-        await this.client.cancel(existingId as string | number)
+        await (await this.bank()).cancel(existingId as string | number)
       } catch (error) {
         this.logger_?.warn(`T-Bank cancel before update failed: ${String(error)}`)
       }
@@ -123,7 +181,7 @@ class TbankPaymentProviderService extends AbstractPaymentProvider<TbankOptions> 
     const paymentId = input.data?.PaymentId ?? input.data?.id
     if (paymentId) {
       try {
-        await this.client.cancel(paymentId as string | number)
+        await (await this.bank()).cancel(paymentId as string | number)
       } catch {
         // Session may already be unused.
       }
@@ -138,7 +196,7 @@ class TbankPaymentProviderService extends AbstractPaymentProvider<TbankOptions> 
     if (!paymentId) {
       return { data: input.data, status: "pending" }
     }
-    const state = await this.client.getState(paymentId as string | number)
+    const state = await (await this.bank()).getState(paymentId as string | number)
     const mapped = mapTbankStatus(state.Status)
     const data = { ...input.data, ...state, id: String(state.PaymentId ?? paymentId) }
     if (mapped === "captured") {
@@ -160,11 +218,11 @@ class TbankPaymentProviderService extends AbstractPaymentProvider<TbankOptions> 
     if (!paymentId) {
       throw new MedusaError(MedusaError.Types.INVALID_DATA, "Missing T-Bank PaymentId")
     }
-    const state = await this.client.getState(paymentId as string | number)
+    const state = await (await this.bank()).getState(paymentId as string | number)
     if (mapTbankStatus(state.Status) === "captured") {
       return { data: { ...input.data, ...state, id: String(paymentId) } }
     }
-    const confirmed = await this.client.confirm(paymentId as string | number)
+    const confirmed = await (await this.bank()).confirm(paymentId as string | number)
     return { data: { ...input.data, ...confirmed, id: String(paymentId) } }
   }
 
@@ -173,7 +231,7 @@ class TbankPaymentProviderService extends AbstractPaymentProvider<TbankOptions> 
     if (!paymentId) {
       return { data: input.data }
     }
-    const result = await this.client.cancel(paymentId as string | number)
+    const result = await (await this.bank()).cancel(paymentId as string | number)
     return { data: { ...input.data, ...result, id: String(paymentId) } }
   }
 
@@ -182,7 +240,7 @@ class TbankPaymentProviderService extends AbstractPaymentProvider<TbankOptions> 
     if (!paymentId) {
       throw new MedusaError(MedusaError.Types.INVALID_DATA, "Missing T-Bank PaymentId")
     }
-    const result = await this.client.cancel(
+    const result = await (await this.bank()).cancel(
       paymentId as string | number,
       toKopecks(input.amount)
     )
@@ -196,7 +254,7 @@ class TbankPaymentProviderService extends AbstractPaymentProvider<TbankOptions> 
     if (!paymentId) {
       return { data: input.data ?? {} }
     }
-    const state = await this.client.getState(paymentId as string | number)
+    const state = await (await this.bank()).getState(paymentId as string | number)
     return { data: { ...input.data, ...state, id: String(paymentId) } }
   }
 
@@ -207,7 +265,7 @@ class TbankPaymentProviderService extends AbstractPaymentProvider<TbankOptions> 
     if (!paymentId) {
       return { status: "pending" }
     }
-    const state = await this.client.getState(paymentId as string | number)
+    const state = await (await this.bank()).getState(paymentId as string | number)
     const mapped = mapTbankStatus(state.Status)
     if (mapped === "failed") {
       return { status: "error", data: state }
@@ -219,7 +277,8 @@ class TbankPaymentProviderService extends AbstractPaymentProvider<TbankOptions> 
     payload: ProviderWebhookPayload["payload"]
   ): Promise<WebhookActionResult> {
     const data = (payload.data ?? {}) as Record<string, unknown>
-    if (!verifyTbankToken(data, this.options_.password)) {
+    const options = await this.liveOptions()
+    if (!verifyTbankToken(data, options.password)) {
       this.logger_?.error("Invalid T-Bank notification token")
       return {
         action: PaymentActions.FAILED,
