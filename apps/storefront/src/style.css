@@ -577,19 +577,22 @@ a.btn:active {
   width: 100%;
   height: 0;
   padding-bottom: 100%;
-  overflow: visible;
+  overflow: hidden;
 }
 
 .group-page {
   --offset: calc(var(--i) * var(--dir, 1));
   position: absolute;
-  inset: 6%;
-  display: grid;
-  place-items: center;
+  top: 6%;
+  left: 6%;
+  right: 6%;
+  bottom: auto;
+  aspect-ratio: var(--photo);
+  height: auto;
   overflow: hidden;
   background: var(--paper);
   border: 1px solid var(--ink);
-  transform-origin: 50% 100%;
+  transform-origin: 50% 0;
   transform: rotate(calc(var(--offset) * var(--tilt, 2deg)))
     translate(calc(var(--offset) * 0.28rem), calc(var(--i) * -0.08rem));
   transition: transform 280ms var(--ease-drawer);
@@ -597,24 +600,22 @@ a.btn:active {
 }
 
 .group-page .photo {
+  position: absolute;
+  inset: 0;
+  width: 100%;
+  height: 100%;
+  background: var(--paper);
+  border: 0;
+  overflow: hidden;
+}
+
+.group-page .photo-fit {
   width: 100%;
   height: 100%;
   max-width: 100%;
   max-height: 100%;
-  background: var(--paper);
-  border: 0;
-  overflow: hidden;
-  display: grid;
-  place-items: center;
-}
-
-.group-page .photo-fit {
-  width: auto;
-  height: auto;
-  max-width: 100%;
-  max-height: 100%;
   object-fit: contain;
-  object-position: center;
+  object-position: top center;
 }
 
 .group-page .photo-wait,
@@ -1614,6 +1615,7 @@ a.btn:active {
     transition: none;
     transform: rotate(calc(var(--offset) * var(--tilt, 2deg)))
       translate(calc(var(--offset) * 0.28rem), calc(var(--i) * -0.08rem));
+    transform-origin: 50% 0;
   }
 
   .group-card:active .group-stack {
