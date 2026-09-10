@@ -1,6 +1,3 @@
-const SPEC_DENY =
-  /тн\s*вэд|ндс|маркиров|признак\s*18|\b18\s*\+|pdf|видео|название цвета|название файла|название вариации|manufacturer|brand\s*\/|width \(mm\)|height \(mm\)|depth \(mm\)|length \(cm\)|заводск|уеи|оптом|delegat|barcode|regular_price|sale_price|озон|назначение подарка|повод/i
-
 const SPEC_LABELS = {
   материал: "Материал",
   "высота предмета": "Высота",
@@ -73,9 +70,8 @@ export function formatSpecValue(value) {
   const text = String(value).trim()
   if (!text) return ""
   const lower = text.toLowerCase()
-  if (lower === "false" || lower === "нет бренда") return ""
+  if (lower === "false") return "Нет"
   if (lower === "true" || lower === "да") return "Да"
-  if (text.length > 240) return ""
   return text
 }
 
@@ -87,10 +83,6 @@ export function humanizeSpecKey(key) {
 
 export function specLabel(key) {
   return SPEC_LABELS[String(key || "").trim().toLowerCase()] || humanizeSpecKey(key)
-}
-
-export function isDeniedSpec(key, label = "") {
-  return SPEC_DENY.test(String(key || "")) || SPEC_DENY.test(String(label || ""))
 }
 
 export function withSpecUnit(key, label, value) {
@@ -123,7 +115,6 @@ function withSku(rows, product) {
 export function productSpecs(product) {
   const explicit = parseShopSpecs(product?.metadata?.specs)
   const attrs = parseAttributes(product?.metadata?.attributes)
-  const title = (product?.title || "").trim().toLowerCase()
   const seen = new Set()
   const fromSpecs = []
 
@@ -133,7 +124,7 @@ export function productSpecs(product) {
       const label = specLabel(item?.label || key)
       const value = formatSpecValue(item?.value)
       if (!key && !label) continue
-      if (!value || isDeniedSpec(key, label)) continue
+      if (!value) continue
       seen.add(label.toLowerCase())
       seen.add(key.toLowerCase())
       fromSpecs.push({ key: key || label, label, value: withSpecUnit(key, label, value) })
@@ -142,7 +133,7 @@ export function productSpecs(product) {
 
   const fromAttrs = new Map()
   const brand = String(product?.metadata?.brand || "").trim()
-  if (brand && brand.toLowerCase() !== "нет бренда") {
+  if (brand) {
     fromAttrs.set("Бренд", { key: "brand", label: "Бренд", value: brand })
     seen.add("бренд")
     seen.add("brand")
@@ -152,10 +143,8 @@ export function productSpecs(product) {
     const key = String(rawKey || "").trim()
     if (!key) continue
     const label = specLabel(key)
-    if (isDeniedSpec(key, label)) continue
     let value = formatSpecValue(rawValue)
     if (!value) continue
-    if (title && value.toLowerCase() === title) continue
     if (seen.has(label.toLowerCase()) || seen.has(key.toLowerCase())) continue
     value = withSpecUnit(key, label, value)
     seen.add(label.toLowerCase())

@@ -18,7 +18,7 @@ const ATTRIBUTES = {
 }
 
 describe("productSpecs", () => {
-  it("renders PIM attributes and hides marketplace leftovers", () => {
+  it("renders every PIM attribute that was sent", () => {
     const rows = productSpecs({
       title: "Миниатюра Святейший",
       metadata: { attributes: ATTRIBUTES },
@@ -35,9 +35,12 @@ describe("productSpecs", () => {
     assert.equal(byLabel["Целостность"], "Разборная (только подставка)")
     assert.equal(byLabel["Ширина"], "100")
     assert.equal(byLabel["Высота"], "150")
+    assert.equal(byLabel["Признак 18+"], "Нет")
+    assert.equal(
+      byLabel["Название вариации"],
+      "Миниатюра Святейший - Мистические создания (126мм)"
+    )
     assert.equal(byLabel["Артикул"], "MI9")
-    assert.equal(byLabel["Признак 18+"], undefined)
-    assert.equal(byLabel["Название вариации"], undefined)
   })
 
   it("does not let an empty specs list hide attributes", () => {

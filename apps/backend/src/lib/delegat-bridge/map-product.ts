@@ -114,15 +114,12 @@ const RESERVED_FIELD_KEYS = new Set([
   "categories",
 ])
 
-const SPEC_DENY =
-  /тн\s*вэд|ндс|маркиров|признак\s*18|\b18\s*\+|pdf|видео|название цвета|название файла|название вариации|manufacturer|brand\s*\/|width \(mm\)|height \(mm\)|depth \(mm\)|length \(cm\)|заводск|уеи|оптом|delegat|barcode|regular_price|sale_price|озон|назначение подарка|повод/i
-
 export function stringifySpecValue(value: unknown): string {
   if (value == null) return ""
   if (typeof value === "string") {
     const text = value.trim()
     const lower = text.toLowerCase()
-    if (lower === "false" || lower === "нет бренда") return ""
+    if (lower === "false") return "Нет"
     if (lower === "true") return "Да"
     return text
   }
@@ -160,7 +157,6 @@ export function customFieldsFromPayload(
   for (const bag of bags) {
     for (const [key, value] of Object.entries(bag)) {
       if (RESERVED_FIELD_KEYS.has(key) || key.startsWith("_")) continue
-      if (SPEC_DENY.test(key)) continue
       const text = stringifySpecValue(value)
       if (text) extra[key] = text
     }
