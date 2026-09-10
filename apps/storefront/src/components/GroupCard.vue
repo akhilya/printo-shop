@@ -1,7 +1,7 @@
 <script setup>
 import { computed } from "vue"
 import ProductPhoto from "./ProductPhoto.vue"
-import { ruModels } from "../lib/sdk.js"
+import { ruFigures } from "../lib/sdk.js"
 
 const PAGE_COUNT = 4
 
@@ -48,7 +48,7 @@ const stackVars = computed(() => {
     </div>
     <div class="card-copy">
       <div class="card-title">{{ group.title }}</div>
-      <div class="card-meta">{{ ruModels(group.count) }}</div>
+      <div class="card-meta">{{ ruFigures(group.count) }}</div>
     </div>
   </router-link>
 </template>

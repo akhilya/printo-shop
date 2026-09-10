@@ -141,13 +141,13 @@ export function productGroup(product) {
   }
 }
 
-export function ruModels(n) {
+export function ruFigures(n) {
   const abs = Math.abs(n) % 100
   const last = abs % 10
-  if (abs > 10 && abs < 20) return `${n} моделей`
-  if (last === 1) return `${n} модель`
-  if (last >= 2 && last <= 4) return `${n} модели`
-  return `${n} моделей`
+  if (abs > 10 && abs < 20) return `${n} фигурок`
+  if (last === 1) return `${n} фигурка`
+  if (last >= 2 && last <= 4) return `${n} фигурки`
+  return `${n} фигурок`
 }
 
 export async function listShopGroups() {

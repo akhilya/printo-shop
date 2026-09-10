@@ -60,7 +60,7 @@ const customOrderBanner = computed(() => {
   return {
     slot: "product_custom",
     title: "Индивидуальный заказ",
-    body: "Нужна другая версия этой модели или правки под ваш запрос — опишите, что сделать.",
+    body: "Нужна другая версия этой фигурки или правки под ваш запрос — опишите, что сделать.",
     cta_label: "Оставить заявку",
     cta_href: `/custom-order?product=${product.value.id}`,
   }
