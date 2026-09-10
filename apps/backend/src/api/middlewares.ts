@@ -6,7 +6,11 @@ import {
 } from "@medusajs/framework/http"
 import { clientIp } from "../lib/client-ip"
 import { BLOCKED_MESSAGE, isIpBlocked } from "../lib/ip-block"
-import { getShopSetting } from "../lib/shop-setting"
+import { isOrderWritePath } from "../lib/shop-orders"
+import {
+  DEFAULT_ORDERS_MESSAGE,
+  getShopSetting,
+} from "../lib/shop-setting"
 import { applyStoreCors } from "../lib/store-cors"
 
 async function rejectBlockedIp(
@@ -39,6 +43,32 @@ async function warmShopSettings(
   next()
 }
 
+async function rejectClosedOrders(
+  req: MedusaRequest,
+  res: MedusaResponse,
+  next: MedusaNextFunction
+) {
+  if (!isOrderWritePath(req.method, String(req.originalUrl || req.url || ""))) {
+    next()
+    return
+  }
+  try {
+    const row = (await getShopSetting(req.scope)) as unknown as Record<
+      string,
+      unknown
+    >
+    if (row.orders_closed === true) {
+      const message =
+        String(row.orders_message || "").trim() || DEFAULT_ORDERS_MESSAGE
+      res.status(403).json({ message })
+      return
+    }
+  } catch {
+    // If settings are unavailable, do not block checkout.
+  }
+  next()
+}
+
 /**
  * Delegat category export sends the full PIM field schema (select options
  * included). Express json() defaults to 100kb and returns 413 otherwise.
@@ -53,7 +83,7 @@ export default defineMiddlewares({
     {
       matcher: "/store*",
       methods: ["POST", "PUT", "PATCH", "DELETE"],
-      middlewares: [rejectBlockedIp],
+      middlewares: [rejectBlockedIp, rejectClosedOrders],
     },
     {
       matcher: "/hooks/tbank",

@@ -19,6 +19,8 @@ import { sdk } from "../../lib/sdk"
 type ShopSetting = {
   closed: boolean
   message: string
+  orders_closed: boolean
+  orders_message: string
   tbank_terminal_key: string
   tbank_password_set: boolean
   tbank_api_url: string
@@ -34,6 +36,8 @@ type ShopSetting = {
 const EMPTY: ShopSetting = {
   closed: false,
   message: "Магазин в разработке.",
+  orders_closed: false,
+  orders_message: "Заказы временно недоступны.",
   tbank_terminal_key: "",
   tbank_password_set: false,
   tbank_api_url: "https://securepay.tinkoff.ru/v2",
@@ -75,6 +79,8 @@ const ShopSettingsPage = () => {
         body: {
           closed: form.closed,
           message: form.message,
+          orders_closed: form.orders_closed,
+          orders_message: form.orders_message,
           tbank_terminal_key: form.tbank_terminal_key,
           tbank_password: form.tbank_password,
           tbank_api_url: form.tbank_api_url,
@@ -99,7 +105,8 @@ const ShopSettingsPage = () => {
       <Container className="flex max-w-xl flex-col gap-y-4 p-6">
         <Heading>Витрина</Heading>
         <Text size="small" className="text-ui-fg-subtle">
-          Режим разработки скрывает каталог: на сайте остаётся только сообщение.
+          Режим разработки скрывает каталог. Отдельный переключатель оставляет
+          витрину открытой, но запрещает оплату и заявки.
         </Text>
         {isLoading ? (
           <Text>Загрузка</Text>
@@ -125,6 +132,35 @@ const ShopSettingsPage = () => {
                   setForm((current) => ({
                     ...current,
                     message: event.target.value,
+                  }))
+                }
+              />
+            </div>
+            <div className="flex items-center gap-x-2">
+              <Switch
+                checked={form.orders_closed}
+                onCheckedChange={(value) =>
+                  setForm((current) => ({
+                    ...current,
+                    orders_closed: Boolean(value),
+                  }))
+                }
+              />
+              <Label>
+                {form.orders_closed
+                  ? "Заказы и оплата выключены"
+                  : "Заказы принимаются"}
+              </Label>
+            </div>
+            <div className="flex flex-col gap-y-2">
+              <Label>Сообщение, если заказы выключены</Label>
+              <Textarea
+                rows={2}
+                value={form.orders_message}
+                onChange={(event) =>
+                  setForm((current) => ({
+                    ...current,
+                    orders_message: event.target.value,
                   }))
                 }
               />

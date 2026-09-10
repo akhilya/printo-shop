@@ -80,4 +80,18 @@ describe("parseShopSettingUpdate", () => {
     expect(update.tbank_password).toBeUndefined()
     expect(update.message).toBe("Скоро")
   })
+
+  it("stores the orders lock separately from closed mode", () => {
+    const update = parseShopSettingUpdate(
+      {
+        closed: false,
+        orders_closed: true,
+        orders_message: "Оплата на паузе",
+      },
+      {}
+    )
+    expect(update.closed).toBe(false)
+    expect(update.orders_closed).toBe(true)
+    expect(update.orders_message).toBe("Оплата на паузе")
+  })
 })

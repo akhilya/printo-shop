@@ -11,6 +11,7 @@ import {
   setQty,
 } from "../lib/cart.js"
 import { formatPrice } from "../lib/sdk.js"
+import { shopState } from "../lib/shop.js"
 
 const router = useRouter()
 const open = computed(() => cartState.open)
@@ -27,6 +28,7 @@ function money(item) {
 }
 
 function goCheckout() {
+  if (shopState.ordersClosed) return
   closeCart()
   router.push("/checkout")
 }
@@ -77,7 +79,15 @@ function goCheckout() {
           Итого
           {{ formatPrice(cartState.cart?.total, cartState.cart?.currency_code || "rub") }}
         </div>
-        <button class="btn" type="button" @click="goCheckout">Оформить</button>
+        <p v-if="shopState.ordersClosed" class="muted">{{ shopState.ordersMessage }}</p>
+        <button
+          class="btn"
+          type="button"
+          :disabled="shopState.ordersClosed"
+          @click="goCheckout"
+        >
+          Оформить
+        </button>
       </div>
     </aside>
   </div>

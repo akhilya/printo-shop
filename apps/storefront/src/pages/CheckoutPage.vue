@@ -5,6 +5,7 @@ import ProductPhoto from "../components/ProductPhoto.vue"
 import PromoField from "../components/PromoField.vue"
 import { cartState, clearCartId, loadCart, removeLine, setQty } from "../lib/cart.js"
 import { formatPrice, sdk, shopError } from "../lib/sdk.js"
+import { shopState } from "../lib/shop.js"
 
 const router = useRouter()
 const busy = ref(false)
@@ -23,6 +24,10 @@ onMounted(loadCart)
 
 async function submit(event) {
   event.preventDefault()
+  if (shopState.ordersClosed) {
+    error.value = shopState.ordersMessage
+    return
+  }
   if (!cartState.cart?.id) {
     error.value = "Корзина пуста"
     return
@@ -163,8 +168,15 @@ async function submit(event) {
         <label>Адрес <input v-model="form.address_1" required /></label>
         <label>Город <input v-model="form.city" required /></label>
         <label>Индекс <input v-model="form.postal_code" required /></label>
+        <p v-if="shopState.ordersClosed" class="muted">{{ shopState.ordersMessage }}</p>
         <p v-if="error" class="err">{{ error }}</p>
-        <button class="btn" type="submit" :disabled="busy || cartState.busy">Оплатить</button>
+        <button
+          class="btn"
+          type="submit"
+          :disabled="busy || cartState.busy || shopState.ordersClosed"
+        >
+          Оплатить
+        </button>
       </form>
     </div>
   </div>

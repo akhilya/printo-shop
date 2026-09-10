@@ -71,8 +71,8 @@ const DelegatPage = () => {
           )}
         </div>
         <Text size="small" className="text-ui-fg-subtle">
-          Delegat.Module шлёт каталог на этот мост. В PIM укажите URL и секретный
-          API-ключ.
+          Delegat.Module шлёт каталог на этот мост. URL берётся с адреса, с
+          которого открыта админка. В PIM укажите его и секретный API-ключ.
         </Text>
         {isLoading ? (
           <Text>Загрузка</Text>

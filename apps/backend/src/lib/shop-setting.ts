@@ -1,9 +1,11 @@
 import { MedusaContainer } from "@medusajs/framework"
 import { SHOP_SETTING_MODULE } from "../modules/shop-setting"
 import type ShopSettingModuleService from "../modules/shop-setting/service"
+import { publicBackendUrl } from "./public-url"
 
 export const SHOP_SETTING_KEY = "storefront"
 export const DEFAULT_CLOSED_MESSAGE = "Магазин в разработке."
+export const DEFAULT_ORDERS_MESSAGE = "Заказы временно недоступны."
 export const DEFAULT_TBANK_API = "https://securepay.tinkoff.ru/v2"
 export const TBANK_TEST_API = "https://rest-api-test.tinkoff.ru/v2"
 
@@ -17,10 +19,7 @@ function firstOrigin(cors?: string): string {
 
 export function defaultTbankUrls(env: NodeJS.ProcessEnv = process.env) {
   const store = firstOrigin(env.STORE_CORS) || "http://localhost:8000"
-  const api = String(env.MEDUSA_BACKEND_URL || "http://localhost:9000").replace(
-    /\/$/,
-    ""
-  )
+  const api = publicBackendUrl(undefined, env)
   return {
     successUrl: `${store}/checkout/success`,
     failUrl: `${store}/checkout/fail`,
@@ -114,6 +113,8 @@ export type ShopSettingPublic = {
   id: string
   closed: boolean
   message: string
+  orders_closed: boolean
+  orders_message: string
 }
 
 export type ShopSettingAdmin = ShopSettingPublic & {
@@ -145,6 +146,8 @@ export function presentShopSetting(
     id: String(row.id || ""),
     closed: row.closed === true,
     message: text(row, "message") || DEFAULT_CLOSED_MESSAGE,
+    orders_closed: row.orders_closed === true,
+    orders_message: text(row, "orders_message") || DEFAULT_ORDERS_MESSAGE,
   }
   if (!opts.admin) return base
   const urls = defaultTbankUrls()
@@ -171,9 +174,14 @@ export function parseShopSettingUpdate(
   const rec =
     body && typeof body === "object" ? (body as Record<string, unknown>) : {}
   const message = String(rec.message ?? current.message ?? "").trim()
+  const ordersMessage = String(
+    rec.orders_message ?? current.orders_message ?? ""
+  ).trim()
   const update: Record<string, unknown> = {
     closed: rec.closed === true,
     message: message || DEFAULT_CLOSED_MESSAGE,
+    orders_closed: rec.orders_closed === true,
+    orders_message: ordersMessage || DEFAULT_ORDERS_MESSAGE,
   }
   if ("tbank_terminal_key" in rec) {
     update.tbank_terminal_key = String(rec.tbank_terminal_key || "").trim() || null
@@ -244,6 +252,8 @@ export async function getShopSetting(container: MedusaContainer) {
     key: SHOP_SETTING_KEY,
     closed: false,
     message: DEFAULT_CLOSED_MESSAGE,
+    orders_closed: false,
+    orders_message: DEFAULT_ORDERS_MESSAGE,
     tbank_terminal_key: process.env.TBANK_TERMINAL_KEY || null,
     tbank_password: process.env.TBANK_PASSWORD || null,
     tbank_api_url: process.env.TBANK_API_URL || null,

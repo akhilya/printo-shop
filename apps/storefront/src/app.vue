@@ -2,30 +2,22 @@
 import { onMounted, ref } from "vue"
 import SiteHeader from "./components/SiteHeader.vue"
 import CartDrawer from "./components/CartDrawer.vue"
-import { BACKEND_URL, storeHeaders } from "./lib/sdk.js"
 import { loadCart } from "./lib/cart.js"
 import { legalPages, loadLegalPages } from "./lib/legal.js"
 import { loadCatalogSales } from "./lib/sales.js"
+import { loadShopStatus, shopState } from "./lib/shop.js"
 
 const ready = ref(false)
-const closed = ref(false)
-const closedMessage = ref("Магазин в разработке.")
 
 onMounted(async () => {
   try {
-    const res = await fetch(`${BACKEND_URL}/store/shop-status`, {
-      headers: storeHeaders(),
-    })
-    if (res.ok) {
-      const data = await res.json()
-      closed.value = data.shop?.closed === true
-      if (data.shop?.message) closedMessage.value = data.shop.message
-    }
+    await loadShopStatus()
   } catch {
-    closed.value = false
+    shopState.closed = false
+    shopState.ordersClosed = false
   }
   ready.value = true
-  if (closed.value) return
+  if (shopState.closed) return
   loadCart()
   loadLegalPages()
   loadCatalogSales()
@@ -34,8 +26,8 @@ onMounted(async () => {
 
 <template>
   <div v-if="!ready" class="closed" />
-  <div v-else-if="closed" class="closed">
-    <p>{{ closedMessage }}</p>
+  <div v-else-if="shopState.closed" class="closed">
+    <p>{{ shopState.message }}</p>
   </div>
   <div v-else class="site">
     <SiteHeader />

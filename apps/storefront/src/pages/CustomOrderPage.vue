@@ -3,6 +3,7 @@ import { computed, onMounted, ref } from "vue"
 import { useRoute } from "vue-router"
 import SelectField from "../components/SelectField.vue"
 import { BACKEND_URL, productFields, REGION_ID, sdk, shopError, storeHeaders } from "../lib/sdk.js"
+import { shopState } from "../lib/shop.js"
 
 const MAX_PHOTOS = 6
 const MAX_PHOTO_BYTES = 2 * 1024 * 1024
@@ -136,6 +137,10 @@ function fileToBase64(file) {
 async function submit(event) {
   event.preventDefault()
   error.value = ""
+  if (shopState.ordersClosed) {
+    error.value = shopState.ordersMessage
+    return
+  }
   const field = channelMeta.value.field
   const contact = String(form.value[field] || "").trim()
   if (!contact) {
@@ -269,8 +274,9 @@ async function submit(event) {
             </button>
           </div>
         </div>
+        <p v-if="shopState.ordersClosed" class="muted">{{ shopState.ordersMessage }}</p>
         <p v-if="error" class="err">{{ error }}</p>
-        <button class="btn" type="submit" :disabled="busy">
+        <button class="btn" type="submit" :disabled="busy || shopState.ordersClosed">
           {{ busy ? "Отправка" : "Отправить заявку" }}
         </button>
       </form>

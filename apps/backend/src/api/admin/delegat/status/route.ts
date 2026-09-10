@@ -3,6 +3,7 @@ import type {
   MedusaResponse,
 } from "@medusajs/framework/http"
 import { getDelegatStatus } from "../../../../lib/delegat-bridge/admin-status"
+import { publicBackendUrl } from "../../../../lib/public-url"
 
 export async function GET(
   req: AuthenticatedMedusaRequest,
@@ -10,7 +11,7 @@ export async function GET(
 ) {
   const payload = await getDelegatStatus(
     req.scope,
-    process.env.MEDUSA_BACKEND_URL
+    publicBackendUrl(req)
   )
   res.json(payload)
 }

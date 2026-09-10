@@ -5,6 +5,8 @@ const ShopSetting = model.define("shop_setting", {
   key: model.text().unique(),
   closed: model.boolean().default(false),
   message: model.text().default("Магазин в разработке."),
+  orders_closed: model.boolean().default(false),
+  orders_message: model.text().default("Заказы временно недоступны."),
   tbank_terminal_key: model.text().nullable(),
   tbank_password: model.text().nullable(),
   tbank_api_url: model.text().nullable(),
