@@ -262,7 +262,12 @@ export async function deleteGroup(container: MedusaContainer, collectionId: stri
 
 export async function listGroups(container: MedusaContainer) {
   const collections = await listCollections(container)
-  const groups = []
+  const groups: Array<{
+    id: string
+    name: string
+    handle: string
+    product_ids: string[]
+  }> = []
   for (const collection of collections) {
     const productIds = await productsInCollection(container, collection.id)
     groups.push({

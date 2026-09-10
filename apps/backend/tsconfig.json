@@ -32,5 +32,8 @@
     ".medusa/admin",
     ".cache",
     "eslint.config.*",
+    "**/__tests__/**",
+    "integration-tests",
+    "src/admin"
   ]
 }

@@ -110,10 +110,37 @@ export function tbankOptionsFromRow(
   }
 }
 
+export type ShopSettingPublic = {
+  id: string
+  closed: boolean
+  message: string
+}
+
+export type ShopSettingAdmin = ShopSettingPublic & {
+  tbank_terminal_key: string
+  tbank_password_set: boolean
+  tbank_api_url: string
+  tbank_success_url: string
+  tbank_fail_url: string
+  tbank_notification_url: string
+  tbank_pay_type: "O" | "T"
+  tbank_receipt: boolean
+  tbank_taxation: TbankTaxation
+  tbank_vat: TbankVat
+}
+
+export function presentShopSetting(
+  row: Record<string, unknown>,
+  opts: { admin: true }
+): ShopSettingAdmin
+export function presentShopSetting(
+  row: Record<string, unknown>,
+  opts?: { admin?: boolean }
+): ShopSettingPublic | ShopSettingAdmin
 export function presentShopSetting(
   row: Record<string, unknown>,
   opts: { admin?: boolean } = {}
-) {
+): ShopSettingPublic | ShopSettingAdmin {
   const base = {
     id: String(row.id || ""),
     closed: row.closed === true,

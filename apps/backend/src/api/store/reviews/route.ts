@@ -83,10 +83,12 @@ export async function POST(req: MedusaRequest, res: MedusaResponse) {
     body: parsed.text,
     rating: parsed.rating,
     image_url: imageUrls[0] || null,
-    image_urls: imageUrls,
+    image_urls: imageUrls as unknown as Record<string, unknown>,
     enabled: false,
     status: "moderation",
     ip,
   })
-  res.status(201).json({ review: presentReview(review as Record<string, unknown>) })
+  res.status(201).json({
+    review: presentReview(review as unknown as Record<string, unknown>),
+  })
 }

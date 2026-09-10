@@ -506,7 +506,8 @@ async function syncVariants(
 
   const missingSkus = variantInputs
     .map((input) => input.sku)
-    .filter((sku): sku is string => Boolean(sku) && !bySku.has(sku))
+    .filter((sku): sku is string => typeof sku === "string" && sku.length > 0)
+    .filter((sku) => !bySku.has(sku))
   if (missingSkus.length) {
     const extras = await productModuleOf(container).listProductVariants(
       { sku: missingSkus },

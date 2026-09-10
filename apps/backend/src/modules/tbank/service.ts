@@ -86,9 +86,13 @@ class TbankPaymentProviderService extends AbstractPaymentProvider<TbankOptions> 
     const cached = tbankOptionsFromRow(peekShopSetting())
     if (cached) return cached
     try {
-      const service = this.container_.resolve?.(
-        SHOP_SETTING_MODULE
-      ) as ShopSettingModuleService | undefined
+      const resolve = (
+        this.container_ as { resolve?: (id: string) => unknown }
+      ).resolve
+      const service =
+        typeof resolve === "function"
+          ? (resolve(SHOP_SETTING_MODULE) as ShopSettingModuleService)
+          : undefined
       if (service) {
         const rows = await service.listShopSettings(
           { key: "storefront" },

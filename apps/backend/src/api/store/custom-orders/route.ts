@@ -95,7 +95,7 @@ export async function POST(req: MedusaRequest, res: MedusaResponse) {
     message: parsed.message,
     product_id: parsed.product_id,
     product_title: productTitle,
-    image_urls: imageUrls,
+    image_urls: imageUrls as unknown as Record<string, unknown>,
     status: "new",
     ip,
   })
