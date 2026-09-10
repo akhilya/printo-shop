@@ -7,7 +7,7 @@ function databaseUrl() {
   if (password) {
     const user = encodeURIComponent(process.env.POSTGRES_USER || "medusa-js")
     const pass = encodeURIComponent(password)
-    const db = encodeURIComponent(process.env.POSTGRES_DB || "medusa")
+    const db = encodeURIComponent(process.env.POSTGRES_DB || "printo-shop")
     const host = process.env.POSTGRES_HOST || "postgres"
     return `postgres://${user}:${pass}@${host}:5432/${db}`
   }

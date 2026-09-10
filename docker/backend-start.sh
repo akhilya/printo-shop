@@ -8,7 +8,7 @@ if [ -z "$POSTGRES_PASSWORD" ]; then
 fi
 
 export POSTGRES_USER="${POSTGRES_USER:-medusa-js}"
-export POSTGRES_DB="${POSTGRES_DB:-medusa}"
+export POSTGRES_DB="${POSTGRES_DB:-printo-shop}"
 export POSTGRES_HOST="${POSTGRES_HOST:-postgres}"
 export REDIS_URL="${REDIS_URL:-redis://redis:6379}"
 
