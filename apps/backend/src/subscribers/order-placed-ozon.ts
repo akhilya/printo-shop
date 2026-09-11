@@ -90,7 +90,9 @@ export default async function orderPlacedOzon({
   try {
     const created = await createOzonDeliveryOrder({
       creds,
-      orderNumber: String(order.display_id || order.id),
+      orderNumber: String(
+        metadata.shop_number || order.display_id || order.id
+      ),
       buyer: {
         name,
         phone,

@@ -1,4 +1,8 @@
-import { orderDescription, receiptLinesFromCart } from "../receipt-lines"
+import {
+  customReceiptLine,
+  orderDescription,
+  receiptLinesFromCart,
+} from "../receipt-lines"
 
 describe("receiptLinesFromCart", () => {
   it("builds named lines from cart items and shipping", () => {
@@ -25,5 +29,17 @@ describe("receiptLinesFromCart", () => {
     expect(lines[1].name).toBe("Почта")
     expect(orderDescription(lines)).toContain("Temple Assassins")
     expect(orderDescription(lines)).toContain("×2")
+    expect(orderDescription(lines, { number: "1234567890" })).toMatch(
+      /^Заказ 1234567890\./
+    )
+  })
+
+  it("labels a custom order receipt with number and details", () => {
+    const line = customReceiptLine("75 мм, грунт", 450000, "1234567890")
+    expect(line.name).toContain("Индивидуальный заказ 1234567890")
+    expect(line.name).toContain("75 мм")
+    expect(
+      orderDescription([line], { number: "1234567890", custom: true })
+    ).toMatch(/^Индивидуальный заказ 1234567890\./)
   })
 })

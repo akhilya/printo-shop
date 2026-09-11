@@ -49,6 +49,17 @@ describe("presentDelegatOrder", () => {
     expect(presented.shipping_address).toBe("Тверская 1, Москва")
   })
 
+  it("prefers the 10-digit shop number over display_id", () => {
+    const presented = presentDelegatOrder({
+      id: "order_1",
+      display_id: 1,
+      status: "completed",
+      metadata: { shop_number: "1234567890" },
+      items: [],
+    })
+    expect(presented.display_id).toBe("1234567890")
+  })
+
   it("prefixes Ozon PVZ onto the address", () => {
     const presented = presentDelegatOrder({
       id: "order_2",

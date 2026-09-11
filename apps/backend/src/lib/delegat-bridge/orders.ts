@@ -99,7 +99,11 @@ export function presentDelegatOrder(order: Record<string, unknown>) {
     .join(", ")
   return {
     external_id: String(order.id || ""),
-    display_id: order.display_id != null ? String(order.display_id) : null,
+    display_id: metadata.shop_number
+      ? String(metadata.shop_number)
+      : order.display_id != null
+        ? String(order.display_id)
+        : null,
     status: mapMedusaOrderStatus(String(order.status || "")),
     raw_status: String(order.status || ""),
     channel: "shop",

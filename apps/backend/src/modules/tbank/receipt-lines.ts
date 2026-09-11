@@ -27,13 +27,36 @@ function lineName(item: Record<string, unknown>) {
   return bits.join(" · ").slice(0, 128)
 }
 
-export function orderDescription(lines: TbankReceiptLine[]) {
-  const text = lines
+export function orderDescription(
+  lines: TbankReceiptLine[],
+  options?: { number?: string | null; custom?: boolean }
+) {
+  const items = lines
     .map((line) =>
       line.quantity > 1 ? `${line.name} ×${line.quantity}` : line.name
     )
     .join(", ")
-  return (text || "Заказ").slice(0, 140)
+  const number = options?.number ? ` ${options.number}` : ""
+  const head = options?.custom
+    ? `Индивидуальный заказ${number}`
+    : `Заказ${number}`
+  const text = items ? `${head}. ${items}` : head
+  return text.replace(/\s+/g, " ").trim().slice(0, 140)
+}
+
+export function customReceiptLine(
+  title: string,
+  amountKopecks: number,
+  number?: string | null
+): TbankReceiptLine {
+  const detail = String(title || "").trim() || "Фигурка"
+  const name = `Индивидуальный заказ${number ? ` ${number}` : ""} · ${detail}`
+  return {
+    name: name.slice(0, 128),
+    quantity: 1,
+    priceKopecks: amountKopecks,
+    amountKopecks,
+  }
 }
 
 export function receiptLinesFromCart(

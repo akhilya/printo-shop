@@ -25,6 +25,7 @@ type AdminCustomOrder = {
   vk: string | null
   message: string
   product_title: string | null
+  shop_number: string | null
   status: string
   created_at?: string
 }
@@ -46,6 +47,10 @@ const STATUS_LABEL: Record<string, string> = {
 
 const columnsHelper = createDataTableColumnHelper<AdminCustomOrder>()
 const columns = [
+  columnsHelper.accessor((row) => row.shop_number || "—", {
+    id: "shop_number",
+    header: "Номер",
+  }),
   columnsHelper.accessor("name", { header: "Имя" }),
   columnsHelper.accessor((row) => primaryContact(row), {
     id: "contact",

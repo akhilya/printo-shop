@@ -29,9 +29,35 @@ export async function findShopOrderLookup(
   return (row || null) as Record<string, unknown> | null
 }
 
+export async function bindShopNumber(
+  container: MedusaContainer,
+  number: string,
+  source: "order" | "custom" | "cart",
+  refId: string
+) {
+  if (!isShopNumber(number)) return number
+  const service = await lookupService(container)
+  const [byNumber] = await service.listShopOrderLookups({ number }, { take: 1 })
+  if (byNumber) {
+    if (
+      String(byNumber.source) !== source ||
+      String(byNumber.ref_id) !== refId
+    ) {
+      await service.updateShopOrderLookups({
+        id: String(byNumber.id),
+        source,
+        ref_id: refId,
+      })
+    }
+    return number
+  }
+  await service.createShopOrderLookups({ number, source, ref_id: refId })
+  return number
+}
+
 export async function allocateShopNumber(
   container: MedusaContainer,
-  source: "order" | "custom",
+  source: "order" | "custom" | "cart",
   refId: string
 ) {
   const service = await lookupService(container)
@@ -71,7 +97,10 @@ export async function ensureMedusaShopNumber(
   if (!order) return null
   const metadata = (order.metadata || {}) as Record<string, unknown>
   const current = String(metadata.shop_number || "")
-  if (isShopNumber(current)) return current
+  if (isShopNumber(current)) {
+    await bindShopNumber(container, current, "order", orderId)
+    return current
+  }
   const number = await allocateShopNumber(container, "order", orderId)
   const orderModule = container.resolve(Modules.ORDER) as {
     updateOrders?: (data: unknown) => Promise<unknown>
@@ -91,7 +120,10 @@ export async function ensureCustomShopNumber(
   order: Record<string, unknown>
 ) {
   const current = String(order.shop_number || "")
-  if (isShopNumber(current)) return current
+  if (isShopNumber(current)) {
+    await bindShopNumber(container, current, "custom", String(order.id))
+    return current
+  }
   const number = await allocateShopNumber(
     container,
     "custom",

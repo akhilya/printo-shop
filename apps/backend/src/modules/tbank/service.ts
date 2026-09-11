@@ -3,6 +3,7 @@ import {
   BigNumber,
   ContainerRegistrationKeys,
   MedusaError,
+  Modules,
   PaymentActions,
 } from "@medusajs/framework/utils"
 import type {
@@ -39,13 +40,16 @@ import { TbankClient } from "./client"
 import {
   orderDescription,
   receiptLinesFromCart,
-  type TbankReceiptLine,
 } from "./receipt-lines"
 import {
   assertTbankPaidState,
   isTbankPaidStatus,
   tbankPaymentId,
 } from "../../lib/tbank-paid"
+import {
+  allocateShopNumber,
+  isShopNumber,
+} from "../../lib/shop-order-number"
 import { fromKopecks, mapTbankStatus, toKopecks } from "./status"
 import { verifyTbankToken } from "./token"
 
@@ -132,11 +136,7 @@ class TbankPaymentProviderService extends AbstractPaymentProvider<TbankOptions> 
     return this.clientFor(await this.liveOptions())
   }
 
-  private async cartLines(
-    cartId: string | undefined,
-    totalKopecks: number
-  ): Promise<TbankReceiptLine[]> {
-    if (!cartId) return receiptLinesFromCart(null, totalKopecks)
+  private async loadCart(cartId: string) {
     try {
       const resolve = (
         this.container_ as { resolve?: (id: string) => unknown }
@@ -147,11 +147,12 @@ class TbankPaymentProviderService extends AbstractPaymentProvider<TbankOptions> 
               graph: (opts: unknown) => Promise<{ data?: unknown[] }>
             })
           : undefined
-      if (!query?.graph) return receiptLinesFromCart(null, totalKopecks)
+      if (!query?.graph) return null
       const { data } = await query.graph({
         entity: "cart",
         fields: [
           "id",
+          "metadata",
           "items.title",
           "items.quantity",
           "items.unit_price",
@@ -165,12 +166,41 @@ class TbankPaymentProviderService extends AbstractPaymentProvider<TbankOptions> 
         ],
         filters: { id: cartId },
       })
-      return receiptLinesFromCart(
-        ((data ?? [])[0] || null) as Record<string, unknown> | null,
-        totalKopecks
-      )
+      return ((data ?? [])[0] || null) as Record<string, unknown> | null
     } catch {
-      return receiptLinesFromCart(null, totalKopecks)
+      return null
+    }
+  }
+
+  private async shopNumberForCart(
+    cartId: string,
+    cart: Record<string, unknown> | null
+  ) {
+    const metadata = (cart?.metadata || {}) as Record<string, unknown>
+    const current = String(metadata.shop_number || "")
+    if (isShopNumber(current)) return current
+    const resolve = (
+      this.container_ as { resolve?: (id: string) => unknown }
+    ).resolve
+    if (typeof resolve !== "function") return null
+    try {
+      const number = await allocateShopNumber(
+        this.container_ as unknown as import("@medusajs/framework").MedusaContainer,
+        "cart",
+        cartId
+      )
+      const cartModule = resolve(Modules.CART) as {
+        updateCarts?: (data: unknown) => Promise<unknown>
+      }
+      if (typeof cartModule?.updateCarts === "function") {
+        await cartModule.updateCarts({
+          id: cartId,
+          metadata: { ...metadata, shop_number: number },
+        })
+      }
+      return number
+    } catch {
+      return null
     }
   }
 
@@ -208,8 +238,12 @@ class TbankPaymentProviderService extends AbstractPaymentProvider<TbankOptions> 
     const client = this.clientFor(options)
     const cartId =
       typeof input.data?.cart_id === "string" ? input.data.cart_id : undefined
-    const items = await this.cartLines(cartId, amountKopecks)
-    const description = orderDescription(items)
+    const cart = cartId ? await this.loadCart(cartId) : null
+    const shopNumber = cartId
+      ? await this.shopNumberForCart(cartId, cart)
+      : null
+    const items = receiptLinesFromCart(cart, amountKopecks)
+    const description = orderDescription(items, { number: shopNumber })
     const receipt = client.receiptPayload({
       amountKopecks,
       description,

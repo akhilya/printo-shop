@@ -7,14 +7,21 @@ const OrderNumberWidget = ({
 }: DetailWidgetProps<HttpTypes.AdminOrder>) => {
   const metadata = (data.metadata || {}) as Record<string, unknown>
   const number = String(metadata.shop_number || "").trim()
-  if (!/^\d{10}$/.test(number)) return null
   return (
     <Container className="p-6">
       <Heading level="h2">Номер заказа</Heading>
-      <Text>{number}</Text>
-      <Text size="small" className="text-ui-fg-subtle">
-        Страница для клиента: /order/{number}
+      <Text>
+        {/^\d{10}$/.test(number) ? number : "Появится после оплаты"}
       </Text>
+      {/^\d{10}$/.test(number) ? (
+        <Text size="small" className="text-ui-fg-subtle">
+          Страница для клиента: /order/{number}
+        </Text>
+      ) : (
+        <Text size="small" className="text-ui-fg-subtle">
+          В списке Medusa по-прежнему короткий # — клиенту уходит 10-значный.
+        </Text>
+      )}
     </Container>
   )
 }
