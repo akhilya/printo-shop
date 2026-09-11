@@ -3,6 +3,8 @@ import { mapMedusaOrderStatus, presentDelegatOrder } from "../delegat-bridge/ord
 describe("mapMedusaOrderStatus", () => {
   it("maps completed paid orders to packing", () => {
     expect(mapMedusaOrderStatus("completed")).toBe("awaiting_pack")
+    expect(mapMedusaOrderStatus("completed", "delivering")).toBe("delivering")
+    expect(mapMedusaOrderStatus("completed", "delivered")).toBe("delivered")
     expect(mapMedusaOrderStatus("canceled")).toBe("cancelled")
     expect(mapMedusaOrderStatus("pending")).toBe("unpaid")
   })
@@ -58,6 +60,16 @@ describe("presentDelegatOrder", () => {
       items: [],
     })
     expect(presented.display_id).toBe("1234567890")
+  })
+
+  it("maps handed-over orders as delivering", () => {
+    const presented = presentDelegatOrder({
+      id: "order_3",
+      status: "completed",
+      metadata: { shop_fulfillment: "delivering", shop_number: "1234567890" },
+      items: [],
+    })
+    expect(presented.status).toBe("delivering")
   })
 
   it("prefixes Ozon PVZ onto the address", () => {

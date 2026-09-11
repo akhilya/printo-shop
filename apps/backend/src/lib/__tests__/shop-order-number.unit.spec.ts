@@ -29,9 +29,9 @@ describe("customerOrderStatus", () => {
         source: "custom",
         status: "paid",
         paid: true,
-        ozon: true,
+        fulfillment: "delivering",
       })
-    ).toEqual({ code: "shipping", label: "Доставка" })
+    ).toEqual({ code: "delivering", label: "Доставляется" })
     expect(
       customerOrderStatus({ source: "order", status: "canceled" })
     ).toEqual({ code: "canceled", label: "Отменён" })

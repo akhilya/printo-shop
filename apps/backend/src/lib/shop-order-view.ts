@@ -17,15 +17,20 @@ export function customerOrderStatus(input: {
   source: "order" | "custom"
   status?: string | null
   paid?: boolean
-  ozon?: boolean
+  fulfillment?: string | null
 }) {
   if (input.source === "custom") {
     if (input.status === "closed") {
       return { code: "closed", label: "Закрыт" }
     }
     if (input.paid) {
-      if (input.ozon) return { code: "shipping", label: "Доставка" }
-      return { code: "paid", label: "Оплачен" }
+      if (input.fulfillment === "delivered") {
+        return { code: "delivered", label: "Доставлен" }
+      }
+      if (input.fulfillment === "delivering") {
+        return { code: "delivering", label: "Доставляется" }
+      }
+      return { code: "packing", label: "В сборке" }
     }
     if (input.status === "quoted") {
       return { code: "awaiting_payment", label: "Ожидает оплату" }
@@ -38,9 +43,14 @@ export function customerOrderStatus(input: {
   if (input.status === "canceled") {
     return { code: "canceled", label: "Отменён" }
   }
-  if (input.ozon) return { code: "shipping", label: "Доставка" }
-  if (input.status === "completed" || input.status === "archived") {
-    return { code: "paid", label: "Оплачен" }
+  if (input.status === "archived" || input.fulfillment === "delivered") {
+    return { code: "delivered", label: "Доставлен" }
+  }
+  if (input.fulfillment === "delivering") {
+    return { code: "delivering", label: "Доставляется" }
+  }
+  if (input.status === "completed") {
+    return { code: "packing", label: "В сборке" }
   }
   return { code: "awaiting_payment", label: "Ожидает оплату" }
 }
@@ -54,21 +64,22 @@ export function presentShopOrderFromMedusa(
   const ozonNumber = metadata.ozon_order_number
     ? String(metadata.ozon_order_number)
     : null
-  const ozon =
-    Boolean(ozonNumber) ||
-    Boolean(metadata.ozon_tracking) ||
-    Boolean(metadata.ozon_point_id)
   const status = customerOrderStatus({
     source: "order",
     status: String(order.status || ""),
-    ozon,
+    fulfillment: metadata.shop_fulfillment
+      ? String(metadata.shop_fulfillment)
+      : null,
   })
   return {
     number,
     url: shopOrderUrl(number),
     source: "order" as const,
     status,
-    paid: status.code === "paid" || status.code === "shipping",
+    paid:
+      status.code === "packing" ||
+      status.code === "delivering" ||
+      status.code === "delivered",
     email: order.email ? String(order.email) : null,
     total: money(order.total),
     currency_code: String(order.currency_code || "rub"),
@@ -113,7 +124,6 @@ export function presentShopOrderFromCustom(
   } | null
 ) {
   const paid = Boolean(order.paid_at)
-  const ozon = Boolean(order.ozon_order_number || order.ozon_tracking)
   const title =
     (product?.title && String(product.title)) ||
     (order.product_title && String(order.product_title)) ||
@@ -132,7 +142,6 @@ export function presentShopOrderFromCustom(
       source: "custom",
       status: String(order.status || ""),
       paid,
-      ozon,
     }),
     paid,
     email: order.email ? String(order.email) : null,

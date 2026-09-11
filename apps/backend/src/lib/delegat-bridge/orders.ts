@@ -1,5 +1,11 @@
 import { MedusaContainer } from "@medusajs/framework"
 import { ContainerRegistrationKeys } from "@medusajs/framework/utils"
+import {
+  mapDelegatOrderStatus,
+  mapMedusaOrderStatus,
+} from "../shop-fulfillment"
+
+export { mapMedusaOrderStatus }
 
 const ORDER_FIELDS = [
   "id",
@@ -39,23 +45,6 @@ function money(value: unknown): number | null {
   }
   const numeric = Number(value)
   return Number.isFinite(numeric) ? numeric : null
-}
-
-export function mapMedusaOrderStatus(status: string) {
-  switch (status) {
-    case "canceled":
-      return "cancelled"
-    case "archived":
-      return "delivered"
-    case "completed":
-      return "awaiting_pack"
-    case "pending":
-    case "requires_action":
-    case "draft":
-      return "unpaid"
-    default:
-      return "unknown"
-  }
 }
 
 export function presentDelegatOrder(order: Record<string, unknown>) {
@@ -104,8 +93,13 @@ export function presentDelegatOrder(order: Record<string, unknown>) {
       : order.display_id != null
         ? String(order.display_id)
         : null,
-    status: mapMedusaOrderStatus(String(order.status || "")),
-    raw_status: String(order.status || ""),
+    status: mapDelegatOrderStatus(order),
+    raw_status: [
+      String(order.status || ""),
+      (order.metadata as Record<string, unknown> | undefined)?.shop_fulfillment,
+    ]
+      .filter(Boolean)
+      .join(":"),
     channel: "shop",
     created_at: order.created_at || null,
     updated_at: order.updated_at || null,
@@ -130,8 +124,12 @@ export async function listDelegatOrders(
   const filters: Record<string, unknown> = {}
   if (query.status === "cancelled") filters.status = "canceled"
   else if (query.status === "delivered") filters.status = "archived"
-  else if (query.status === "awaiting_pack") filters.status = "completed"
-  else if (query.status === "unpaid") filters.status = "pending"
+  else if (
+    query.status === "awaiting_pack" ||
+    query.status === "delivering"
+  ) {
+    filters.status = "completed"
+  } else if (query.status === "unpaid") filters.status = "pending"
   const { data, metadata } = await remote.graph({
     entity: "order",
     fields: ORDER_FIELDS,
@@ -139,6 +137,9 @@ export async function listDelegatOrders(
     pagination: { skip: (page - 1) * pageSize, take: pageSize },
   })
   let items = ((data ?? []) as Array<Record<string, unknown>>).map(presentDelegatOrder)
+  if (query.status === "delivering" || query.status === "awaiting_pack") {
+    items = items.filter((item) => item.status === query.status)
+  }
   const search = String(query.search || "").trim().toLowerCase()
   if (search) {
     items = items.filter((item) =>
