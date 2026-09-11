@@ -111,4 +111,4 @@ docker compose -f docker-compose.dokploy.yml exec backend npx medusa user -e you
 
 Витрине нужен только `VITE_MEDUSA_BACKEND_URL` (адрес API). Publishable key и id региона она запрашивает у бэкенда сама.
 
-Т-Банк webhook: `https://api.example.com/hooks/tbank`. Режим витрины «в разработке» — в админке **Витрина**.
+Т-Банк webhook: `https://api.example.com/hooks/tbank`. Терминал и пароль — в админке **Настройки**. Провайдер `pp_tbank_tbank` включается в регионе при старте бэкенда. В образ положены сертификаты НУЦ Минцифры (`NODE_EXTRA_CA_CERTS`). Режим витрины «в разработке» — в админке **Настройки**.

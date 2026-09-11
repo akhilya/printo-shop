@@ -23,5 +23,7 @@ node -e 'const {Client}=require("pg"); const u=new URL(process.env.DATABASE_URL)
 
 echo "Running database migrations..."
 npx medusa db:migrate --execute-all-links
+echo "Enabling T-Bank on regions..."
+npx medusa exec ./src/scripts/enable-tbank-region.ts || true
 echo "Starting Medusa..."
 exec npx medusa start
