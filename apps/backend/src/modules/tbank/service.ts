@@ -139,15 +139,25 @@ class TbankPaymentProviderService extends AbstractPaymentProvider<TbankOptions> 
       (input.data?.session_id as string) ||
       input.context?.idempotency_key ||
       crypto.randomUUID()
+    const amountKopecks = toKopecks(input.amount)
+    if (amountKopecks < 100) {
+      throw new MedusaError(
+        MedusaError.Types.INVALID_DATA,
+        "Сумма заказа слишком мала для оплаты."
+      )
+    }
+    const orderId = `p${Date.now().toString(36)}${crypto.randomUUID().replace(/-/g, "").slice(0, 18)}`.slice(0, 50)
     const result = await this.clientFor(options).init({
-      orderId: String(sessionId).slice(0, 50),
-      amountKopecks: toKopecks(input.amount),
+      orderId,
+      amountKopecks,
       description: "Оплата заказа",
       notificationUrl: options.notificationUrl,
       successUrl: options.successUrl,
       failUrl: options.failUrl,
       sessionId,
-      customerEmail: input.context?.customer?.email,
+      customerEmail:
+        input.context?.customer?.email ||
+        (typeof input.data?.email === "string" ? input.data.email : undefined),
       payType: options.payType,
       receipt: options.receipt,
       taxation: options.taxation,

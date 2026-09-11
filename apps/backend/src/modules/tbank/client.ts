@@ -38,6 +38,41 @@ export type TbankApiResponse = {
   [key: string]: unknown
 }
 
+export function isPublicHttpUrl(url?: string) {
+  if (!url) return false
+  try {
+    const parsed = new URL(url)
+    if (parsed.protocol !== "https:" && parsed.protocol !== "http:") {
+      return false
+    }
+    const host = parsed.hostname.toLowerCase()
+    if (
+      host === "localhost" ||
+      host === "127.0.0.1" ||
+      host === "::1" ||
+      host.endsWith(".local")
+    ) {
+      return false
+    }
+    if (/^(10\.|192\.168\.|172\.(1[6-9]|2\d|3[0-1])\.)/.test(host)) {
+      return false
+    }
+    return true
+  } catch {
+    return false
+  }
+}
+
+function tbankVat(vat?: string) {
+  if (vat === "vat20") return "vat22"
+  return vat || "none"
+}
+
+function tbankTaxation(taxation?: string) {
+  if (taxation === "envd") return "usn_income"
+  return taxation || "usn_income"
+}
+
 export class TbankClient {
   constructor(private readonly options: TbankClientOptions) {}
 
@@ -46,17 +81,17 @@ export class TbankClient {
       TerminalKey: this.options.terminalKey,
       Amount: input.amountKopecks,
       OrderId: input.orderId,
-      Description: input.description ?? "Заказ",
+      Description: (input.description ?? "Заказ").slice(0, 140),
       Language: "ru",
       PayType: input.payType ?? "O",
     }
-    if (input.notificationUrl) {
+    if (isPublicHttpUrl(input.notificationUrl)) {
       body.NotificationURL = input.notificationUrl
     }
-    if (input.successUrl) {
+    if (isPublicHttpUrl(input.successUrl)) {
       body.SuccessURL = input.successUrl
     }
-    if (input.failUrl) {
+    if (isPublicHttpUrl(input.failUrl)) {
       body.FailURL = input.failUrl
     }
     const data: Record<string, string> = {}
@@ -72,24 +107,23 @@ export class TbankClient {
     if (Object.keys(data).length) {
       body.DATA = data
     }
-    if (input.receipt) {
-      const email = input.customerEmail?.slice(0, 64)
-      const receipt: Record<string, unknown> = {
-        Taxation: input.taxation || "usn_income",
+    const email = input.customerEmail?.trim().slice(0, 64)
+    if (input.receipt && email) {
+      body.Receipt = {
+        Taxation: tbankTaxation(input.taxation),
+        Email: email,
         Items: [
           {
             Name: (input.description || "Заказ").slice(0, 128),
             Price: input.amountKopecks,
             Quantity: 1,
             Amount: input.amountKopecks,
-            Tax: input.vat || "none",
+            Tax: tbankVat(input.vat),
             PaymentMethod: "full_payment",
             PaymentObject: "commodity",
           },
         ],
       }
-      if (email) receipt.Email = email
-      body.Receipt = receipt
     }
     return this.request("Init", body)
   }
@@ -146,9 +180,10 @@ export class TbankClient {
       json = result.json as TbankApiResponse
     }
     if (!ok || json.Success === false) {
-      throw new Error(
-        json.Message || json.Details || `T-Bank ${method} failed (${json.ErrorCode})`
-      )
+      const detail = [json.Message, json.Details, json.ErrorCode]
+        .filter(Boolean)
+        .join(" — ")
+      throw new Error(detail || `T-Bank ${method} failed`)
     }
     return json
   }

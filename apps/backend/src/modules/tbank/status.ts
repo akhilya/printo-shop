@@ -24,10 +24,19 @@ export function mapTbankStatus(status?: string | null): MedusaPaymentStatus {
 }
 
 export function toKopecks(amount: unknown): number {
-  const numeric =
-    typeof amount === "object" && amount !== null && "numeric" in amount
-      ? Number((amount as { numeric: number }).numeric)
-      : Number(amount)
+  if (amount && typeof amount === "object") {
+    const rec = amount as { numeric?: unknown; value?: unknown }
+    if (typeof rec.numeric === "number" && Number.isFinite(rec.numeric)) {
+      return Math.round(rec.numeric * 100)
+    }
+    if (rec.value != null && rec.value !== "") {
+      const fromValue = Number(rec.value)
+      if (Number.isFinite(fromValue)) {
+        return Math.round(fromValue * 100)
+      }
+    }
+  }
+  const numeric = Number(amount)
   if (!Number.isFinite(numeric)) {
     return 0
   }

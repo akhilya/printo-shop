@@ -13,5 +13,6 @@ describe("T-Bank status mapping", () => {
     expect(toKopecks(1500)).toBe(150000)
     expect(toKopecks(10.5)).toBe(1050)
     expect(toKopecks({ numeric: 192 })).toBe(19200)
+    expect(toKopecks({ value: "192" })).toBe(19200)
   })
 })
