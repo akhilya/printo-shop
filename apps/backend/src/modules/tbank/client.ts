@@ -16,6 +16,7 @@ export type TbankInitInput = {
   successUrl?: string
   failUrl?: string
   sessionId?: string
+  cartId?: string
   customerEmail?: string
   customerPhone?: string
   payType?: "O" | "T"
@@ -97,6 +98,9 @@ export class TbankClient {
     const data: Record<string, string> = {}
     if (input.sessionId) {
       data.session_id = input.sessionId.slice(0, 100)
+    }
+    if (input.cartId) {
+      data.cart_id = String(input.cartId).slice(0, 100)
     }
     if (input.customerEmail) {
       data.Email = input.customerEmail.slice(0, 100)

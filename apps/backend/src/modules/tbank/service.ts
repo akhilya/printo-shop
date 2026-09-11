@@ -155,6 +155,8 @@ class TbankPaymentProviderService extends AbstractPaymentProvider<TbankOptions> 
       successUrl: options.successUrl,
       failUrl: options.failUrl,
       sessionId,
+      cartId:
+        typeof input.data?.cart_id === "string" ? input.data.cart_id : undefined,
       customerEmail:
         input.context?.customer?.email ||
         (typeof input.data?.email === "string" ? input.data.email : undefined),

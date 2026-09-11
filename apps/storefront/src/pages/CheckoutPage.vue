@@ -1,14 +1,12 @@
 <script setup>
 import { onMounted, ref } from "vue"
-import { useRouter } from "vue-router"
 import ProductPhoto from "../components/ProductPhoto.vue"
 import PromoField from "../components/PromoField.vue"
-import { cartState, clearCartId, loadCart, removeLine, setQty } from "../lib/cart.js"
+import { cartState, loadCart, removeLine, setQty } from "../lib/cart.js"
 import { persistObject } from "../lib/persist.js"
 import { formatPrice, sdk, shopError } from "../lib/sdk.js"
 import { shopState } from "../lib/shop.js"
 
-const router = useRouter()
 const busy = ref(false)
 const error = ref("")
 const form = persistObject("shop_checkout", {
@@ -62,25 +60,20 @@ async function submit(event) {
       cart = added.cart
     }
 
-    await sdk.store.payment.initiatePaymentSession(cart, {
-      provider_id: "pp_tbank_tbank",
-    })
-
-    const complete = await sdk.store.cart.complete(cart.id)
-    if (complete.type === "order") {
-      clearCartId()
-      const url = complete.order?.payment_collections?.[0]?.payments?.[0]?.data?.PaymentURL
-      if (url) {
-        window.location.href = url
-        return
+    const { payment_collection } = await sdk.store.payment.initiatePaymentSession(
+      cart,
+      {
+        provider_id: "pp_tbank_tbank",
+        data: { cart_id: cart.id },
       }
-      router.push("/checkout/success")
-      return
-    }
-    const session = complete.cart?.payment_collection?.payment_sessions?.[0]
+    )
+    const sessions = payment_collection?.payment_sessions || []
+    const session =
+      sessions.find((item) => item.provider_id === "pp_tbank_tbank") ||
+      sessions[0]
     const payUrl = session?.data?.PaymentURL
     if (payUrl) {
-      window.location.href = payUrl
+      window.location.href = String(payUrl)
       return
     }
     error.value = "Не удалось создать платёж. Попробуйте ещё раз."

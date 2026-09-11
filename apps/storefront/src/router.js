@@ -5,6 +5,7 @@ import ProductPage from "./pages/ProductPage.vue"
 import GroupPage from "./pages/GroupPage.vue"
 import GroupsPage from "./pages/GroupsPage.vue"
 import CheckoutPage from "./pages/CheckoutPage.vue"
+import CheckoutSuccessPage from "./pages/CheckoutSuccessPage.vue"
 import LegalPage from "./pages/LegalPage.vue"
 import CustomOrderPage from "./pages/CustomOrderPage.vue"
 
@@ -22,11 +23,7 @@ export const router = createRouter({
     { path: "/checkout", component: CheckoutPage },
     {
       path: "/checkout/success",
-      component: LegalPage,
-      props: {
-        title: "Заказ оплачен",
-        body: "Спасибо. Мы получили оплату и свяжемся по контактам из заказа.",
-      },
+      component: CheckoutSuccessPage,
     },
     {
       path: "/checkout/fail",
