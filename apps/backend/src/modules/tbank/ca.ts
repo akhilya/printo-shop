@@ -53,11 +53,13 @@ export function tbankPostJson(
       {
         hostname: parsed.hostname,
         port: parsed.port || 443,
-        path: parsed.pathname,
+        path: `${parsed.pathname}${parsed.search}`,
         method: "POST",
         headers: {
+          Accept: "application/json",
           "Content-Type": "application/json",
           "Content-Length": Buffer.byteLength(body),
+          "User-Agent": "printo-shop/1.0",
         },
         agent,
       },
@@ -65,11 +67,20 @@ export function tbankPostJson(
         const chunks: Buffer[] = []
         res.on("data", (chunk) => chunks.push(chunk))
         res.on("end", () => {
+          const text = Buffer.concat(chunks).toString("utf8")
+          const trimmed = text.trim()
+          if (!trimmed.startsWith("{") && !trimmed.startsWith("[")) {
+            reject(
+              new Error(
+                `T-Bank ${parsed.hostname}${parsed.pathname} HTTP ${res.statusCode}: ${trimmed.slice(0, 180).replace(/\s+/g, " ")}`
+              )
+            )
+            return
+          }
           try {
-            const json = JSON.parse(Buffer.concat(chunks).toString("utf8"))
             resolve({
               ok: (res.statusCode || 500) < 400,
-              json,
+              json: JSON.parse(trimmed),
             })
           } catch (error) {
             reject(error)
