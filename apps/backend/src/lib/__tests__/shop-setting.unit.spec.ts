@@ -2,6 +2,7 @@ import {
   defaultTbankUrls,
   parseShopSettingUpdate,
   presentShopSetting,
+  resolveTbankApiUrl,
   tbankOptionsFromRow,
 } from "../shop-setting"
 
@@ -25,7 +26,7 @@ describe("tbankOptionsFromRow", () => {
     expect(options?.successUrl).toBe("https://shop.test/ok")
     expect(options?.receipt).toBe(false)
     expect(options?.vat).toBe("none")
-    expect(options?.apiUrl).toBe("https://rest-api-test.tinkoff.ru/v2")
+    expect(options?.apiUrl).toBe("https://securepay.tinkoff.ru/v2")
   })
 
   it("sends DEMO terminals to the production API", () => {
@@ -48,6 +49,20 @@ describe("tbankOptionsFromRow", () => {
     expect(options?.receipt).toBe(true)
     expect(options?.taxation).toBe("osn")
     expect(options?.vat).toBe("vat20")
+  })
+})
+
+describe("resolveTbankApiUrl", () => {
+  it("rewrites rest-api-test to securepay", () => {
+    expect(
+      resolveTbankApiUrl("term", "https://rest-api-test.tinkoff.ru/v2")
+    ).toBe("https://securepay.tinkoff.ru/v2")
+  })
+
+  it("keeps the live acquiring URL", () => {
+    expect(resolveTbankApiUrl("term", "https://securepay.tinkoff.ru/v2")).toBe(
+      "https://securepay.tinkoff.ru/v2"
+    )
   })
 })
 
@@ -116,6 +131,14 @@ describe("parseShopSettingUpdate", () => {
     )
     expect(update.tbank_password).toBeUndefined()
     expect(update.message).toBe("Скоро")
+  })
+
+  it("rewrites rest-api-test to securepay on save", () => {
+    const update = parseShopSettingUpdate(
+      { tbank_api_url: "https://rest-api-test.tinkoff.ru/v2" },
+      { tbank_terminal_key: "term" }
+    )
+    expect(update.tbank_api_url).toBe("https://securepay.tinkoff.ru/v2")
   })
 
   it("stores the orders lock separately from closed mode", () => {

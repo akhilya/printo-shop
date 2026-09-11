@@ -231,16 +231,17 @@ const ShopSettingsPage = () => {
                 </Select.Trigger>
                 <Select.Content>
                   <Select.Item value="https://securepay.tinkoff.ru/v2">
-                    Боевой контур (и DEMO-терминал)
+                    securepay.tinkoff.ru (DEMO и боевой терминал)
                   </Select.Item>
                   <Select.Item value="https://rest-api-test.tinkoff.ru/v2">
-                    rest-api-test (нужен белый список IP)
+                    rest-api-test (403 без белого списка IP — магазин уйдёт на securepay)
                   </Select.Item>
                 </Select.Content>
               </Select>
               <Text size="small" className="text-ui-fg-subtle">
-                Терминал с DEMO в ключе ходит на боевой URL. rest-api-test.tinkoff.ru
-                отвечает 403, пока Т-Банк не внесёт ваш IP в белый список.
+                rest-api-test.tinkoff.ru отвечает 403, пока Т-Банк не внесёт IP
+                сервера в белый список. DEMO-терминал и обычный тестовый ключ
+                работают через securepay.tinkoff.ru.
               </Text>
             </div>
             <div className="flex flex-col gap-y-2">

@@ -3,6 +3,7 @@ import {
   ContainerRegistrationKeys,
   MedusaError,
 } from "@medusajs/framework/utils"
+import { tbankPublicError } from "../modules/tbank/ca"
 import { TbankClient, isPublicHttpUrl } from "../modules/tbank/client"
 import { customReceiptLine, orderDescription } from "../modules/tbank/receipt-lines"
 import { toKopecks } from "../modules/tbank/status"
@@ -342,24 +343,32 @@ export async function startCustomOrderPayment(
   })
   const shopNumber = text(order.shop_number) || null
   const items = [customReceiptLine(title, amountKopecks, shopNumber)]
-  const result = await client.init({
-    orderId: tbankOrderId,
-    amountKopecks,
-    description: orderDescription(items, {
-      number: shopNumber,
-      custom: true,
-    }),
-    items,
-    notificationUrl: options.notificationUrl,
-    successUrl: isPublicHttpUrl(successUrl) ? successUrl : undefined,
-    failUrl: isPublicHttpUrl(failUrl) ? failUrl : undefined,
-    customerEmail: email,
-    customerPhone: phone || undefined,
-    payType: options.payType,
-    receipt: true,
-    taxation: options.taxation,
-    vat: options.vat,
-  })
+  let result
+  try {
+    result = await client.init({
+      orderId: tbankOrderId,
+      amountKopecks,
+      description: orderDescription(items, {
+        number: shopNumber,
+        custom: true,
+      }),
+      items,
+      notificationUrl: options.notificationUrl,
+      successUrl: isPublicHttpUrl(successUrl) ? successUrl : undefined,
+      failUrl: isPublicHttpUrl(failUrl) ? failUrl : undefined,
+      customerEmail: email,
+      customerPhone: phone || undefined,
+      payType: options.payType,
+      receipt: true,
+      taxation: options.taxation,
+      vat: options.vat,
+    })
+  } catch (error) {
+    throw new MedusaError(
+      MedusaError.Types.NOT_ALLOWED,
+      tbankPublicError(error)
+    )
+  }
   const paymentId = String(result.PaymentId || "")
   if (!paymentId || !result.PaymentURL) {
     throw new MedusaError(

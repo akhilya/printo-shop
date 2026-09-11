@@ -86,6 +86,13 @@ export function peekShopSetting(): Record<string, unknown> | null {
   return cachedRow
 }
 
+export function resolveTbankApiUrl(terminalKey: string, configured?: string) {
+  const url = String(configured || "").trim() || DEFAULT_TBANK_API
+  if (/demo/i.test(terminalKey)) return DEFAULT_TBANK_API
+  if (/rest-api-test\.tinkoff\.ru/i.test(url)) return DEFAULT_TBANK_API
+  return url.replace(/\/$/, "")
+}
+
 export function tbankOptionsFromRow(
   row: Record<string, unknown> | null | undefined
 ): TbankLiveOptions | null {
@@ -99,7 +106,7 @@ export function tbankOptionsFromRow(
   return {
     terminalKey,
     password,
-    apiUrl: /demo/i.test(terminalKey) ? DEFAULT_TBANK_API : configured,
+    apiUrl: resolveTbankApiUrl(terminalKey, configured),
     successUrl: text(row, "tbank_success_url") || urls.successUrl,
     failUrl: text(row, "tbank_fail_url") || urls.failUrl,
     notificationUrl: text(row, "tbank_notification_url") || urls.notificationUrl,
@@ -168,7 +175,10 @@ export function presentShopSetting(
     ozon_from_place_id: text(row, "ozon_from_place_id"),
     tbank_terminal_key: text(row, "tbank_terminal_key"),
     tbank_password_set: Boolean(text(row, "tbank_password")),
-    tbank_api_url: text(row, "tbank_api_url") || DEFAULT_TBANK_API,
+    tbank_api_url: resolveTbankApiUrl(
+      text(row, "tbank_terminal_key"),
+      text(row, "tbank_api_url")
+    ),
     tbank_success_url: text(row, "tbank_success_url") || urls.successUrl,
     tbank_fail_url: text(row, "tbank_fail_url") || urls.failUrl,
     tbank_notification_url:
@@ -204,7 +214,13 @@ export function parseShopSettingUpdate(
     if (password) update.tbank_password = password
   }
   if ("tbank_api_url" in rec) {
-    update.tbank_api_url = String(rec.tbank_api_url || "").trim() || null
+    const key = String(
+      rec.tbank_terminal_key ?? current.tbank_terminal_key ?? ""
+    ).trim()
+    update.tbank_api_url = resolveTbankApiUrl(
+      key,
+      String(rec.tbank_api_url || "").trim()
+    )
   }
   if ("tbank_success_url" in rec) {
     update.tbank_success_url = String(rec.tbank_success_url || "").trim() || null

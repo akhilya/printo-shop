@@ -34,6 +34,7 @@ import {
   tbankOptionsFromRow,
   type TbankLiveOptions,
 } from "../../lib/shop-setting"
+import { tbankPublicError } from "./ca"
 import { SHOP_SETTING_MODULE } from "../shop-setting"
 import type ShopSettingModuleService from "../shop-setting/service"
 import { TbankClient } from "./client"
@@ -262,23 +263,31 @@ class TbankPaymentProviderService extends AbstractPaymentProvider<TbankOptions> 
       vat: options.vat,
       items,
     })
-    const result = await client.init({
-      orderId,
-      amountKopecks,
-      description,
-      items,
-      notificationUrl: options.notificationUrl,
-      successUrl: options.successUrl,
-      failUrl: options.failUrl,
-      sessionId,
-      cartId,
-      customerEmail,
-      customerPhone,
-      payType: options.payType,
-      receipt: true,
-      taxation: options.taxation,
-      vat: options.vat,
-    })
+    let result
+    try {
+      result = await client.init({
+        orderId,
+        amountKopecks,
+        description,
+        items,
+        notificationUrl: options.notificationUrl,
+        successUrl: options.successUrl,
+        failUrl: options.failUrl,
+        sessionId,
+        cartId,
+        customerEmail,
+        customerPhone,
+        payType: options.payType,
+        receipt: true,
+        taxation: options.taxation,
+        vat: options.vat,
+      })
+    } catch (error) {
+      throw new MedusaError(
+        MedusaError.Types.NOT_ALLOWED,
+        tbankPublicError(error)
+      )
+    }
 
     return {
       id: String(result.PaymentId),
