@@ -1,5 +1,6 @@
 import { shopOrderUrl } from "./custom-order"
 import { ozonTrackingUrl } from "./ozon-delivery"
+import { orderLooksPaid } from "./shop-fulfillment"
 
 function money(value: unknown) {
   if (typeof value === "number" && Number.isFinite(value)) return value
@@ -49,7 +50,10 @@ export function customerOrderStatus(input: {
   if (input.fulfillment === "delivering") {
     return { code: "delivering", label: "Доставляется" }
   }
-  if (input.status === "completed") {
+  if (input.fulfillment === "awaiting_deliver") {
+    return { code: "ready_to_ship", label: "Собран" }
+  }
+  if (input.status === "completed" || input.paid) {
     return { code: "packing", label: "В сборке" }
   }
   return { code: "awaiting_payment", label: "Ожидает оплату" }
@@ -67,6 +71,7 @@ export function presentShopOrderFromMedusa(
   const status = customerOrderStatus({
     source: "order",
     status: String(order.status || ""),
+    paid: orderLooksPaid(order),
     fulfillment: metadata.shop_fulfillment
       ? String(metadata.shop_fulfillment)
       : null,

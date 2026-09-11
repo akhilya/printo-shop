@@ -33,6 +33,9 @@ const ORDER_FIELDS = [
   "shipping_address.city",
   "shipping_address.postal_code",
   "metadata",
+  "payment_collections.status",
+  "payment_collections.payments.captured_at",
+  "payment_collections.payments.captures.id",
 ]
 
 function money(value: unknown): number | null {
@@ -126,9 +129,10 @@ export async function listDelegatOrders(
   else if (query.status === "delivered") filters.status = "archived"
   else if (
     query.status === "awaiting_pack" ||
+    query.status === "awaiting_deliver" ||
     query.status === "delivering"
   ) {
-    filters.status = "completed"
+    filters.status = ["completed", "pending"]
   } else if (query.status === "unpaid") filters.status = "pending"
   const { data, metadata } = await remote.graph({
     entity: "order",
@@ -137,7 +141,12 @@ export async function listDelegatOrders(
     pagination: { skip: (page - 1) * pageSize, take: pageSize },
   })
   let items = ((data ?? []) as Array<Record<string, unknown>>).map(presentDelegatOrder)
-  if (query.status === "delivering" || query.status === "awaiting_pack") {
+  if (
+    query.status === "delivering" ||
+    query.status === "awaiting_pack" ||
+    query.status === "awaiting_deliver" ||
+    query.status === "unpaid"
+  ) {
     items = items.filter((item) => item.status === query.status)
   }
   const search = String(query.search || "").trim().toLowerCase()

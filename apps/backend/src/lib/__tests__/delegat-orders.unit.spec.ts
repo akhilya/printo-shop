@@ -7,6 +7,13 @@ describe("mapMedusaOrderStatus", () => {
     expect(mapMedusaOrderStatus("completed", "delivered")).toBe("delivered")
     expect(mapMedusaOrderStatus("canceled")).toBe("cancelled")
     expect(mapMedusaOrderStatus("pending")).toBe("unpaid")
+    expect(mapMedusaOrderStatus("pending", null, true)).toBe("awaiting_pack")
+    expect(mapMedusaOrderStatus("pending", "delivering", true)).toBe(
+      "delivering"
+    )
+    expect(mapMedusaOrderStatus("completed", "awaiting_deliver", true)).toBe(
+      "awaiting_deliver"
+    )
   })
 })
 
@@ -60,6 +67,27 @@ describe("presentDelegatOrder", () => {
       items: [],
     })
     expect(presented.display_id).toBe("1234567890")
+  })
+
+  it("maps a paid pending cart order as packing", () => {
+    const presented = presentDelegatOrder({
+      id: "order_paid_pending",
+      status: "pending",
+      payment_collections: [{ status: "captured" }],
+      metadata: { shop_number: "1234567890" },
+      items: [],
+    })
+    expect(presented.status).toBe("awaiting_pack")
+  })
+
+  it("maps packed orders as ready to ship", () => {
+    const presented = presentDelegatOrder({
+      id: "order_packed",
+      status: "completed",
+      metadata: { shop_fulfillment: "awaiting_deliver", shop_number: "1234567890" },
+      items: [],
+    })
+    expect(presented.status).toBe("awaiting_deliver")
   })
 
   it("maps handed-over orders as delivering", () => {

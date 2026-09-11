@@ -103,15 +103,14 @@ export async function ensureMedusaShopNumber(
   }
   const number = await allocateShopNumber(container, "order", orderId)
   const orderModule = container.resolve(Modules.ORDER) as {
-    updateOrders?: (data: unknown) => Promise<unknown>
-    update?: (id: string, data: unknown) => Promise<unknown>
+    updateOrders: (
+      id: string,
+      data: { metadata: Record<string, unknown> }
+    ) => Promise<unknown>
   }
-  const nextMeta = { ...metadata, shop_number: number }
-  if (typeof orderModule.updateOrders === "function") {
-    await orderModule.updateOrders({ id: orderId, metadata: nextMeta })
-  } else if (typeof orderModule.update === "function") {
-    await orderModule.update(orderId, { metadata: nextMeta })
-  }
+  await orderModule.updateOrders(orderId, {
+    metadata: { ...metadata, shop_number: number },
+  })
   return number
 }
 

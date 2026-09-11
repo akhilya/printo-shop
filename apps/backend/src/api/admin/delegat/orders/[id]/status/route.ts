@@ -5,6 +5,7 @@ import type {
 import { MedusaError } from "@medusajs/framework/utils"
 import { getDelegatOrder } from "../../../../../../lib/delegat-bridge/orders"
 import { applyShopOrderAction } from "../../../../../../lib/shop-fulfillment"
+import { errorText } from "../../../../../../lib/shop-order"
 
 export async function POST(
   req: AuthenticatedMedusaRequest,
@@ -24,7 +25,7 @@ export async function POST(
         : 400
     res.status(status).json({
       success: false,
-      error: error instanceof Error ? error.message : "status_failed",
+      error: errorText(error, "status_failed"),
     })
   }
 }

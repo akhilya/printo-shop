@@ -35,5 +35,19 @@ describe("customerOrderStatus", () => {
     expect(
       customerOrderStatus({ source: "order", status: "canceled" })
     ).toEqual({ code: "canceled", label: "Отменён" })
+    expect(
+      customerOrderStatus({ source: "order", status: "pending", paid: true })
+    ).toEqual({ code: "packing", label: "В сборке" })
+    expect(
+      customerOrderStatus({ source: "order", status: "pending", paid: false })
+    ).toEqual({ code: "awaiting_payment", label: "Ожидает оплату" })
+    expect(
+      customerOrderStatus({
+        source: "order",
+        status: "completed",
+        paid: true,
+        fulfillment: "awaiting_deliver",
+      })
+    ).toEqual({ code: "ready_to_ship", label: "Собран" })
   })
 })

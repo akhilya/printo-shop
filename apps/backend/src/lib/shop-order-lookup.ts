@@ -29,6 +29,9 @@ const ORDER_FIELDS = [
   "shipping_address.address_1",
   "shipping_address.address_2",
   "shipping_address.city",
+  "payment_collections.status",
+  "payment_collections.payments.captured_at",
+  "payment_collections.payments.captures.id",
 ]
 
 export async function loadShopOrderByNumber(

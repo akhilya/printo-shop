@@ -3,8 +3,8 @@ import { ContainerRegistrationKeys, MedusaError, Modules } from "@medusajs/frame
 import { refundPaymentWorkflow } from "@medusajs/medusa/core-flows"
 import { isAlreadyClosedTbankError } from "./tbank-paid"
 
-export function errorText(error: unknown): string {
-  if (!error) return "cancel_failed"
+export function errorText(error: unknown, fallback = "cancel_failed"): string {
+  if (!error) return fallback
   if (typeof error === "string" && error.trim()) return error.trim()
   if (error instanceof Error && error.message) return error.message
   if (typeof error === "object") {
@@ -13,15 +13,15 @@ export function errorText(error: unknown): string {
       return rec.message.trim()
     }
     if (rec.error && rec.error !== error) {
-      const nested = errorText(rec.error)
-      if (nested !== "cancel_failed") return nested
+      const nested = errorText(rec.error, fallback)
+      if (nested !== fallback) return nested
     }
     if (Array.isArray(rec.errors) && rec.errors[0]) {
-      const nested = errorText(rec.errors[0])
-      if (nested !== "cancel_failed") return nested
+      const nested = errorText(rec.errors[0], fallback)
+      if (nested !== fallback) return nested
     }
   }
-  return "cancel_failed"
+  return fallback
 }
 
 function flattenPayments(order: Record<string, unknown>) {

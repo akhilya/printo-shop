@@ -19,5 +19,6 @@ describe("errorText", () => {
   it("falls back when nothing useful is present", () => {
     expect(errorText(null)).toBe("cancel_failed")
     expect(errorText({})).toBe("cancel_failed")
+    expect(errorText(null, "status_failed")).toBe("status_failed")
   })
 })

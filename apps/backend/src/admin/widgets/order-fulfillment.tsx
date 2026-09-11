@@ -6,6 +6,7 @@ import { sdk } from "../lib/sdk"
 
 const LABEL: Record<string, string> = {
   awaiting_pack: "В сборке",
+  awaiting_deliver: "Собран",
   delivering: "Доставляется",
   delivered: "Доставлен",
 }
@@ -49,7 +50,15 @@ const OrderFulfillmentWidget = ({
         <Button
           size="small"
           variant="secondary"
-          disabled={Boolean(busy) || fulfillment === "delivering"}
+          disabled={Boolean(busy) || fulfillment === "awaiting_deliver" || fulfillment === "delivering" || fulfillment === "delivered"}
+          onClick={() => run("pack")}
+        >
+          {busy === "pack" ? "…" : "Собран"}
+        </Button>
+        <Button
+          size="small"
+          variant="secondary"
+          disabled={Boolean(busy) || fulfillment === "delivering" || fulfillment === "delivered"}
           onClick={() => run("ship")}
         >
           {busy === "ship" ? "…" : "Отдан в доставку"}

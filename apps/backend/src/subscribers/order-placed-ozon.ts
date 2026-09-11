@@ -73,18 +73,14 @@ export default async function orderPlacedOzon({
     }
   )
   const orderModule = container.resolve(Modules.ORDER) as {
-    updateOrders?: (data: unknown) => Promise<unknown>
-    update?: (id: string, data: unknown) => Promise<unknown>
+    updateOrders: (
+      id: string,
+      data: { metadata: Record<string, unknown> }
+    ) => Promise<unknown>
   }
 
   async function saveMeta(next: Record<string, unknown>) {
-    if (typeof orderModule.updateOrders === "function") {
-      await orderModule.updateOrders({ id: orderId, metadata: next })
-      return
-    }
-    if (typeof orderModule.update === "function") {
-      await orderModule.update(orderId, { metadata: next })
-    }
+    await orderModule.updateOrders(orderId, { metadata: next })
   }
 
   try {
