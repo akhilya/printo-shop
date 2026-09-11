@@ -95,10 +95,11 @@ export function tbankOptionsFromRow(
   if (!terminalKey || !password) return null
   const payType = text(row, "tbank_pay_type") === "T" ? "T" : "O"
   const urls = defaultTbankUrls()
+  const configured = text(row, "tbank_api_url") || DEFAULT_TBANK_API
   return {
     terminalKey,
     password,
-    apiUrl: text(row, "tbank_api_url") || DEFAULT_TBANK_API,
+    apiUrl: /demo/i.test(terminalKey) ? DEFAULT_TBANK_API : configured,
     successUrl: text(row, "tbank_success_url") || urls.successUrl,
     failUrl: text(row, "tbank_fail_url") || urls.failUrl,
     notificationUrl: text(row, "tbank_notification_url") || urls.notificationUrl,

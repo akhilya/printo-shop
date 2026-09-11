@@ -25,6 +25,16 @@ describe("tbankOptionsFromRow", () => {
     expect(options?.successUrl).toBe("https://shop.test/ok")
     expect(options?.receipt).toBe(false)
     expect(options?.vat).toBe("none")
+    expect(options?.apiUrl).toBe("https://rest-api-test.tinkoff.ru/v2")
+  })
+
+  it("sends DEMO terminals to the production API", () => {
+    const options = tbankOptionsFromRow({
+      tbank_terminal_key: "PrintODEMO",
+      tbank_password: "secret",
+      tbank_api_url: "https://rest-api-test.tinkoff.ru/v2",
+    })
+    expect(options?.apiUrl).toBe("https://securepay.tinkoff.ru/v2")
   })
 
   it("maps vat and taxation", () => {
