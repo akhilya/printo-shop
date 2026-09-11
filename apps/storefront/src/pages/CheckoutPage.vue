@@ -1,16 +1,17 @@
 <script setup>
-import { onMounted, reactive, ref } from "vue"
+import { onMounted, ref } from "vue"
 import { useRouter } from "vue-router"
 import ProductPhoto from "../components/ProductPhoto.vue"
 import PromoField from "../components/PromoField.vue"
 import { cartState, clearCartId, loadCart, removeLine, setQty } from "../lib/cart.js"
+import { persistObject } from "../lib/persist.js"
 import { formatPrice, sdk, shopError } from "../lib/sdk.js"
 import { shopState } from "../lib/shop.js"
 
 const router = useRouter()
 const busy = ref(false)
 const error = ref("")
-const form = reactive({
+const form = persistObject("shop_checkout", {
   email: "",
   first_name: "",
   last_name: "",

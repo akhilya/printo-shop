@@ -1,7 +1,8 @@
 <script setup>
-import { computed, onMounted, ref } from "vue"
+import { computed, onMounted, ref, toRef } from "vue"
 import { useRoute } from "vue-router"
 import SelectField from "../components/SelectField.vue"
+import { persistObject } from "../lib/persist.js"
 import { BACKEND_URL, productFields, REGION_ID, sdk, shopError, storeHeaders } from "../lib/sdk.js"
 import { shopState } from "../lib/shop.js"
 
@@ -15,7 +16,7 @@ const product = ref(null)
 const sent = ref(false)
 const busy = ref(false)
 const error = ref("")
-const form = ref({
+const form = persistObject("shop_custom_order", {
   name: "",
   email: "",
   phone: "",
@@ -23,6 +24,7 @@ const form = ref({
   max_account: "",
   vk: "",
   message: "",
+  channel: "telegram",
 })
 const photos = ref([])
 const CHANNELS = [
@@ -67,7 +69,10 @@ const CHANNELS = [
     autocomplete: "off",
   },
 ]
-const channel = ref("telegram")
+if (!CHANNELS.some((item) => item.id === form.channel)) {
+  form.channel = "telegram"
+}
+const channel = toRef(form, "channel")
 const channelMeta = computed(
   () => CHANNELS.find((item) => item.id === channel.value) || CHANNELS[0]
 )
@@ -142,7 +147,7 @@ async function submit(event) {
     return
   }
   const field = channelMeta.value.field
-  const contact = String(form.value[field] || "").trim()
+  const contact = String(form[field] || "").trim()
   if (!contact) {
     error.value = "Укажите контакт"
     return
@@ -150,13 +155,13 @@ async function submit(event) {
   busy.value = true
   try {
     const payload = {
-      name: form.value.name.trim(),
+      name: form.name.trim(),
       email: "",
       phone: "",
       telegram: "",
       max_account: "",
       vk: "",
-      message: form.value.message.trim(),
+      message: form.message.trim(),
       product_id: product.value?.id || undefined,
       [field]: contact,
     }
