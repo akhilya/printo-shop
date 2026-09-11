@@ -116,9 +116,13 @@ export type ShopSettingPublic = {
   message: string
   orders_closed: boolean
   orders_message: string
+  ozon_configured: boolean
 }
 
 export type ShopSettingAdmin = ShopSettingPublic & {
+  ozon_client_id: string
+  ozon_api_key_set: boolean
+  ozon_from_place_id: string
   tbank_terminal_key: string
   tbank_password_set: boolean
   tbank_api_url: string
@@ -149,11 +153,17 @@ export function presentShopSetting(
     message: text(row, "message") || DEFAULT_CLOSED_MESSAGE,
     orders_closed: row.orders_closed === true,
     orders_message: text(row, "orders_message") || DEFAULT_ORDERS_MESSAGE,
+    ozon_configured: Boolean(
+      text(row, "ozon_client_id") && text(row, "ozon_api_key")
+    ),
   }
   if (!opts.admin) return base
   const urls = defaultTbankUrls()
   return {
     ...base,
+    ozon_client_id: text(row, "ozon_client_id"),
+    ozon_api_key_set: Boolean(text(row, "ozon_api_key")),
+    ozon_from_place_id: text(row, "ozon_from_place_id"),
     tbank_terminal_key: text(row, "tbank_terminal_key"),
     tbank_password_set: Boolean(text(row, "tbank_password")),
     tbank_api_url: text(row, "tbank_api_url") || DEFAULT_TBANK_API,
@@ -216,6 +226,16 @@ export function parseShopSettingUpdate(
   if ("tbank_vat" in rec) {
     update.tbank_vat = asVat(String(rec.tbank_vat || ""))
   }
+  if ("ozon_client_id" in rec) {
+    update.ozon_client_id = String(rec.ozon_client_id || "").trim() || null
+  }
+  if ("ozon_api_key" in rec) {
+    const key = String(rec.ozon_api_key || "").trim()
+    if (key) update.ozon_api_key = key
+  }
+  if ("ozon_from_place_id" in rec) {
+    update.ozon_from_place_id = String(rec.ozon_from_place_id || "").trim() || null
+  }
   return update
 }
 
@@ -262,6 +282,9 @@ export async function getShopSetting(container: MedusaContainer) {
     tbank_fail_url: process.env.TBANK_FAIL_URL || null,
     tbank_notification_url: process.env.TBANK_NOTIFICATION_URL || null,
     tbank_pay_type: process.env.TBANK_PAY_TYPE === "T" ? "T" : "O",
+    ozon_client_id: process.env.OZON_CLIENT_ID || null,
+    ozon_api_key: process.env.OZON_API_KEY || null,
+    ozon_from_place_id: process.env.OZON_FROM_PLACE_ID || null,
   })
   const row = (Array.isArray(created) ? created[0] : created) as unknown as Record<
     string,

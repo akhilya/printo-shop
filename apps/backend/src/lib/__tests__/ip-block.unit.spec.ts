@@ -2,13 +2,25 @@ import { clientIp, isBlockableIp } from "../client-ip"
 import { parseBlockedIpInput } from "../ip-block"
 
 describe("clientIp", () => {
-  it("prefers the first forwarded address", () => {
+  it("prefers x-real-ip from the reverse proxy", () => {
     expect(
       clientIp({
-        headers: { "x-forwarded-for": "10.0.0.8, 10.0.0.1" },
+        headers: {
+          "x-real-ip": "203.0.113.9",
+          "x-forwarded-for": "8.8.8.8, 10.0.0.1",
+        },
         ip: "127.0.0.1",
       })
-    ).toBe("10.0.0.8")
+    ).toBe("203.0.113.9")
+  })
+
+  it("uses the last forwarded hop so a client cannot spoof the first", () => {
+    expect(
+      clientIp({
+        headers: { "x-forwarded-for": "8.8.8.8, 203.0.113.10" },
+        ip: "127.0.0.1",
+      })
+    ).toBe("203.0.113.10")
   })
 
   it("strips ipv4-mapped ipv6", () => {

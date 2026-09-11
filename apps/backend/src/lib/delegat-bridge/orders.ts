@@ -23,8 +23,10 @@ const ORDER_FIELDS = [
   "shipping_address.last_name",
   "shipping_address.phone",
   "shipping_address.address_1",
+  "shipping_address.address_2",
   "shipping_address.city",
   "shipping_address.postal_code",
+  "metadata",
 ]
 
 function money(value: unknown): number | null {
@@ -58,8 +60,17 @@ export function mapMedusaOrderStatus(status: string) {
 
 export function presentDelegatOrder(order: Record<string, unknown>) {
   const address = (order.shipping_address || {}) as Record<string, unknown>
+  const metadata = (order.metadata || {}) as Record<string, unknown>
   const name = [address.first_name, address.last_name].filter(Boolean).join(" ").trim()
-  const street = [address.address_1, address.city, address.postal_code]
+  const pvz = [metadata.ozon_point_name, address.address_2]
+    .map((value) => String(value || "").trim())
+    .find(Boolean)
+  const street = [
+    pvz ? `Ozon ПВЗ: ${pvz}` : "",
+    metadata.ozon_point_address || address.address_1,
+    address.city,
+    address.postal_code,
+  ]
     .filter(Boolean)
     .join(", ")
   const summary = (order.summary || {}) as Record<string, unknown>

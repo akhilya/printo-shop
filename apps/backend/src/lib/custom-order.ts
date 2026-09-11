@@ -1,5 +1,14 @@
-export const CUSTOM_ORDER_STATUSES = ["new", "in_progress", "closed"] as const
+export const CUSTOM_ORDER_STATUSES = [
+  "new",
+  "in_progress",
+  "quoted",
+  "paid",
+  "closed",
+] as const
 export type CustomOrderStatus = (typeof CUSTOM_ORDER_STATUSES)[number]
+
+export const CUSTOM_ORDER_DELIVERY = ["ozon"] as const
+export type CustomOrderDelivery = (typeof CUSTOM_ORDER_DELIVERY)[number]
 
 export const MAX_CUSTOM_ORDER_IMAGES = 6
 export const MAX_CUSTOM_ORDER_IMAGE_BYTES = 2 * 1024 * 1024
@@ -83,6 +92,64 @@ export function parseCustomOrderInput(
   }
 }
 
+export function storefrontOrigin(env: NodeJS.ProcessEnv = process.env) {
+  const raw = String(env.STORE_CORS || "")
+    .split(",")[0]
+    .trim()
+    .replace(/\/$/, "")
+  return /^https?:\/\//i.test(raw) ? raw : "http://localhost:8000"
+}
+
+export function customOrderCheckoutUrl(
+  token?: string | null,
+  env: NodeJS.ProcessEnv = process.env
+) {
+  const value = String(token || "").trim()
+  if (!value) return null
+  return `${storefrontOrigin(env)}/custom-order/pay/${encodeURIComponent(value)}`
+}
+
+export function shopOrderUrl(
+  number?: string | null,
+  env: NodeJS.ProcessEnv = process.env
+) {
+  const value = String(number || "").trim()
+  if (!/^\d{10}$/.test(value)) return null
+  return `${storefrontOrigin(env)}/order/${value}`
+}
+
+export type ParsedCustomOrderQuote = {
+  quote_amount: number
+  quote_note: string | null
+  delivery_method: CustomOrderDelivery | null
+  client_picks_pvz: boolean
+}
+
+export function parseCustomOrderQuote(
+  body: unknown
+): ParsedCustomOrderQuote | { error: string } {
+  const rec =
+    body && typeof body === "object" ? (body as Record<string, unknown>) : {}
+  const amount = Number(rec.quote_amount)
+  if (!Number.isFinite(amount) || amount < 1 || amount > 10_000_000) {
+    return { error: "Укажите цену в рублях" }
+  }
+  const deliveryRaw = String(rec.delivery_method || "").trim()
+  const delivery =
+    deliveryRaw && CUSTOM_ORDER_DELIVERY.includes(deliveryRaw as CustomOrderDelivery)
+      ? (deliveryRaw as CustomOrderDelivery)
+      : null
+  const note = String(rec.quote_note || "")
+    .trim()
+    .slice(0, MAX_CUSTOM_ORDER_MESSAGE)
+  return {
+    quote_amount: Math.round(amount),
+    quote_note: note || null,
+    delivery_method: delivery,
+    client_picks_pvz: delivery === "ozon" && rec.client_picks_pvz === true,
+  }
+}
+
 export function parseCustomOrderStatus(body: unknown): CustomOrderStatus | { error: string } {
   const rec =
     body && typeof body === "object" ? (body as Record<string, unknown>) : {}
@@ -111,8 +178,76 @@ export function presentCustomOrder(row: Record<string, unknown>) {
     image_urls: urls,
     status: String(row.status || "new"),
     ip: row.ip ? String(row.ip) : null,
+    quote_amount: (() => {
+      const amount = Number(row.quote_amount)
+      return Number.isFinite(amount) ? amount : null
+    })(),
+    quote_note: row.quote_note ? String(row.quote_note) : null,
+    delivery_method: row.delivery_method ? String(row.delivery_method) : null,
+    client_picks_pvz: row.client_picks_pvz === true,
+    shop_number: row.shop_number ? String(row.shop_number) : null,
+    order_url: shopOrderUrl(row.shop_number ? String(row.shop_number) : null),
+    checkout_token: row.checkout_token ? String(row.checkout_token) : null,
+    checkout_url: customOrderCheckoutUrl(
+      row.checkout_token ? String(row.checkout_token) : null
+    ),
+    paid_at: row.paid_at ? String(row.paid_at) : null,
+    ozon_point_id: row.ozon_point_id ? String(row.ozon_point_id) : null,
+    ozon_point_name: row.ozon_point_name ? String(row.ozon_point_name) : null,
+    ozon_point_address: row.ozon_point_address
+      ? String(row.ozon_point_address)
+      : null,
+    ozon_order_number: row.ozon_order_number
+      ? String(row.ozon_order_number)
+      : null,
+    ozon_posting_number: row.ozon_posting_number
+      ? String(row.ozon_posting_number)
+      : null,
+    ozon_tracking: row.ozon_tracking ? String(row.ozon_tracking) : null,
     created_at: row.created_at ? String(row.created_at) : undefined,
     updated_at: row.updated_at ? String(row.updated_at) : undefined,
+  }
+}
+
+export function presentPublicCustomCheckout(
+  row: Record<string, unknown>,
+  product?: {
+    title?: string | null
+    handle?: string | null
+    thumbnail?: string | null
+  } | null
+) {
+  const presented = presentCustomOrder(row)
+  const paid = Boolean(row.paid_at)
+  const title =
+    (product?.title && String(product.title)) ||
+    presented.product_title ||
+    "Индивидуальный заказ"
+  return {
+    token: presented.checkout_token,
+    shop_number: presented.shop_number,
+    order_url: presented.order_url,
+    title,
+    note: presented.quote_note || presented.message,
+    quote_note: presented.quote_note,
+    message: presented.message,
+    amount: presented.quote_amount,
+    currency: "rub",
+    image_urls: presented.image_urls,
+    product_id: presented.product_id,
+    product_handle: product?.handle ? String(product.handle) : null,
+    product_thumbnail: product?.thumbnail ? String(product.thumbnail) : null,
+    name: presented.name,
+    email: presented.email,
+    phone: presented.phone,
+    client_picks_pvz:
+      presented.delivery_method === "ozon" && presented.client_picks_pvz,
+    paid,
+    ozon_point_name: presented.ozon_point_name,
+    ozon_point_address: presented.ozon_point_address,
+    ozon_order_number: presented.ozon_order_number,
+    ozon_posting_number: presented.ozon_posting_number,
+    ozon_tracking: presented.ozon_tracking,
   }
 }
 

@@ -6,6 +6,7 @@ export const shopState = reactive({
   message: "Магазин в разработке.",
   ordersClosed: false,
   ordersMessage: "Заказы временно недоступны.",
+  ozonConfigured: false,
 })
 
 export async function loadShopStatus() {
@@ -20,4 +21,5 @@ export async function loadShopStatus() {
   if (data.shop?.orders_message) {
     shopState.ordersMessage = data.shop.orders_message
   }
+  shopState.ozonConfigured = data.shop?.ozon_configured === true
 }

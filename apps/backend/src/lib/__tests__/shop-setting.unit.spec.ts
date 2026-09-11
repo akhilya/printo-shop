@@ -79,9 +79,35 @@ describe("presentShopSetting", () => {
     expect(presented.tbank_fail_url).toMatch(/\/checkout\/fail$/)
     expect(presented.tbank_notification_url).toMatch(/\/hooks\/tbank$/)
   })
+
+  it("exposes ozon configured without the api key", () => {
+    const publicView = presentShopSetting({
+      ozon_client_id: "11",
+      ozon_api_key: "secret",
+    })
+    expect(publicView.ozon_configured).toBe(true)
+    expect(publicView).not.toHaveProperty("ozon_api_key")
+    const admin = presentShopSetting(
+      { ozon_client_id: "11", ozon_api_key: "secret", ozon_from_place_id: "wh" },
+      { admin: true }
+    )
+    expect(admin.ozon_api_key_set).toBe(true)
+    expect(admin.ozon_client_id).toBe("11")
+    expect(admin).not.toHaveProperty("ozon_api_key")
+  })
 })
 
 describe("parseShopSettingUpdate", () => {
+  it("keeps ozon api key when the field is empty", () => {
+    const update = parseShopSettingUpdate(
+      { ozon_client_id: "11", ozon_api_key: "", ozon_from_place_id: "wh-1" },
+      { ozon_api_key: "old" }
+    )
+    expect(update.ozon_client_id).toBe("11")
+    expect(update.ozon_api_key).toBeUndefined()
+    expect(update.ozon_from_place_id).toBe("wh-1")
+  })
+
   it("keeps the current password when the field is empty", () => {
     const update = parseShopSettingUpdate(
       { closed: false, message: "Скоро", tbank_password: "" },

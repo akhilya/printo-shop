@@ -1,8 +1,11 @@
 import { parseBannerInput } from "../banner"
 import {
   MAX_CUSTOM_ORDER_IMAGES,
+  customOrderCheckoutUrl,
   messengerHref,
   parseCustomOrderInput,
+  parseCustomOrderQuote,
+  presentPublicCustomCheckout,
 } from "../custom-order"
 import { checkSubmitLimit } from "../submit-limit"
 
@@ -89,6 +92,60 @@ describe("parseCustomOrderInput", () => {
   it("builds messenger links", () => {
     expect(messengerHref("@anna", "telegram")).toBe("https://t.me/anna")
     expect(messengerHref("id1", "vk")).toBe("https://vk.com/id1")
+  })
+})
+
+describe("parseCustomOrderQuote", () => {
+  it("requires a price", () => {
+    expect(parseCustomOrderQuote({})).toEqual({ error: "Укажите цену в рублях" })
+  })
+
+  it("keeps PVZ self-pick only for Ozon delivery", () => {
+    const parsed = parseCustomOrderQuote({
+      quote_amount: 4500,
+      quote_note: "75 мм, грунт",
+      delivery_method: "ozon",
+      client_picks_pvz: true,
+    })
+    expect(parsed).toMatchObject({
+      quote_amount: 4500,
+      delivery_method: "ozon",
+      client_picks_pvz: true,
+    })
+    expect(
+      parseCustomOrderQuote({
+        quote_amount: 4500,
+        client_picks_pvz: true,
+      })
+    ).toMatchObject({ delivery_method: null, client_picks_pvz: false })
+  })
+})
+
+describe("presentPublicCustomCheckout", () => {
+  it("hides admin fields and builds the pay url helper", () => {
+    expect(customOrderCheckoutUrl("tok_1", { STORE_CORS: "https://printo.studio" })).toBe(
+      "https://printo.studio/custom-order/pay/tok_1"
+    )
+    const publicView = presentPublicCustomCheckout({
+      id: "ord_1",
+      name: "Анна",
+      email: "a@test.com",
+      message: "Скрытый черновик",
+      quote_note: "75 мм",
+      quote_amount: 4500,
+      delivery_method: "ozon",
+      client_picks_pvz: true,
+      checkout_token: "tok_1",
+      ip: "10.0.0.1",
+      status: "quoted",
+    })
+    expect(publicView.note).toBe("75 мм")
+    expect(publicView.quote_note).toBe("75 мм")
+    expect(publicView.message).toBe("Скрытый черновик")
+    expect(publicView.amount).toBe(4500)
+    expect(publicView.client_picks_pvz).toBe(true)
+    expect(publicView.paid).toBe(false)
+    expect(publicView).not.toHaveProperty("ip")
   })
 })
 

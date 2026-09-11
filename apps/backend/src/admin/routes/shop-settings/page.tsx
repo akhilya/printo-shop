@@ -31,6 +31,10 @@ type ShopSetting = {
   tbank_receipt: boolean
   tbank_taxation: string
   tbank_vat: string
+  ozon_client_id: string
+  ozon_api_key: string
+  ozon_api_key_set: boolean
+  ozon_from_place_id: string
 }
 
 const EMPTY: ShopSetting = {
@@ -48,6 +52,10 @@ const EMPTY: ShopSetting = {
   tbank_receipt: false,
   tbank_taxation: "usn_income",
   tbank_vat: "none",
+  ozon_client_id: "",
+  ozon_api_key: "",
+  ozon_api_key_set: false,
+  ozon_from_place_id: "",
 }
 
 const ShopSettingsPage = () => {
@@ -69,6 +77,7 @@ const ShopSettingsPage = () => {
       ...EMPTY,
       ...data.shop,
       tbank_password: "",
+      ozon_api_key: "",
     })
   }, [data])
 
@@ -91,6 +100,9 @@ const ShopSettingsPage = () => {
           tbank_receipt: form.tbank_receipt,
           tbank_taxation: form.tbank_taxation,
           tbank_vat: form.tbank_vat,
+          ozon_client_id: form.ozon_client_id,
+          ozon_api_key: form.ozon_api_key,
+          ozon_from_place_id: form.ozon_from_place_id,
         },
       }),
     onSuccess: () => {
@@ -346,6 +358,60 @@ const ShopSettingsPage = () => {
                   setForm((current) => ({
                     ...current,
                     tbank_notification_url: event.target.value,
+                  }))
+                }
+              />
+            </div>
+            <Button onClick={() => save.mutate()} isLoading={save.isPending}>
+              Сохранить
+            </Button>
+          </>
+        )}
+      </Container>
+
+      <Container className="flex max-w-xl flex-col gap-y-4 p-6">
+        <Heading>Ozon Доставка</Heading>
+        <Text size="small" className="text-ui-fg-subtle">
+          Пока только ПВЗ. Client-Id и Api-Key из кабинета Ozon после
+          подключения доставки. Для Rocket Client-Id начинается с Principal_.
+          Пустой ключ не затирает сохранённый.
+        </Text>
+        {isLoading ? null : (
+          <>
+            <div className="flex flex-col gap-y-2">
+              <Label>Client-Id</Label>
+              <Input
+                value={form.ozon_client_id}
+                onChange={(event) =>
+                  setForm((current) => ({
+                    ...current,
+                    ozon_client_id: event.target.value,
+                  }))
+                }
+              />
+            </div>
+            <div className="flex flex-col gap-y-2">
+              <Label>Api-Key</Label>
+              <Input
+                type="password"
+                value={form.ozon_api_key}
+                placeholder={form.ozon_api_key_set ? "Ключ сохранён" : ""}
+                onChange={(event) =>
+                  setForm((current) => ({
+                    ...current,
+                    ozon_api_key: event.target.value,
+                  }))
+                }
+              />
+            </div>
+            <div className="flex flex-col gap-y-2">
+              <Label>From place id (склад сдачи)</Label>
+              <Input
+                value={form.ozon_from_place_id}
+                onChange={(event) =>
+                  setForm((current) => ({
+                    ...current,
+                    ozon_from_place_id: event.target.value,
                   }))
                 }
               />

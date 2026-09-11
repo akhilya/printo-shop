@@ -41,6 +41,11 @@ import {
   receiptLinesFromCart,
   type TbankReceiptLine,
 } from "./receipt-lines"
+import {
+  assertTbankPaidState,
+  isTbankPaidStatus,
+  tbankPaymentId,
+} from "../../lib/tbank-paid"
 import { fromKopecks, mapTbankStatus, toKopecks } from "./status"
 import { verifyTbankToken } from "./token"
 
@@ -275,37 +280,48 @@ class TbankPaymentProviderService extends AbstractPaymentProvider<TbankOptions> 
   async authorizePayment(
     input: AuthorizePaymentInput
   ): Promise<AuthorizePaymentOutput> {
-    const paymentId = input.data?.PaymentId ?? input.data?.id
+    const paymentId = tbankPaymentId(input.data as Record<string, unknown>)
     if (!paymentId) {
-      return { data: input.data, status: "pending" }
+      throw new MedusaError(
+        MedusaError.Types.NOT_ALLOWED,
+        "Оплата не найдена"
+      )
     }
-    const state = await (await this.bank()).getState(paymentId as string | number)
+    const state = await (await this.bank()).getState(paymentId)
+    const expected = toKopecks(
+      (input.data as { Amount?: unknown } | undefined)?.Amount
+    )
+    assertTbankPaidState(state, expected)
     const mapped = mapTbankStatus(state.Status)
-    const data = { ...input.data, ...state, id: String(state.PaymentId ?? paymentId) }
+    const data = {
+      ...input.data,
+      ...state,
+      id: String(state.PaymentId ?? paymentId),
+    }
     if (mapped === "captured") {
       return { data, status: "captured" }
     }
-    if (mapped === "authorized") {
-      return { data, status: "authorized" }
-    }
-    if (mapped === "failed" || mapped === "canceled") {
-      return { data, status: "error" }
-    }
-    return { data, status: "pending" }
+    return { data, status: "authorized" }
   }
 
   async capturePayment(
     input: CapturePaymentInput
   ): Promise<CapturePaymentOutput> {
-    const paymentId = input.data?.PaymentId ?? input.data?.id
+    const paymentId = tbankPaymentId(input.data as Record<string, unknown>)
     if (!paymentId) {
       throw new MedusaError(MedusaError.Types.INVALID_DATA, "Missing T-Bank PaymentId")
     }
-    const state = await (await this.bank()).getState(paymentId as string | number)
+    const state = await (await this.bank()).getState(paymentId)
     if (mapTbankStatus(state.Status) === "captured") {
       return { data: { ...input.data, ...state, id: String(paymentId) } }
     }
-    const confirmed = await (await this.bank()).confirm(paymentId as string | number)
+    if (!isTbankPaidStatus(state.Status)) {
+      throw new MedusaError(
+        MedusaError.Types.NOT_ALLOWED,
+        "Нельзя списать: оплата не подтверждена банком"
+      )
+    }
+    const confirmed = await (await this.bank()).confirm(paymentId)
     return { data: { ...input.data, ...confirmed, id: String(paymentId) } }
   }
 

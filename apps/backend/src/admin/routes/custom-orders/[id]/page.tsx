@@ -1,6 +1,17 @@
 import { ArrowLeft, Trash } from "@medusajs/icons"
-import { Button, Container, Heading, Text, toast } from "@medusajs/ui"
+import {
+  Button,
+  Container,
+  Heading,
+  Input,
+  Label,
+  Switch,
+  Text,
+  Textarea,
+  toast,
+} from "@medusajs/ui"
 import { useMutation, useQuery, useQueryClient } from "@tanstack/react-query"
+import { useEffect, useState } from "react"
 import { Link, useNavigate, useParams } from "react-router-dom"
 import { messengerHref } from "../../../../lib/custom-order"
 import { sdk } from "../../../lib/sdk"
@@ -19,12 +30,23 @@ type AdminCustomOrder = {
   image_urls: string[]
   status: string
   ip?: string | null
+  quote_amount: number | null
+  quote_note: string | null
+  delivery_method: string | null
+  client_picks_pvz: boolean
+  shop_number: string | null
+  order_url: string | null
+  checkout_token: string | null
+  checkout_url: string | null
+  paid_at: string | null
   created_at?: string
 }
 
 const STATUS_OPTIONS = [
   { value: "new", label: "Новая" },
   { value: "in_progress", label: "В работе" },
+  { value: "quoted", label: "Счёт" },
+  { value: "paid", label: "Оплачена" },
   { value: "closed", label: "Закрыта" },
 ]
 
@@ -76,7 +98,51 @@ const CustomOrderDetailPage = () => {
     onError: () => toast.error("Не удалось удалить заявку"),
   })
 
+  const [amount, setAmount] = useState("")
+  const [note, setNote] = useState("")
+  const [delivery, setDelivery] = useState("")
+  const [picksPvz, setPicksPvz] = useState(false)
+
+  const checkoutMutation = useMutation({
+    mutationFn: () =>
+      sdk.client.fetch<{ order: AdminCustomOrder }>(
+        `/admin/custom-orders/${id}/checkout-link`,
+        {
+          method: "POST",
+          body: {
+            quote_amount: Number(amount.replace(",", ".")),
+            quote_note: note,
+            delivery_method: delivery,
+            client_picks_pvz: picksPvz,
+          },
+        }
+      ),
+    onSuccess: async (payload) => {
+      toast.success("Ссылка готова")
+      queryClient.invalidateQueries({ queryKey: ["admin-custom-order", id] })
+      queryClient.invalidateQueries({ queryKey: ["admin-custom-orders"] })
+      const url = payload.order?.checkout_url
+      if (url && navigator.clipboard?.writeText) {
+        try {
+          await navigator.clipboard.writeText(url)
+          toast.success("Ссылка скопирована")
+        } catch {
+          /* ignore */
+        }
+      }
+    },
+    onError: () => toast.error("Не удалось сформировать ссылку"),
+  })
+
   const order = data?.order
+
+  useEffect(() => {
+    if (!order) return
+    setAmount(order.quote_amount != null ? String(order.quote_amount) : "")
+    setNote(order.quote_note || "")
+    setDelivery(order.delivery_method || "")
+    setPicksPvz(order.client_picks_pvz === true)
+  }, [order])
 
   if (isLoading) {
     return (
@@ -229,6 +295,119 @@ const CustomOrderDetailPage = () => {
                 <img src={url} alt="" className="size-full object-contain" />
               </a>
             ))}
+          </div>
+        ) : null}
+      </Container>
+      <Container className="flex flex-col gap-y-4 p-6">
+        <Heading level="h2">Оформление для клиента</Heading>
+        <Text size="small" className="text-ui-fg-subtle">
+          Страница как после корзины: состав, цена
+          {delivery === "ozon" && picksPvz ? ", выбор ПВЗ Ozon" : ""} и оплата.
+          Ссылку можно отправить клиенту.
+        </Text>
+        {order.paid_at ? (
+          <Text>Оплачено. Ссылка ещё открывается, повторно платить нельзя.</Text>
+        ) : null}
+        <div className="flex flex-col gap-y-2">
+          <Label>Цена, ₽</Label>
+          <Input
+            type="number"
+            min={1}
+            step={1}
+            value={amount}
+            disabled={Boolean(order.paid_at)}
+            onChange={(event) => setAmount(event.target.value)}
+          />
+        </div>
+        <div className="flex flex-col gap-y-2">
+          <Label>Что увидит клиент</Label>
+          <Textarea
+            rows={4}
+            value={note}
+            disabled={Boolean(order.paid_at)}
+            placeholder={order.message || "Описание заказа"}
+            onChange={(event) => setNote(event.target.value)}
+          />
+        </div>
+        <div className="flex flex-col gap-y-2">
+          <Label>Доставка</Label>
+          <div className="flex flex-wrap gap-2">
+            <Button
+              size="small"
+              type="button"
+              variant={delivery === "" ? "primary" : "secondary"}
+              disabled={Boolean(order.paid_at)}
+              onClick={() => {
+                setDelivery("")
+                setPicksPvz(false)
+              }}
+            >
+              Не в ссылке
+            </Button>
+            <Button
+              size="small"
+              type="button"
+              variant={delivery === "ozon" ? "primary" : "secondary"}
+              disabled={Boolean(order.paid_at)}
+              onClick={() => setDelivery("ozon")}
+            >
+              Ozon Доставка
+            </Button>
+          </div>
+        </div>
+        {delivery === "ozon" ? (
+          <div className="flex items-center justify-between gap-4">
+            <Label>Клиент сам выберет ПВЗ</Label>
+            <Switch
+              checked={picksPvz}
+              disabled={Boolean(order.paid_at)}
+              onCheckedChange={(checked) => setPicksPvz(Boolean(checked))}
+            />
+          </div>
+        ) : null}
+        <Button
+          onClick={() => checkoutMutation.mutate()}
+          isLoading={checkoutMutation.isPending}
+          disabled={Boolean(order.paid_at)}
+        >
+          Сформировать ссылку
+        </Button>
+        {order.shop_number ? (
+          <Text>
+            Номер заказа: {order.shop_number}
+            {order.order_url ? (
+              <>
+                {" "}
+                <a
+                  className="text-ui-fg-interactive"
+                  href={order.order_url}
+                  target="_blank"
+                  rel="noreferrer"
+                >
+                  Открыть
+                </a>
+              </>
+            ) : null}
+          </Text>
+        ) : null}
+        {order.checkout_url ? (
+          <div className="flex flex-col gap-y-2">
+            <Label>Ссылка на оплату</Label>
+            <Input readOnly value={order.checkout_url} />
+            <Button
+              variant="secondary"
+              type="button"
+              onClick={async () => {
+                try {
+                  await navigator.clipboard.writeText(order.checkout_url as string)
+                  toast.success("Ссылка скопирована")
+                } catch {
+                  toast.error("Скопируйте ссылку вручную")
+                }
+              }}
+            >
+              Копировать
+            </Button>
           </div>
         ) : null}
       </Container>

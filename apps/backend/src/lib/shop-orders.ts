@@ -4,6 +4,7 @@ export function isOrderWritePath(method: string, url: string) {
   return (
     /\/store\/carts\/[^/]+\/complete\/?$/.test(path) ||
     /\/store\/payment-collections/.test(path) ||
-    /\/store\/custom-orders\/?$/.test(path)
+    /\/store\/custom-orders\/?$/.test(path) ||
+    /\/store\/custom-checkout\/[^/]+\/pay\/?$/.test(path)
   )
 }

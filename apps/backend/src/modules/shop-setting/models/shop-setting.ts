@@ -17,6 +17,9 @@ const ShopSetting = model.define("shop_setting", {
   tbank_receipt: model.boolean().default(false),
   tbank_taxation: model.text().default("usn_income"),
   tbank_vat: model.text().default("none"),
+  ozon_client_id: model.text().nullable(),
+  ozon_api_key: model.text().nullable(),
+  ozon_from_place_id: model.text().nullable(),
 })
 
 export default ShopSetting

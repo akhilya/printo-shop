@@ -1,5 +1,6 @@
 import type { MedusaRequest, MedusaResponse } from "@medusajs/framework/http"
 import { Modules, PaymentWebhookEvents } from "@medusajs/framework/utils"
+import { applyTbankNotificationToCustomOrder } from "../../../lib/custom-order-pay"
 import { getShopSetting } from "../../../lib/shop-setting"
 
 /**
@@ -24,6 +25,15 @@ export async function POST(req: MedusaRequest, res: MedusaResponse) {
       },
       { delay: 1000, attempts: 3 }
     )
+    const body =
+      req.body && typeof req.body === "object"
+        ? (req.body as Record<string, unknown>)
+        : {}
+    try {
+      await applyTbankNotificationToCustomOrder(req.scope, body)
+    } catch {
+      // Cart payments still go through the delayed bus.
+    }
   } catch (error) {
     res.status(400).send("Webhook Error")
     return

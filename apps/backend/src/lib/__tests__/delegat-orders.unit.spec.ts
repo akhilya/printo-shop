@@ -46,5 +46,22 @@ describe("presentDelegatOrder", () => {
     expect(presented.items[0].name).toBe("Temple Assassins · 126мм · WA150")
     expect(presented.comment).toBe("Temple Assassins · 126мм · WA150 ×2")
     expect(presented.total).toBe(1500)
+    expect(presented.shipping_address).toBe("Тверская 1, Москва")
+  })
+
+  it("prefixes Ozon PVZ onto the address", () => {
+    const presented = presentDelegatOrder({
+      id: "order_2",
+      status: "completed",
+      metadata: {
+        ozon_point_name: "ПВЗ Тверская",
+        ozon_point_address: "Тверская 1",
+      },
+      shipping_address: { city: "Москва", address_1: "Тверская 1" },
+      items: [],
+    })
+    expect(presented.shipping_address).toBe(
+      "Ozon ПВЗ: ПВЗ Тверская, Тверская 1, Москва"
+    )
   })
 })

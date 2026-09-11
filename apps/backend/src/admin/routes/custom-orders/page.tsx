@@ -39,6 +39,8 @@ const PAGE_SIZE = 20
 const STATUS_LABEL: Record<string, string> = {
   new: "Новая",
   in_progress: "В работе",
+  quoted: "Счёт",
+  paid: "Оплачена",
   closed: "Закрыта",
 }
 
@@ -58,7 +60,13 @@ const columns = [
     cell: ({ getValue }) => {
       const status = getValue()
       const color =
-        status === "closed" ? "grey" : status === "in_progress" ? "blue" : "green"
+        status === "closed"
+          ? "grey"
+          : status === "paid"
+            ? "green"
+            : status === "quoted" || status === "in_progress"
+              ? "blue"
+              : "orange"
       return <Badge color={color}>{STATUS_LABEL[status] || status}</Badge>
     },
   }),
