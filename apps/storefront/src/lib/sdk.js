@@ -5,6 +5,7 @@ export const BACKEND_URL =
 
 export let REGION_ID = ""
 let publishableKey = ""
+const CONFIG_KEY = "shop_storefront_config"
 
 export let sdk = new Medusa({
   baseUrl: BACKEND_URL,
@@ -16,19 +17,50 @@ export function storeHeaders() {
   return { "x-publishable-api-key": publishableKey }
 }
 
-export async function loadShopConfig() {
-  const res = await fetch(`${BACKEND_URL}/hooks/storefront-config`)
-  if (!res.ok) {
-    throw new Error("Не удалось получить настройки витрины")
-  }
-  const data = await res.json()
-  REGION_ID = data.region_id || ""
-  publishableKey = data.publishable_key || ""
+function applyShopConfig(data) {
+  REGION_ID = data.region_id || REGION_ID || ""
+  publishableKey = data.publishable_key || publishableKey || ""
   sdk = new Medusa({
     baseUrl: BACKEND_URL,
     publishableKey,
     debug: import.meta.env.DEV,
   })
+}
+
+function readCachedConfig() {
+  try {
+    const raw = localStorage.getItem(CONFIG_KEY)
+    return raw ? JSON.parse(raw) : null
+  } catch {
+    return null
+  }
+}
+
+export async function loadShopConfig() {
+  const cached = readCachedConfig()
+  if (cached?.publishable_key) applyShopConfig(cached)
+  try {
+    const res = await fetch(`${BACKEND_URL}/hooks/storefront-config`)
+    if (!res.ok) {
+      if (cached?.publishable_key) return
+      throw new Error("Не удалось получить настройки витрины")
+    }
+    const data = await res.json()
+    if (!data.publishable_key && cached?.publishable_key) return
+    applyShopConfig(data)
+    if (data.publishable_key) {
+      localStorage.setItem(
+        CONFIG_KEY,
+        JSON.stringify({
+          publishable_key: data.publishable_key,
+          region_id: data.region_id || "",
+        })
+      )
+    }
+  } catch (error) {
+    if (cached?.publishable_key) return
+    throw error
+  }
 }
 
 export const PAGE_SIZE = 12

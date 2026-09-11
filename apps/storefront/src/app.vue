@@ -18,7 +18,7 @@ onMounted(async () => {
   }
   ready.value = true
   if (shopState.closed) return
-  loadCart()
+  await loadCart()
   loadLegalPages()
   loadCatalogSales()
 })

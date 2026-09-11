@@ -16,7 +16,8 @@ export async function GET(req: MedusaRequest, res: MedusaResponse) {
     .sort((a, b) => {
       const aScore = String(a.title || "").toLowerCase().includes("store") ? 0 : 1
       const bScore = String(b.title || "").toLowerCase().includes("store") ? 0 : 1
-      return aScore - bScore
+      if (aScore !== bScore) return aScore - bScore
+      return String(a.id || "").localeCompare(String(b.id || ""))
     })[0]
 
   const { data: regions } = await query.graph({

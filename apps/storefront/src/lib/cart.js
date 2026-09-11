@@ -10,6 +10,38 @@ export const cartState = reactive({
   error: "",
 })
 
+function readCartId() {
+  try {
+    return localStorage.getItem(KEY) || sessionStorage.getItem(KEY) || ""
+  } catch {
+    return ""
+  }
+}
+
+function writeCartId(id) {
+  try {
+    localStorage.setItem(KEY, id)
+    sessionStorage.setItem(KEY, id)
+  } catch {
+    /* private mode */
+  }
+}
+
+function forgetCartId() {
+  try {
+    localStorage.removeItem(KEY)
+    sessionStorage.removeItem(KEY)
+  } catch {
+    /* private mode */
+  }
+}
+
+function isMissingCart(error) {
+  const status = Number(error?.status || error?.response?.status || 0)
+  const text = String(error?.message || "")
+  return status === 404 || /not found|does not exist/i.test(text)
+}
+
 export function openCart() {
   cartState.open = true
 }
@@ -19,7 +51,7 @@ export function closeCart() {
 }
 
 export async function loadCart() {
-  const id = localStorage.getItem(KEY)
+  const id = readCartId()
   if (!id) {
     cartState.cart = null
     return
@@ -27,26 +59,31 @@ export async function loadCart() {
   try {
     const { cart } = await sdk.store.cart.retrieve(id)
     cartState.cart = cart
-  } catch {
-    localStorage.removeItem(KEY)
-    cartState.cart = null
+    writeCartId(cart.id)
+  } catch (error) {
+    if (isMissingCart(error)) {
+      forgetCartId()
+      cartState.cart = null
+    }
   }
 }
 
 async function ensureCart() {
   if (cartState.cart?.id) return cartState.cart
-  const existing = localStorage.getItem(KEY)
+  const existing = readCartId()
   if (existing) {
     try {
       const { cart } = await sdk.store.cart.retrieve(existing)
       cartState.cart = cart
+      writeCartId(cart.id)
       return cart
-    } catch {
-      localStorage.removeItem(KEY)
+    } catch (error) {
+      if (isMissingCart(error)) forgetCartId()
+      else if (cartState.cart?.id) return cartState.cart
     }
   }
   const { cart } = await sdk.store.cart.create({ region_id: REGION_ID })
-  localStorage.setItem(KEY, cart.id)
+  writeCartId(cart.id)
   cartState.cart = cart
   return cart
 }
@@ -91,8 +128,14 @@ export async function removeLine(lineId) {
 }
 
 export function clearCartId() {
-  localStorage.removeItem(KEY)
+  forgetCartId()
   cartState.cart = null
+}
+
+if (import.meta.hot) {
+  import.meta.hot.accept(() => {
+    loadCart()
+  })
 }
 
 export function itemCount() {
