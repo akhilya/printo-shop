@@ -120,9 +120,36 @@ export function shopOrderUrl(
 
 export type ParsedCustomOrderQuote = {
   quote_amount: number
+  quote_items_amount: number
+  quote_discount_amount: number
+  quote_shipping_amount: number
+  quote_other_amount: number
   quote_note: string | null
   delivery_method: CustomOrderDelivery | null
   client_picks_pvz: boolean
+}
+
+function moneyField(value: unknown, fallback = 0) {
+  const numeric = Number(value)
+  if (!Number.isFinite(numeric) || numeric < 0) return fallback
+  return Math.round(numeric)
+}
+
+export function customQuoteTotal(parts: {
+  items: number
+  discount: number
+  shipping: number
+  other: number
+  promo?: number
+}) {
+  return Math.max(
+    0,
+    parts.items -
+      parts.discount -
+      (parts.promo || 0) +
+      parts.shipping +
+      parts.other
+  )
 }
 
 export function parseCustomOrderQuote(
@@ -130,9 +157,19 @@ export function parseCustomOrderQuote(
 ): ParsedCustomOrderQuote | { error: string } {
   const rec =
     body && typeof body === "object" ? (body as Record<string, unknown>) : {}
-  const amount = Number(rec.quote_amount)
-  if (!Number.isFinite(amount) || amount < 1 || amount > 10_000_000) {
-    return { error: "Укажите цену в рублях" }
+  const items = moneyField(
+    rec.quote_items_amount ?? rec.quote_amount,
+    Number.NaN
+  )
+  if (!Number.isFinite(items) || items < 1 || items > 10_000_000) {
+    return { error: "Укажите цену товаров в рублях" }
+  }
+  const discount = moneyField(rec.quote_discount_amount)
+  const shipping = moneyField(rec.quote_shipping_amount)
+  const other = moneyField(rec.quote_other_amount)
+  const total = customQuoteTotal({ items, discount, shipping, other })
+  if (total < 1) {
+    return { error: "Итого должно быть больше нуля" }
   }
   const deliveryRaw = String(rec.delivery_method || "").trim()
   const delivery =
@@ -143,7 +180,11 @@ export function parseCustomOrderQuote(
     .trim()
     .slice(0, MAX_CUSTOM_ORDER_MESSAGE)
   return {
-    quote_amount: Math.round(amount),
+    quote_amount: total,
+    quote_items_amount: items,
+    quote_discount_amount: discount,
+    quote_shipping_amount: shipping,
+    quote_other_amount: other,
     quote_note: note || null,
     delivery_method: delivery,
     client_picks_pvz: delivery === "ozon" && rec.client_picks_pvz === true,
@@ -182,6 +223,22 @@ export function presentCustomOrder(row: Record<string, unknown>) {
       const amount = Number(row.quote_amount)
       return Number.isFinite(amount) ? amount : null
     })(),
+    quote_items_amount: Number.isFinite(Number(row.quote_items_amount))
+      ? Number(row.quote_items_amount)
+      : null,
+    quote_discount_amount: Number.isFinite(Number(row.quote_discount_amount))
+      ? Number(row.quote_discount_amount)
+      : null,
+    quote_shipping_amount: Number.isFinite(Number(row.quote_shipping_amount))
+      ? Number(row.quote_shipping_amount)
+      : null,
+    quote_other_amount: Number.isFinite(Number(row.quote_other_amount))
+      ? Number(row.quote_other_amount)
+      : null,
+    promo_code: row.promo_code ? String(row.promo_code) : null,
+    promo_discount: Number.isFinite(Number(row.promo_discount))
+      ? Number(row.promo_discount)
+      : null,
     quote_note: row.quote_note ? String(row.quote_note) : null,
     delivery_method: row.delivery_method ? String(row.delivery_method) : null,
     client_picks_pvz: row.client_picks_pvz === true,
@@ -232,6 +289,12 @@ export function presentPublicCustomCheckout(
     quote_note: presented.quote_note,
     message: presented.message,
     amount: presented.quote_amount,
+    items_amount: presented.quote_items_amount ?? presented.quote_amount,
+    discount_amount:
+      (presented.quote_discount_amount || 0) + (presented.promo_discount || 0),
+    shipping_amount: presented.quote_shipping_amount || 0,
+    other_amount: presented.quote_other_amount || 0,
+    promo_code: presented.promo_code,
     currency: "rub",
     image_urls: presented.image_urls,
     product_id: presented.product_id,

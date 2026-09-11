@@ -25,5 +25,7 @@ echo "Running database migrations..."
 npx medusa db:migrate --execute-all-links
 echo "Enabling T-Bank on regions..."
 npx medusa exec ./src/scripts/enable-tbank-region.ts || true
+echo "Ensuring Ozon shipping option..."
+npx medusa exec ./src/scripts/ensure-ozon-shipping.ts || true
 echo "Starting Medusa..."
 exec npx medusa start

@@ -97,7 +97,9 @@ describe("parseCustomOrderInput", () => {
 
 describe("parseCustomOrderQuote", () => {
   it("requires a price", () => {
-    expect(parseCustomOrderQuote({})).toEqual({ error: "Укажите цену в рублях" })
+    expect(parseCustomOrderQuote({})).toEqual({
+      error: "Укажите цену товаров в рублях",
+    })
   })
 
   it("keeps PVZ self-pick only for Ozon delivery", () => {
@@ -109,6 +111,9 @@ describe("parseCustomOrderQuote", () => {
     })
     expect(parsed).toMatchObject({
       quote_amount: 4500,
+      quote_items_amount: 4500,
+      quote_discount_amount: 0,
+      quote_shipping_amount: 0,
       delivery_method: "ozon",
       client_picks_pvz: true,
     })
@@ -118,6 +123,13 @@ describe("parseCustomOrderQuote", () => {
         client_picks_pvz: true,
       })
     ).toMatchObject({ delivery_method: null, client_picks_pvz: false })
+    expect(
+      parseCustomOrderQuote({
+        quote_items_amount: 5000,
+        quote_discount_amount: 500,
+        quote_shipping_amount: 400,
+      })
+    ).toMatchObject({ quote_amount: 4900, quote_items_amount: 5000 })
   })
 })
 

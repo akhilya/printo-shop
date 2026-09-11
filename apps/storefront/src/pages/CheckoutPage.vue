@@ -4,7 +4,14 @@ import { useRoute } from "vue-router"
 import ProductPhoto from "../components/ProductPhoto.vue"
 import PromoField from "../components/PromoField.vue"
 import PvzPicker from "../components/PvzPicker.vue"
-import { cartState, loadCart, removeLine, setQty } from "../lib/cart.js"
+import {
+  cartState,
+  cartTotals,
+  linePrices,
+  loadCart,
+  removeLine,
+  setQty,
+} from "../lib/cart.js"
 import { persistObject } from "../lib/persist.js"
 import {
   BACKEND_URL,
@@ -21,6 +28,7 @@ const isCustom = computed(() => Boolean(token.value))
 
 const busy = ref(false)
 const error = ref("")
+const quotedShipping = ref(null)
 const custom = ref(null)
 const customLoading = ref(false)
 const form = persistObject("shop_checkout", {
@@ -41,14 +49,18 @@ const form = persistObject("shop_checkout", {
 const items = computed(() => {
   if (!isCustom.value) return cartState.cart?.items || []
   if (!custom.value) return []
+  const itemsAmount = custom.value.items_amount || custom.value.amount || 0
+  const discount = custom.value.discount_amount || 0
   return [
     {
       id: custom.value.product_id || "custom",
       title: custom.value.title,
       thumbnail:
         custom.value.product_thumbnail || custom.value.image_urls?.[0] || "",
-      unit_price: custom.value.amount,
       quantity: 1,
+      original_total: itemsAmount,
+      total: Math.max(0, itemsAmount - discount),
+      unit_price: Math.max(0, itemsAmount - discount),
     },
   ]
 })
@@ -59,9 +71,25 @@ const currency = computed(() =>
     : cartState.cart?.currency_code || "rub"
 )
 
-const total = computed(() =>
-  isCustom.value ? custom.value?.amount : cartState.cart?.total
-)
+const totals = computed(() => {
+  if (isCustom.value) {
+    return {
+      items: custom.value?.items_amount || custom.value?.amount || 0,
+      discount: custom.value?.discount_amount || 0,
+      shipping: custom.value?.shipping_amount || 0,
+      other: custom.value?.other_amount || 0,
+      total: custom.value?.amount || 0,
+    }
+  }
+  const base = cartTotals(cartState.cart)
+  const shipping =
+    quotedShipping.value != null ? Number(quotedShipping.value) : base.shipping
+  const total =
+    base.shipping || quotedShipping.value == null
+      ? base.total
+      : Math.max(0, base.items - base.discount + shipping)
+  return { ...base, shipping, total }
+})
 
 const showPvz = computed(
   () => !isCustom.value || custom.value?.client_picks_pvz === true
@@ -125,7 +153,7 @@ function pointCity(address) {
   return text.split(",")[0]?.trim() || "Россия"
 }
 
-function onPvz(point) {
+async function onPvz(point) {
   form.ozon_point_id = String(point.id)
   form.ozon_point_name = point.name || ""
   form.ozon_point_address = point.address || ""
@@ -134,6 +162,29 @@ function onPvz(point) {
   form.address_1 = point.address || ""
   form.city = point.city || form.city
   error.value = ""
+  if (isCustom.value || !cartState.cart?.id) return
+  try {
+    const res = await fetch(`${BACKEND_URL}/store/ozon/quote`, {
+      method: "POST",
+      headers: {
+        "Content-Type": "application/json",
+        ...storeHeaders(),
+      },
+      body: JSON.stringify({
+        cart_id: cartState.cart.id,
+        point_id: point.id,
+        point_address: point.address,
+        lat: point.lat,
+        lon: point.lon,
+        phone: form.phone,
+      }),
+    })
+    const data = await res.json().catch(() => ({}))
+    if (res.ok && Number(data.amount) > 0) quotedShipping.value = Number(data.amount)
+    if (res.ok) await loadCart()
+  } catch {
+    // Quote is best-effort; pay still works.
+  }
 }
 
 async function payCart() {
@@ -158,6 +209,7 @@ async function payCart() {
       ozon_point_address: form.ozon_point_address,
       ozon_point_lat: form.ozon_point_lat,
       ozon_point_lon: form.ozon_point_lon,
+      ozon_shipping_amount: quotedShipping.value,
     },
   })
   const options = await sdk.store.fulfillment.listCartOptions({
@@ -169,6 +221,23 @@ async function payCart() {
       option_id: shipping.id,
     })
     cart = added.cart
+  }
+  if (form.ozon_point_id) {
+    await fetch(`${BACKEND_URL}/store/ozon/quote`, {
+      method: "POST",
+      headers: {
+        "Content-Type": "application/json",
+        ...storeHeaders(),
+      },
+      body: JSON.stringify({
+        cart_id: cart.id,
+        point_id: form.ozon_point_id,
+        point_address: form.ozon_point_address,
+        phone: form.phone,
+      }),
+    })
+    const fresh = await sdk.store.cart.retrieve(cart.id)
+    cart = fresh.cart
   }
   const { payment_collection } = await sdk.store.payment.initiatePaymentSession(
     cart,
@@ -279,7 +348,11 @@ const empty = computed(() => {
               {{ item.variant.title }}
             </p>
             <div class="card-meta">
-              {{ formatPrice(item.unit_price ?? item.subtotal, currency) }}
+              <span
+                v-if="linePrices(item).onSale"
+                class="price-was"
+              >{{ formatPrice(linePrices(item).original, currency) }}</span>
+              {{ formatPrice(linePrices(item).current, currency) }}
             </div>
             <div v-if="!isCustom" class="qty">
               <button
@@ -321,19 +394,31 @@ const empty = computed(() => {
           </div>
         </div>
         <p v-if="!isCustom && cartState.error" class="err">{{ cartState.error }}</p>
-        <PromoField v-if="!isCustom" />
+        <PromoField
+          :token="isCustom ? token : ''"
+          :promo-code="custom?.promo_code || ''"
+          @applied="custom = $event"
+        />
         <div class="totals">
-          <div v-if="!isCustom">
+          <div>
             <span>Товары</span>
-            <span>{{ formatPrice(cartState.cart.item_subtotal ?? cartState.cart.subtotal, currency) }}</span>
+            <span>{{ formatPrice(totals.items, currency) }}</span>
           </div>
-          <div v-if="!isCustom && cartState.cart.discount_total">
+          <div v-if="totals.discount">
             <span>Скидка</span>
-            <span>−{{ formatPrice(cartState.cart.discount_total, currency) }}</span>
+            <span>−{{ formatPrice(totals.discount, currency) }}</span>
+          </div>
+          <div v-if="showPvz || totals.shipping">
+            <span>Доставка</span>
+            <span>{{ formatPrice(totals.shipping, currency) }}</span>
+          </div>
+          <div v-if="totals.other">
+            <span>Ещё</span>
+            <span>{{ formatPrice(totals.other, currency) }}</span>
           </div>
           <div class="checkout-total">
             <span>Итого</span>
-            <span>{{ formatPrice(total, currency) }}</span>
+            <span>{{ formatPrice(totals.total, currency) }}</span>
           </div>
         </div>
       </div>

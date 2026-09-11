@@ -10,7 +10,7 @@ const CONFIG_KEY = "shop_storefront_config"
 export let sdk = new Medusa({
   baseUrl: BACKEND_URL,
   publishableKey: "",
-  debug: import.meta.env.DEV,
+  debug: false,
 })
 
 export function storeHeaders() {
@@ -23,7 +23,7 @@ function applyShopConfig(data) {
   sdk = new Medusa({
     baseUrl: BACKEND_URL,
     publishableKey,
-    debug: import.meta.env.DEV,
+    debug: false,
   })
 }
 
@@ -94,7 +94,7 @@ export function visiblePages(current, total) {
 }
 
 export const productFields =
-  "id,title,handle,thumbnail,description,collection_id,*variants.calculated_price,+variants.inventory_quantity,+variants.sku,*images,*collection,categories.id,categories.name,categories.handle,+metadata"
+  "id,title,handle,thumbnail,description,collection_id,*variants.calculated_price,+variants.inventory_quantity,+variants.sku,+variants.metadata,*images,*collection,categories.id,categories.name,categories.handle,+metadata"
 
 export { productSpecs } from "./product-specs.js"
 

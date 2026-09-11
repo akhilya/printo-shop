@@ -27,6 +27,14 @@ function writeCartId(id) {
   }
 }
 
+const CART_FIELDS =
+  "*items,*items.variant,+items.variant.metadata,*promotions,*shipping_methods"
+
+async function retrieveCart(id) {
+  const { cart } = await sdk.store.cart.retrieve(id, { fields: CART_FIELDS })
+  return cart
+}
+
 function forgetCartId() {
   try {
     localStorage.removeItem(KEY)
@@ -57,7 +65,7 @@ export async function loadCart() {
     return
   }
   try {
-    const { cart } = await sdk.store.cart.retrieve(id)
+    const cart = await retrieveCart(id)
     cartState.cart = cart
     writeCartId(cart.id)
   } catch (error) {
@@ -73,7 +81,7 @@ async function ensureCart() {
   const existing = readCartId()
   if (existing) {
     try {
-      const { cart } = await sdk.store.cart.retrieve(existing)
+      const cart = await retrieveCart(existing)
       cartState.cart = cart
       writeCartId(cart.id)
       return cart
@@ -124,7 +132,7 @@ export async function removeLine(lineId) {
     cartState.cart.id,
     lineId
   )
-  cartState.cart = cart ?? (await sdk.store.cart.retrieve(cartState.cart.id)).cart
+  cartState.cart = cart ?? (await retrieveCart(cartState.cart.id))
 }
 
 export function clearCartId() {
@@ -140,6 +148,70 @@ if (import.meta.hot) {
 
 export function itemCount() {
   return cartState.cart?.items?.reduce((n, i) => n + i.quantity, 0) ?? 0
+}
+
+export function cartMoney(value) {
+  if (value == null || value === "") return 0
+  if (typeof value === "number") return Number.isFinite(value) ? value : 0
+  if (typeof value === "object") {
+    return cartMoney(value.numeric ?? value.value ?? value.amount)
+  }
+  const numeric = Number(value)
+  return Number.isFinite(numeric) ? numeric : 0
+}
+
+export function linePrices(item) {
+  const qty = Number(item?.quantity || 1)
+  const current = cartMoney(
+    item?.total ?? item?.subtotal ?? item?.unit_price
+  )
+  const listedOld =
+    cartMoney(item?.variant?.metadata?.old_price) * qty ||
+    cartMoney(item?.compare_at_unit_price) * qty
+  const original = Math.max(
+    cartMoney(item?.original_total ?? item?.original_subtotal),
+    listedOld
+  )
+  const onSale = original > current && current >= 0
+  return {
+    current,
+    original: onSale ? original : current,
+    onSale,
+  }
+}
+
+export function cartTotals(cart) {
+  if (!cart) {
+    return { items: 0, discount: 0, shipping: 0, total: 0 }
+  }
+  const total = cartMoney(cart.total)
+  const methods = Array.isArray(cart.shipping_methods)
+    ? cart.shipping_methods
+    : []
+  const methodShipping = methods.reduce(
+    (sum, method) => sum + cartMoney(method?.amount),
+    0
+  )
+  let shipping = cartMoney(cart.shipping_total ?? cart.shipping_subtotal)
+  if (!shipping) shipping = methodShipping
+  if (!shipping) shipping = cartMoney(cart.metadata?.ozon_shipping_amount)
+  const discount = cartMoney(cart.discount_total)
+  const originalItems = cartMoney(
+    cart.original_item_total ?? cart.original_item_subtotal
+  )
+  const itemTotal = cartMoney(cart.item_total ?? cart.item_subtotal)
+  const itemDiscount = cartMoney(cart.item_discount_total)
+  const items =
+    originalItems ||
+    (itemTotal + itemDiscount) ||
+    cartMoney(cart.subtotal) ||
+    total - shipping + discount
+  return {
+    items,
+    discount,
+    shipping,
+    total,
+  }
 }
 
 export async function applyPromo(code) {

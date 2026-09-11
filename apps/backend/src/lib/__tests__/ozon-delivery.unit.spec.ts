@@ -1,4 +1,5 @@
 import {
+  extractOzonAmount,
   extractOzonCreateIds,
   isOzonRocketCreds,
   loadOzonPoints,
@@ -126,6 +127,23 @@ describe("nearestOzonPoints", () => {
       1
     )
     expect(nearest[0].id).toBe("near")
+  })
+})
+
+describe("extractOzonAmount", () => {
+  it("reads Ozon money units", () => {
+    expect(
+      extractOzonAmount({
+        splits: [
+          {
+            delivery_method: {
+              price: { currency_code: "RUB", units: 420, nanos: 0 },
+            },
+          },
+        ],
+      })
+    ).toBe(420)
+    expect(extractOzonAmount({ amount: 350 })).toBe(350)
   })
 })
 

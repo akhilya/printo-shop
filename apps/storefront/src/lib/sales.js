@@ -38,21 +38,32 @@ export function productSalePrice(product) {
 
 export function variantSalePrice(variant, product) {
   const calc = variant?.calculated_price
-  const base = priceParts(calc)
-  if (base.onSale) return base
-  const original = Number(calc?.calculated_amount ?? calc?.original_amount)
-  if (!Number.isFinite(original) || original <= 0) return base
   const currency = calc?.currency_code || "rub"
-  let best = original
+  const current = Number(calc?.calculated_amount ?? calc?.original_amount)
+  if (!Number.isFinite(current) || current < 0) return priceParts(calc)
+  const promoOriginal = Number(calc?.original_amount)
+  const listedOld = Number(
+    variant?.metadata?.old_price ?? product?.metadata?.old_price
+  )
+  let strike = 0
+  if (Number.isFinite(listedOld) && listedOld > current) strike = listedOld
+  if (
+    Number.isFinite(promoOriginal) &&
+    promoOriginal > current &&
+    promoOriginal > strike
+  ) {
+    strike = promoOriginal
+  }
+  let best = current
   for (const sale of catalogSales.value) {
     if (!saleMatches(sale, product)) continue
-    const next = applySaleValue(original, sale)
+    const next = applySaleValue(current, sale)
     if (next < best) best = next
   }
-  if (best >= original || best < 0) return base
+  const onSale = strike > best && best >= 0
   return {
     current: formatPrice(best, currency),
-    original: formatPrice(original, currency),
-    onSale: true,
+    original: onSale ? formatPrice(strike, currency) : "",
+    onSale,
   }
 }

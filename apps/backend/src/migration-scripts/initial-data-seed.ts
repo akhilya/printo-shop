@@ -171,24 +171,24 @@ export default async function initial_data_seed({
   await createShippingOptionsWorkflow(container).run({
     input: [
       {
-        name: "СДЭК",
+        name: "Ozon Доставка",
         price_type: "flat",
         provider_id: "manual_manual",
         service_zone_id: fulfillmentSet.service_zones[0].id,
         shipping_profile_id: shippingProfile.id,
         type: {
-          label: "СДЭК",
-          description: "Доставка СДЭК. Тарифы подключим отдельно.",
-          code: "cdek",
+          label: "Ozon Доставка",
+          description: "Доставка Ozon до пункта выдачи. Цена считается по ПВЗ.",
+          code: "ozon",
         },
         prices: [
           {
             currency_code: "rub",
-            amount: 400,
+            amount: 0,
           },
           {
             region_id: region.id,
-            amount: 400,
+            amount: 0,
           },
         ],
         rules: [

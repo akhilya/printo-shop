@@ -240,6 +240,115 @@ export function ozonTrackingUrl(orderNumber?: string | null) {
   return `https://www.ozon.ru/my/orderdetails/?order=${encodeURIComponent(id)}`
 }
 
+export function extractOzonAmount(raw: unknown): number | null {
+  const preferred: number[] = []
+  const fallback: number[] = []
+  const stack: unknown[] = [raw]
+  while (stack.length) {
+    const cur = stack.pop()
+    if (!cur) continue
+    if (Array.isArray(cur)) {
+      for (const item of cur) stack.push(item)
+      continue
+    }
+    const rec = asRecord(cur)
+    if (!rec) continue
+    const units = firstNumber(rec.units)
+    const nanos = firstNumber(rec.nanos)
+    if (units != null && rec.currency_code) {
+      preferred.push(units + (nanos != null ? nanos / 1_000_000_000 : 0))
+    }
+    const named = firstNumber(
+      rec.delivery_price,
+      rec.deliveryPrice,
+      rec.tariff,
+      rec.delivery_cost,
+      rec.deliveryCost
+    )
+    if (named != null && named >= 0) preferred.push(named)
+    for (const [key, value] of Object.entries(rec)) {
+      if (value && typeof value === "object") {
+        stack.push(value)
+        continue
+      }
+      if (!/^(amount|price|cost)$/i.test(key)) continue
+      const numeric = firstNumber(value)
+      if (numeric != null && numeric >= 0) fallback.push(numeric)
+    }
+  }
+  const picked = preferred[0] ?? fallback[0]
+  if (picked == null || !Number.isFinite(picked) || picked < 0) return null
+  const amount = picked > 100_000 ? picked / 100 : picked
+  return Math.round(amount)
+}
+
+async function rocketVariantId(
+  token: string,
+  point: { id: string; lat?: number; lon?: number }
+) {
+  if (!Number.isFinite(point.lat) || !Number.isFinite(point.lon)) {
+    return point.id
+  }
+  try {
+    const raw = await rocketRequest(token, "GET", "/v1/delivery/variants")
+    const variants = parseOzonPoints(raw)
+    const sameId = variants.find((row) => row.id === String(point.id))
+    if (sameId) return sameId.id
+    const nearest = nearestOzonPoints(
+      variants,
+      { lat: Number(point.lat), lon: Number(point.lon) },
+      1
+    )[0]
+    return nearest?.id || point.id
+  } catch {
+    return point.id
+  }
+}
+
+export async function quoteOzonDelivery(input: {
+  creds: OzonCreds
+  point: { id: string; address?: string; lat?: number; lon?: number }
+  phone?: string
+  items: Array<{ article: string; quantity: number; price: number }>
+}) {
+  if (!input.creds.fromPlaceId || !input.point.id) return null
+  const declared = Math.max(
+    1,
+    Math.round(
+      input.items.reduce(
+        (sum, item) => sum + item.price * item.quantity,
+        0
+      )
+    )
+  )
+  const token = await rocketToken(input.creds)
+  const variantId = await rocketVariantId(token, input.point)
+  const params = new URLSearchParams({
+    deliveryVariantId: String(variantId),
+    fromPlaceId: input.creds.fromPlaceId,
+    weight: "500",
+    estimatedCost: String(declared),
+  })
+  try {
+    const raw = await rocketRequest(
+      token,
+      "GET",
+      `/v1/delivery/calculate?${params.toString()}`
+    )
+    const amount = extractOzonAmount(raw)
+    if (amount != null) return amount
+  } catch {
+    // Some cabinets only accept POST.
+  }
+  const raw = await rocketRequest(token, "POST", "/v1/delivery/calculate", {
+    deliveryVariantId: variantId,
+    fromPlaceId: input.creds.fromPlaceId,
+    weight: 500,
+    estimatedCost: declared,
+  })
+  return extractOzonAmount(raw)
+}
+
 export function extractOzonCreateIds(raw: unknown) {
   const rec = asRecord(raw) || {}
   const nested = JSON.stringify(raw ?? {})

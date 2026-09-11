@@ -1,4 +1,4 @@
-import { groupHandle, mapProduct, pickAmount, readGroupRef, slugify, toMedusaStatus } from "../map-product"
+import { groupHandle, mapProduct, pickAmount, pickOldPrice, readGroupRef, slugify, toMedusaStatus } from "../map-product"
 
 describe("delegat map-product", () => {
   it("slugifies sku and name", () => {
@@ -11,9 +11,10 @@ describe("delegat map-product", () => {
     expect(toMedusaStatus("draft")).toBe("draft")
   })
 
-  it("prefers sale price when present", () => {
-    expect(pickAmount(1500, 1200)).toBe(1200)
+  it("uses price as the active amount and old_price as the strike", () => {
+    expect(pickAmount(1200, null, 1500)).toBe(1200)
     expect(pickAmount(1500, null)).toBe(1500)
+    expect(pickAmount(1500, 1200)).toBe(1200)
   })
 
   it("creates a default variant for a simple product", () => {
@@ -35,6 +36,7 @@ describe("delegat map-product", () => {
     expect(mapped.variants[0].sku).toBe("KNIGHT-01")
     expect(mapped.variants[0].amount).toBe(1500)
     expect(mapped.variants[0].quantity).toBe(3)
+    expect(mapped.metadata.price).toBe("1500")
     expect(mapped.metadata.delegat_product_id).toBe("99")
   })
 
@@ -128,6 +130,19 @@ describe("delegat map-product", () => {
       { key: "material", label: "Материал", value: "Фотополимер" },
       { key: "height", label: "Высота", value: "75 мм" },
     ])
+  })
+
+  it("keeps Delegat old_price for strikethrough", () => {
+    const mapped = mapProduct({
+      name: "Knight",
+      sku: "KNIGHT-01",
+      price: 1200,
+      old_price: 1500,
+    })
+    expect(mapped.variants[0].amount).toBe(1200)
+    expect(mapped.variants[0].old_price).toBe(1500)
+    expect(mapped.metadata.old_price).toBe("1500")
+    expect(pickOldPrice(1200, 1500, null)).toBe(1500)
   })
 
   it("maps size variants from tech_size", () => {

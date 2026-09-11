@@ -31,6 +31,10 @@ type AdminCustomOrder = {
   status: string
   ip?: string | null
   quote_amount: number | null
+  quote_items_amount: number | null
+  quote_discount_amount: number | null
+  quote_shipping_amount: number | null
+  quote_other_amount: number | null
   quote_note: string | null
   delivery_method: string | null
   client_picks_pvz: boolean
@@ -98,10 +102,21 @@ const CustomOrderDetailPage = () => {
     onError: () => toast.error("Не удалось удалить заявку"),
   })
 
-  const [amount, setAmount] = useState("")
+  const [itemsAmount, setItemsAmount] = useState("")
+  const [discountAmount, setDiscountAmount] = useState("")
+  const [shippingAmount, setShippingAmount] = useState("")
+  const [otherAmount, setOtherAmount] = useState("")
   const [note, setNote] = useState("")
   const [delivery, setDelivery] = useState("")
   const [picksPvz, setPicksPvz] = useState(false)
+
+  const quoteTotal = (() => {
+    const items = Number(itemsAmount.replace(",", ".")) || 0
+    const discount = Number(discountAmount.replace(",", ".")) || 0
+    const shipping = Number(shippingAmount.replace(",", ".")) || 0
+    const other = Number(otherAmount.replace(",", ".")) || 0
+    return Math.max(0, items - discount + shipping + other)
+  })()
 
   const checkoutMutation = useMutation({
     mutationFn: () =>
@@ -110,7 +125,10 @@ const CustomOrderDetailPage = () => {
         {
           method: "POST",
           body: {
-            quote_amount: Number(amount.replace(",", ".")),
+            quote_items_amount: Number(itemsAmount.replace(",", ".")),
+            quote_discount_amount: Number(discountAmount.replace(",", ".") || 0),
+            quote_shipping_amount: Number(shippingAmount.replace(",", ".") || 0),
+            quote_other_amount: Number(otherAmount.replace(",", ".") || 0),
             quote_note: note,
             delivery_method: delivery,
             client_picks_pvz: picksPvz,
@@ -138,7 +156,26 @@ const CustomOrderDetailPage = () => {
 
   useEffect(() => {
     if (!order) return
-    setAmount(order.quote_amount != null ? String(order.quote_amount) : "")
+    setItemsAmount(
+      order.quote_items_amount != null
+        ? String(order.quote_items_amount)
+        : order.quote_amount != null
+          ? String(order.quote_amount)
+          : ""
+    )
+    setDiscountAmount(
+      order.quote_discount_amount != null
+        ? String(order.quote_discount_amount)
+        : ""
+    )
+    setShippingAmount(
+      order.quote_shipping_amount != null
+        ? String(order.quote_shipping_amount)
+        : ""
+    )
+    setOtherAmount(
+      order.quote_other_amount != null ? String(order.quote_other_amount) : ""
+    )
     setNote(order.quote_note || "")
     setDelivery(order.delivery_method || "")
     setPicksPvz(order.client_picks_pvz === true)
@@ -309,16 +346,50 @@ const CustomOrderDetailPage = () => {
           <Text>Оплачено. Ссылка ещё открывается, повторно платить нельзя.</Text>
         ) : null}
         <div className="flex flex-col gap-y-2">
-          <Label>Цена, ₽</Label>
+          <Label>Товары, ₽</Label>
           <Input
             type="number"
             min={1}
             step={1}
-            value={amount}
+            value={itemsAmount}
             disabled={Boolean(order.paid_at)}
-            onChange={(event) => setAmount(event.target.value)}
+            onChange={(event) => setItemsAmount(event.target.value)}
           />
         </div>
+        <div className="flex flex-col gap-y-2">
+          <Label>Скидка, ₽</Label>
+          <Input
+            type="number"
+            min={0}
+            step={1}
+            value={discountAmount}
+            disabled={Boolean(order.paid_at)}
+            onChange={(event) => setDiscountAmount(event.target.value)}
+          />
+        </div>
+        <div className="flex flex-col gap-y-2">
+          <Label>Доставка, ₽</Label>
+          <Input
+            type="number"
+            min={0}
+            step={1}
+            value={shippingAmount}
+            disabled={Boolean(order.paid_at)}
+            onChange={(event) => setShippingAmount(event.target.value)}
+          />
+        </div>
+        <div className="flex flex-col gap-y-2">
+          <Label>Ещё, ₽</Label>
+          <Input
+            type="number"
+            min={0}
+            step={1}
+            value={otherAmount}
+            disabled={Boolean(order.paid_at)}
+            onChange={(event) => setOtherAmount(event.target.value)}
+          />
+        </div>
+        <Text weight="plus">Итого: {quoteTotal} ₽</Text>
         <div className="flex flex-col gap-y-2">
           <Label>Что увидит клиент</Label>
           <Textarea
@@ -368,7 +439,7 @@ const CustomOrderDetailPage = () => {
         <Button
           onClick={() => checkoutMutation.mutate()}
           isLoading={checkoutMutation.isPending}
-          disabled={Boolean(order.paid_at)}
+          disabled={Boolean(order.paid_at) || quoteTotal < 1}
         >
           Сформировать ссылку
         </Button>

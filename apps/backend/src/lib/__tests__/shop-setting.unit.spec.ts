@@ -86,6 +86,7 @@ describe("presentShopSetting", () => {
       ozon_api_key: "secret",
     })
     expect(publicView.ozon_configured).toBe(true)
+    expect(publicView.ozon_from_place_id).toBe("")
     expect(publicView).not.toHaveProperty("ozon_api_key")
     const admin = presentShopSetting(
       { ozon_client_id: "11", ozon_api_key: "secret", ozon_from_place_id: "wh" },

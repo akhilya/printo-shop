@@ -17,6 +17,7 @@ export type DelegatVariantPayload = {
   barcode?: string | null
   price?: number | null
   sale_price?: number | null
+  old_price?: number | null
   quantity?: number | null
   attributes?: Record<string, string> | null
 }
@@ -30,6 +31,7 @@ export type DelegatProductPayload = {
   short_description?: string | null
   price?: number | null
   sale_price?: number | null
+  old_price?: number | null
   quantity?: number | null
   barcode?: string | null
   brand?: string | null
@@ -60,6 +62,7 @@ export type DelegatMappedVariant = {
   barcode?: string
   options: Record<string, string>
   amount: number
+  old_price?: number | null
   quantity: number
 }
 

@@ -5,8 +5,10 @@ import ProductPhoto from "./ProductPhoto.vue"
 import PromoField from "./PromoField.vue"
 import {
   cartState,
+  cartTotals,
   closeCart,
   itemCount,
+  linePrices,
   removeLine,
   setQty,
 } from "../lib/cart.js"
@@ -15,16 +17,19 @@ import { shopState } from "../lib/shop.js"
 
 const router = useRouter()
 const open = computed(() => cartState.open)
+const totals = computed(() => cartTotals(cartState.cart))
 
 watch(open, (value) => {
   document.body.style.overflow = value ? "hidden" : ""
 })
 
 function money(item) {
-  return formatPrice(
-    item.unit_price ?? item.subtotal,
-    cartState.cart?.currency_code || "rub"
-  )
+  const prices = linePrices(item)
+  return {
+    current: formatPrice(prices.current, cartState.cart?.currency_code || "rub"),
+    original: formatPrice(prices.original, cartState.cart?.currency_code || "rub"),
+    onSale: prices.onSale,
+  }
 }
 
 function goCheckout() {
@@ -59,7 +64,10 @@ function goCheckout() {
           </div>
           <div>
             <div class="card-title">{{ item.title }}</div>
-            <div class="card-meta">{{ money(item) }}</div>
+            <div class="card-meta">
+              <span v-if="money(item).onSale" class="price-was">{{ money(item).original }}</span>
+              {{ money(item).current }}
+            </div>
             <div class="qty">
               <button type="button" @click="setQty(item.id, item.quantity - 1)">−</button>
               <span>{{ item.quantity }}</span>
@@ -73,11 +81,11 @@ function goCheckout() {
       </div>
       <div v-if="itemCount()" class="drawer-foot">
         <div>
-          <span v-if="cartState.cart?.discount_total" class="price-was">
-            {{ formatPrice(cartState.cart.item_subtotal ?? cartState.cart.subtotal, cartState.cart.currency_code || "rub") }}
+          <span v-if="totals.discount" class="price-was">
+            {{ formatPrice(totals.items, cartState.cart.currency_code || "rub") }}
           </span>
           Итого
-          {{ formatPrice(cartState.cart?.total, cartState.cart?.currency_code || "rub") }}
+          {{ formatPrice(totals.total, cartState.cart?.currency_code || "rub") }}
         </div>
         <p v-if="shopState.ordersClosed" class="muted">{{ shopState.ordersMessage }}</p>
         <button

@@ -1,5 +1,8 @@
 import { MedusaContainer } from "@medusajs/framework"
-import { MedusaError } from "@medusajs/framework/utils"
+import {
+  ContainerRegistrationKeys,
+  MedusaError,
+} from "@medusajs/framework/utils"
 import { TbankClient, isPublicHttpUrl } from "../modules/tbank/client"
 import { customReceiptLine, orderDescription } from "../modules/tbank/receipt-lines"
 import { toKopecks } from "../modules/tbank/status"
@@ -14,6 +17,7 @@ import { CUSTOM_ORDER_MODULE } from "../modules/custom-order"
 import type CustomOrderModuleService from "../modules/custom-order/service"
 import {
   customOrderCheckoutUrl,
+  customQuoteTotal,
   presentPublicCustomCheckout,
   storefrontOrigin,
 } from "./custom-order"
@@ -168,6 +172,105 @@ export function parseCustomCheckoutPay(body: unknown):
     ozon_point_name: ozonPointName || null,
     ozon_point_address: ozonPointAddress || null,
   }
+}
+
+function customBaseAmounts(order: Record<string, unknown>) {
+  const items = Number(order.quote_items_amount ?? order.quote_amount) || 0
+  const discount = Number(order.quote_discount_amount) || 0
+  const shipping = Number(order.quote_shipping_amount) || 0
+  const other = Number(order.quote_other_amount) || 0
+  return { items, discount, shipping, other }
+}
+
+export async function applyCustomOrderPromo(
+  container: MedusaContainer,
+  token: string,
+  code: string
+) {
+  const order = await findCustomOrderByToken(container, token)
+  if (!order || order.quote_amount == null) {
+    throw new MedusaError(MedusaError.Types.NOT_FOUND, "Страница не найдена")
+  }
+  if (order.paid_at) {
+    throw new MedusaError(MedusaError.Types.NOT_ALLOWED, "Заказ уже оплачен")
+  }
+  const promoCode = text(code).toUpperCase()
+  if (!promoCode) {
+    throw new MedusaError(MedusaError.Types.INVALID_DATA, "Введите промокод")
+  }
+  const query = container.resolve(ContainerRegistrationKeys.QUERY)
+  const { data } = await query.graph({
+    entity: "promotion",
+    fields: [
+      "id",
+      "code",
+      "is_automatic",
+      "status",
+      "application_method.type",
+      "application_method.value",
+    ],
+    filters: { code: promoCode },
+  })
+  const promo = ((data ?? [])[0] || null) as Record<string, unknown> | null
+  if (!promo) {
+    throw new MedusaError(MedusaError.Types.NOT_FOUND, "Такого промокода нет")
+  }
+  if (promo.is_automatic === true) {
+    throw new MedusaError(
+      MedusaError.Types.NOT_ALLOWED,
+      "Этот промокод применяется сам и на индивидуальный заказ не действует"
+    )
+  }
+  const method = (promo.application_method || {}) as Record<string, unknown>
+  const value = Number(method.value)
+  const base = customBaseAmounts(order)
+  let promoDiscount = 0
+  if (String(method.type || "").toLowerCase().includes("percent")) {
+    promoDiscount = Math.round((base.items * value) / 100)
+  } else if (Number.isFinite(value) && value > 0) {
+    promoDiscount = Math.round(value)
+  }
+  promoDiscount = Math.min(Math.max(promoDiscount, 0), base.items)
+  const total = customQuoteTotal({ ...base, promo: promoDiscount })
+  if (total < 1) {
+    throw new MedusaError(
+      MedusaError.Types.INVALID_DATA,
+      "После промокода сумма слишком мала"
+    )
+  }
+  const service: CustomOrderModuleService = container.resolve(CUSTOM_ORDER_MODULE)
+  const updated = await service.updateCustomOrders({
+    id: String(order.id),
+    promo_code: promoCode,
+    promo_discount: promoDiscount,
+    quote_amount: total,
+  })
+  const row = Array.isArray(updated) ? updated[0] : updated
+  return presentPublicCustomCheckout((row || order) as Record<string, unknown>)
+}
+
+export async function removeCustomOrderPromo(
+  container: MedusaContainer,
+  token: string
+) {
+  const order = await findCustomOrderByToken(container, token)
+  if (!order || order.quote_amount == null) {
+    throw new MedusaError(MedusaError.Types.NOT_FOUND, "Страница не найдена")
+  }
+  if (order.paid_at) {
+    throw new MedusaError(MedusaError.Types.NOT_ALLOWED, "Заказ уже оплачен")
+  }
+  const base = customBaseAmounts(order)
+  const total = customQuoteTotal(base)
+  const service: CustomOrderModuleService = container.resolve(CUSTOM_ORDER_MODULE)
+  const updated = await service.updateCustomOrders({
+    id: String(order.id),
+    promo_code: null,
+    promo_discount: 0,
+    quote_amount: total,
+  })
+  const row = Array.isArray(updated) ? updated[0] : updated
+  return presentPublicCustomCheckout((row || order) as Record<string, unknown>)
 }
 
 export async function startCustomOrderPayment(

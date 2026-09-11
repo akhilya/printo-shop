@@ -69,11 +69,34 @@ export function toMedusaStatus(
   return "published"
 }
 
-export function pickAmount(price?: number | null, salePrice?: number | null): number {
-  if (salePrice != null && salePrice > 0) {
+export function pickAmount(
+  price?: number | null,
+  salePrice?: number | null,
+  oldPrice?: number | null
+): number {
+  if (oldPrice != null && price != null) return price
+  if (salePrice != null && salePrice > 0 && (price == null || salePrice < price)) {
     return salePrice
   }
   return price ?? 0
+}
+
+export function pickOldPrice(
+  price?: number | null,
+  oldPrice?: number | null,
+  salePrice?: number | null
+): number | null {
+  if (oldPrice != null && price != null && oldPrice > price) return oldPrice
+  if (
+    salePrice != null &&
+    price != null &&
+    price > salePrice &&
+    oldPrice == null
+  ) {
+    return price
+  }
+  if (oldPrice != null && oldPrice > 0) return oldPrice
+  return null
 }
 
 const RESERVED_FIELD_KEYS = new Set([
@@ -88,6 +111,8 @@ const RESERVED_FIELD_KEYS = new Set([
   "short_description",
   "price",
   "sale_price",
+  "old_price",
+  "oldPrice",
   "quantity",
   "barcode",
   "brand",
@@ -188,11 +213,11 @@ export function mapProduct(payload: DelegatProductPayload): DelegatMappedProduct
   if (payload.barcode) {
     metadata.barcode = payload.barcode
   }
-  if (payload.price != null) {
-    metadata.regular_price = String(payload.price)
-  }
-  if (payload.sale_price != null) {
-    metadata.sale_price = String(payload.sale_price)
+  const active = pickAmount(payload.price, payload.sale_price, payload.old_price)
+  const old = pickOldPrice(payload.price, payload.old_price, payload.sale_price)
+  metadata.price = String(active)
+  if (old != null) {
+    metadata.old_price = String(old)
   }
   const extra = customFieldsFromPayload(payload)
   const attributes = { ...(payload.attributes ?? {}), ...extra }
@@ -247,7 +272,8 @@ function mapVariants(payload: DelegatProductPayload): DelegatMappedVariant[] {
         sku: payload.sku ?? undefined,
         barcode: payload.barcode ?? undefined,
         options: { Title: "Default" },
-        amount: pickAmount(payload.price, payload.sale_price),
+        amount: pickAmount(payload.price, payload.sale_price, payload.old_price),
+        old_price: pickOldPrice(payload.price, payload.old_price, payload.sale_price),
         quantity: payload.quantity ?? 0,
       },
     ]
@@ -283,7 +309,16 @@ function mapOneVariant(
     sku: variant.sku || payload.sku || undefined,
     barcode: variant.barcode || undefined,
     options,
-    amount: pickAmount(variant.price ?? payload.price, variant.sale_price ?? payload.sale_price),
+    amount: pickAmount(
+      variant.price ?? payload.price,
+      variant.sale_price ?? payload.sale_price,
+      variant.old_price ?? payload.old_price
+    ),
+    old_price: pickOldPrice(
+      variant.price ?? payload.price,
+      variant.old_price ?? payload.old_price,
+      variant.sale_price ?? payload.sale_price
+    ),
     quantity: variant.quantity ?? payload.quantity ?? 0,
   }
 }

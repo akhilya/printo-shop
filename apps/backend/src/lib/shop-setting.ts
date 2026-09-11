@@ -117,6 +117,7 @@ export type ShopSettingPublic = {
   orders_closed: boolean
   orders_message: string
   ozon_configured: boolean
+  ozon_from_place_id: string
 }
 
 export type ShopSettingAdmin = ShopSettingPublic & {
@@ -156,6 +157,7 @@ export function presentShopSetting(
     ozon_configured: Boolean(
       text(row, "ozon_client_id") && text(row, "ozon_api_key")
     ),
+    ozon_from_place_id: text(row, "ozon_from_place_id"),
   }
   if (!opts.admin) return base
   const urls = defaultTbankUrls()

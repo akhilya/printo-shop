@@ -393,7 +393,10 @@ export async function upsertProduct(
     options: variant.options,
     manage_inventory: true,
     allow_backorder: false,
-    metadata: { delegat_variant_id: variant.delegatVariantId },
+    metadata: {
+      delegat_variant_id: variant.delegatVariantId,
+      ...(variant.old_price != null ? { old_price: String(variant.old_price) } : {}),
+    },
     prices: [{ amount: variant.amount, currency_code: ctx.currency }],
   }))
 
@@ -843,7 +846,10 @@ function variantInputsOf(
     options: variant.options,
     manage_inventory: true,
     allow_backorder: false,
-    metadata: { delegat_variant_id: variant.delegatVariantId },
+    metadata: {
+      delegat_variant_id: variant.delegatVariantId,
+      ...(variant.old_price != null ? { old_price: String(variant.old_price) } : {}),
+    },
     prices: [{ amount: variant.amount, currency_code: currency }],
   }))
 }
@@ -1277,6 +1283,7 @@ export async function exportPrices(
     variant_id?: string | null
     price?: number | null
     sale_price?: number | null
+    old_price?: number | null
   }[]
 ) {
   const ctx = await getStoreContext(container)
@@ -1287,37 +1294,56 @@ export async function exportPrices(
   const productIds = [...new Set(prices.map((item) => item.product_id))]
   const { data } = await query.graph({
     entity: "product_variant",
-    fields: ["id", "product_id"],
+    fields: ["id", "product_id", "metadata"],
     filters: { product_id: productIds },
   })
-  const firstByProduct = new Map<string, string>()
+  const firstByProduct = new Map<string, GraphRow>()
+  const byId = new Map<string, GraphRow>()
   for (const row of (data ?? []) as GraphRow[]) {
+    byId.set(row.id, row)
     if (!firstByProduct.has(row.product_id)) {
-      firstByProduct.set(row.product_id, row.id)
+      firstByProduct.set(row.product_id, row)
     }
   }
 
   const updates: Array<{
     id: string
     prices: { amount: number; currency_code: string }[]
+    metadata?: Record<string, string>
   }> = []
   const updateIndex: number[] = []
 
   for (let i = 0; i < prices.length; i++) {
     const item = prices[i]
-    const variantId = item.variant_id || firstByProduct.get(item.product_id)
+    const row = item.variant_id
+      ? byId.get(item.variant_id)
+      : firstByProduct.get(item.product_id)
+    const variantId = row?.id || item.variant_id || firstByProduct.get(item.product_id)?.id
     if (!variantId) {
       results[i].error = "Variant not found"
       continue
     }
+    const active = item.price ?? item.sale_price ?? 0
+    const old =
+      item.old_price != null && item.old_price > active
+        ? item.old_price
+        : item.sale_price != null && item.price != null && item.price > item.sale_price
+          ? item.price
+          : item.old_price ?? null
+    const metadata: Record<string, string> = {
+      ...((row?.metadata as Record<string, string> | undefined) || {}),
+    }
+    if (old != null && old > active) metadata.old_price = String(old)
+    else delete metadata.old_price
     updates.push({
       id: variantId,
       prices: [
         {
-          amount: item.sale_price ?? item.price ?? 0,
+          amount: active,
           currency_code: ctx.currency,
         },
       ],
+      metadata,
     })
     updateIndex.push(i)
   }
