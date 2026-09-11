@@ -1,6 +1,7 @@
 import { MedusaContainer } from "@medusajs/framework"
 import { MedusaError } from "@medusajs/framework/utils"
 import { TbankClient, isPublicHttpUrl } from "../modules/tbank/client"
+import { customReceiptLine, orderDescription } from "../modules/tbank/receipt-lines"
 import { toKopecks } from "../modules/tbank/status"
 import { verifyTbankToken } from "../modules/tbank/token"
 import {
@@ -9,22 +10,23 @@ import {
   ozonCredsFromRow,
 } from "./ozon-delivery"
 import { randomBytes } from "node:crypto"
+import { CUSTOM_ORDER_MODULE } from "../modules/custom-order"
+import type CustomOrderModuleService from "../modules/custom-order/service"
 import {
   customOrderCheckoutUrl,
   presentPublicCustomCheckout,
   storefrontOrigin,
 } from "./custom-order"
 
-export function newCheckoutToken() {
-  return randomBytes(24).toString("base64url")
-}
-import { CUSTOM_ORDER_MODULE } from "../modules/custom-order"
-import type CustomOrderModuleService from "../modules/custom-order/service"
 import {
   getShopSetting,
   tbankOptionsFromRow,
 } from "./shop-setting"
 import { isTbankPaidStatus } from "./tbank-paid"
+
+export function newCheckoutToken() {
+  return randomBytes(24).toString("base64url")
+}
 
 function asRecord(value: unknown) {
   return value && typeof value === "object" && !Array.isArray(value)
@@ -95,7 +97,7 @@ async function createOzonForCustomOrder(
   try {
     const created = await createOzonDeliveryOrder({
       creds,
-      orderNumber: text(order.id),
+      orderNumber: text(order.shop_number) || text(order.id),
       buyer: {
         name: text(order.name) || "Покупатель",
         phone: text(order.phone),
@@ -138,7 +140,16 @@ export async function markCustomOrderPaid(
   return createOzonForCustomOrder(container, { ...order, ...next })
 }
 
-export function parseCustomCheckoutPay(body: unknown) {
+export function parseCustomCheckoutPay(body: unknown):
+  | { error: string }
+  | {
+      email: string | null
+      phone: string | null
+      name: string | null
+      ozon_point_id: string | null
+      ozon_point_name: string | null
+      ozon_point_address: string | null
+    } {
   const rec = asRecord(body)
   const email = text(rec.email)
   const phone = text(rec.phone)
@@ -147,7 +158,7 @@ export function parseCustomCheckoutPay(body: unknown) {
   const ozonPointName = text(rec.ozon_point_name)
   const ozonPointAddress = text(rec.ozon_point_address)
   if (email && !email.includes("@")) {
-    return { error: "Проверьте адрес почты" } as const
+    return { error: "Проверьте адрес почты" }
   }
   return {
     email: email || null,
@@ -226,18 +237,15 @@ export async function startCustomOrderPayment(
     password: options.password,
     apiUrl: options.apiUrl,
   })
-  const items = [
-    {
-      name: title.slice(0, 128),
-      quantity: 1,
-      priceKopecks: amountKopecks,
-      amountKopecks,
-    },
-  ]
+  const shopNumber = text(order.shop_number) || null
+  const items = [customReceiptLine(title, amountKopecks, shopNumber)]
   const result = await client.init({
     orderId: tbankOrderId,
     amountKopecks,
-    description: title.slice(0, 140),
+    description: orderDescription(items, {
+      number: shopNumber,
+      custom: true,
+    }),
     items,
     notificationUrl: options.notificationUrl,
     successUrl: isPublicHttpUrl(successUrl) ? successUrl : undefined,
