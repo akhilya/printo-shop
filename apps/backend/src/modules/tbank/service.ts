@@ -1,6 +1,7 @@
 import {
   AbstractPaymentProvider,
   BigNumber,
+  ContainerRegistrationKeys,
   MedusaError,
   PaymentActions,
 } from "@medusajs/framework/utils"
@@ -35,6 +36,11 @@ import {
 import { SHOP_SETTING_MODULE } from "../shop-setting"
 import type ShopSettingModuleService from "../shop-setting/service"
 import { TbankClient } from "./client"
+import {
+  orderDescription,
+  receiptLinesFromCart,
+  type TbankReceiptLine,
+} from "./receipt-lines"
 import { fromKopecks, mapTbankStatus, toKopecks } from "./status"
 import { verifyTbankToken } from "./token"
 
@@ -121,6 +127,48 @@ class TbankPaymentProviderService extends AbstractPaymentProvider<TbankOptions> 
     return this.clientFor(await this.liveOptions())
   }
 
+  private async cartLines(
+    cartId: string | undefined,
+    totalKopecks: number
+  ): Promise<TbankReceiptLine[]> {
+    if (!cartId) return receiptLinesFromCart(null, totalKopecks)
+    try {
+      const resolve = (
+        this.container_ as { resolve?: (id: string) => unknown }
+      ).resolve
+      const query =
+        typeof resolve === "function"
+          ? (resolve(ContainerRegistrationKeys.QUERY) as {
+              graph: (opts: unknown) => Promise<{ data?: unknown[] }>
+            })
+          : undefined
+      if (!query?.graph) return receiptLinesFromCart(null, totalKopecks)
+      const { data } = await query.graph({
+        entity: "cart",
+        fields: [
+          "id",
+          "items.title",
+          "items.quantity",
+          "items.unit_price",
+          "items.subtotal",
+          "items.total",
+          "items.variant.title",
+          "items.variant.sku",
+          "items.variant.product.title",
+          "shipping_methods.name",
+          "shipping_methods.amount",
+        ],
+        filters: { id: cartId },
+      })
+      return receiptLinesFromCart(
+        ((data ?? [])[0] || null) as Record<string, unknown> | null,
+        totalKopecks
+      )
+    } catch {
+      return receiptLinesFromCart(null, totalKopecks)
+    }
+  }
+
   static validateOptions(_options: Record<string, unknown>) {
     // Keys may be empty in local boot; initiatePayment refuses then.
   }
@@ -153,24 +201,29 @@ class TbankPaymentProviderService extends AbstractPaymentProvider<TbankOptions> 
     const customerPhone =
       typeof input.data?.phone === "string" ? input.data.phone : undefined
     const client = this.clientFor(options)
+    const cartId =
+      typeof input.data?.cart_id === "string" ? input.data.cart_id : undefined
+    const items = await this.cartLines(cartId, amountKopecks)
+    const description = orderDescription(items)
     const receipt = client.receiptPayload({
       amountKopecks,
-      description: "Оплата заказа",
+      description,
       customerEmail,
       customerPhone,
       taxation: options.taxation,
       vat: options.vat,
+      items,
     })
     const result = await client.init({
       orderId,
       amountKopecks,
-      description: "Оплата заказа",
+      description,
+      items,
       notificationUrl: options.notificationUrl,
       successUrl: options.successUrl,
       failUrl: options.failUrl,
       sessionId,
-      cartId:
-        typeof input.data?.cart_id === "string" ? input.data.cart_id : undefined,
+      cartId,
       customerEmail,
       customerPhone,
       payType: options.payType,

@@ -30,7 +30,12 @@ describe("presentDelegatOrder", () => {
           quantity: 2,
           unit_price: 750,
           thumbnail: "https://cdn/x.webp",
-          variant: { sku: "WA150", product_id: "prod_1" },
+          variant: {
+            sku: "WA150",
+            product_id: "prod_1",
+            title: "126мм",
+            product: { title: "Temple Assassins" },
+          },
         },
       ],
     })
@@ -38,6 +43,8 @@ describe("presentDelegatOrder", () => {
     expect(presented.status).toBe("awaiting_pack")
     expect(presented.customer_name).toBe("Иван Петров")
     expect(presented.items[0].sku).toBe("WA150")
+    expect(presented.items[0].name).toBe("Temple Assassins · 126мм · WA150")
+    expect(presented.comment).toBe("Temple Assassins · 126мм · WA150 ×2")
     expect(presented.total).toBe(1500)
   })
 })

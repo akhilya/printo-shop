@@ -16,7 +16,9 @@ const ORDER_FIELDS = [
   "items.quantity",
   "items.unit_price",
   "items.variant.sku",
+  "items.variant.title",
   "items.variant.product_id",
+  "items.variant.product.title",
   "shipping_address.first_name",
   "shipping_address.last_name",
   "shipping_address.phone",
@@ -63,15 +65,27 @@ export function presentDelegatOrder(order: Record<string, unknown>) {
   const summary = (order.summary || {}) as Record<string, unknown>
   const items = ((order.items as Array<Record<string, unknown>>) || []).map((item) => {
     const variant = (item.variant || {}) as Record<string, unknown>
+    const product = (variant.product || {}) as Record<string, unknown>
+    const title = String(product.title || item.title || "").trim()
+    const variantTitle = String(variant.title || "").trim()
+    const sku = String(variant.sku || "").trim()
+    const name = [title, variantTitle && variantTitle.toLowerCase() !== "default" ? variantTitle : "", sku]
+      .filter(Boolean)
+      .join(" · ")
     return {
       external_product_id: String(variant.product_id || ""),
-      sku: String(variant.sku || ""),
-      name: String(item.title || ""),
+      sku,
+      name: name || "Товар",
       quantity: Number(item.quantity || 0),
       price: money(item.unit_price),
       image_url: item.thumbnail ? String(item.thumbnail) : null,
     }
   })
+  const comment = items
+    .map((item) =>
+      item.quantity > 1 ? `${item.name} ×${item.quantity}` : item.name
+    )
+    .join(", ")
   return {
     external_id: String(order.id || ""),
     display_id: order.display_id != null ? String(order.display_id) : null,
@@ -86,6 +100,7 @@ export function presentDelegatOrder(order: Record<string, unknown>) {
     customer_name: name || null,
     customer_phone: address.phone ? String(address.phone) : null,
     shipping_address: street || null,
+    comment: comment || null,
     items,
   }
 }

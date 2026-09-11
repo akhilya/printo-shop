@@ -23,6 +23,12 @@ export type TbankInitInput = {
   receipt?: boolean
   taxation?: string
   vat?: string
+  items?: Array<{
+    name: string
+    quantity: number
+    priceKopecks: number
+    amountKopecks: number
+  }>
 }
 
 export type TbankApiResponse = {
@@ -122,24 +128,40 @@ export class TbankClient {
     customerPhone?: string
     taxation?: string
     vat?: string
+    items?: Array<{
+      name: string
+      quantity: number
+      priceKopecks: number
+      amountKopecks: number
+    }>
   }) {
     const email =
       input.customerEmail?.trim().slice(0, 64) || "order@printo.studio"
     const phone = input.customerPhone?.replace(/[^\d+]/g, "").slice(0, 19)
+    const tax = tbankVat(input.vat)
+    const source =
+      input.items && input.items.length
+        ? input.items
+        : [
+            {
+              name: (input.description || "Заказ").slice(0, 128),
+              quantity: 1,
+              priceKopecks: input.amountKopecks,
+              amountKopecks: input.amountKopecks,
+            },
+          ]
     const receipt: Record<string, unknown> = {
       Taxation: tbankTaxation(input.taxation),
       Email: email,
-      Items: [
-        {
-          Name: (input.description || "Заказ").slice(0, 128),
-          Price: input.amountKopecks,
-          Quantity: 1,
-          Amount: input.amountKopecks,
-          Tax: tbankVat(input.vat),
-          PaymentMethod: "full_payment",
-          PaymentObject: "commodity",
-        },
-      ],
+      Items: source.map((line) => ({
+        Name: line.name.slice(0, 128),
+        Price: line.priceKopecks,
+        Quantity: line.quantity,
+        Amount: line.amountKopecks,
+        Tax: tax,
+        PaymentMethod: "full_payment",
+        PaymentObject: line.name === "Доставка" ? "service" : "commodity",
+      })),
     }
     if (phone) receipt.Phone = phone
     return receipt
