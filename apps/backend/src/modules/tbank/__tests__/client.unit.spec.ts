@@ -44,5 +44,9 @@ describe("TbankClient.init", () => {
     expect(sent.FailURL).toBeUndefined()
     expect(sent.NotificationURL).toBeUndefined()
     expect(sent.Amount).toBe(15000)
+    expect(sent.Receipt).toMatchObject({
+      Email: "order@printo.studio",
+      Items: [{ Amount: 15000, Quantity: 1 }],
+    })
   })
 })

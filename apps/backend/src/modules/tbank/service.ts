@@ -147,7 +147,21 @@ class TbankPaymentProviderService extends AbstractPaymentProvider<TbankOptions> 
       )
     }
     const orderId = `p${Date.now().toString(36)}${crypto.randomUUID().replace(/-/g, "").slice(0, 18)}`.slice(0, 50)
-    const result = await this.clientFor(options).init({
+    const customerEmail =
+      input.context?.customer?.email ||
+      (typeof input.data?.email === "string" ? input.data.email : undefined)
+    const customerPhone =
+      typeof input.data?.phone === "string" ? input.data.phone : undefined
+    const client = this.clientFor(options)
+    const receipt = client.receiptPayload({
+      amountKopecks,
+      description: "Оплата заказа",
+      customerEmail,
+      customerPhone,
+      taxation: options.taxation,
+      vat: options.vat,
+    })
+    const result = await client.init({
       orderId,
       amountKopecks,
       description: "Оплата заказа",
@@ -157,11 +171,10 @@ class TbankPaymentProviderService extends AbstractPaymentProvider<TbankOptions> 
       sessionId,
       cartId:
         typeof input.data?.cart_id === "string" ? input.data.cart_id : undefined,
-      customerEmail:
-        input.context?.customer?.email ||
-        (typeof input.data?.email === "string" ? input.data.email : undefined),
+      customerEmail,
+      customerPhone,
       payType: options.payType,
-      receipt: options.receipt,
+      receipt: true,
       taxation: options.taxation,
       vat: options.vat,
     })
@@ -175,6 +188,7 @@ class TbankPaymentProviderService extends AbstractPaymentProvider<TbankOptions> 
         OrderId: result.OrderId,
         Status: result.Status,
         session_id: sessionId,
+        receipt,
       },
     }
   }
@@ -256,9 +270,31 @@ class TbankPaymentProviderService extends AbstractPaymentProvider<TbankOptions> 
     if (!paymentId) {
       throw new MedusaError(MedusaError.Types.INVALID_DATA, "Missing T-Bank PaymentId")
     }
+    const amountKopecks = toKopecks(input.amount)
+    const stored = input.data?.receipt as Record<string, unknown> | undefined
+    const receipt =
+      stored && amountKopecks
+        ? {
+            ...stored,
+            Items: [
+              {
+                Name: "Оплата заказа",
+                Price: amountKopecks,
+                Quantity: 1,
+                Amount: amountKopecks,
+                Tax:
+                  (stored.Items as Array<Record<string, unknown>> | undefined)?.[0]
+                    ?.Tax || "none",
+                PaymentMethod: "full_payment",
+                PaymentObject: "commodity",
+              },
+            ],
+          }
+        : undefined
     const result = await (await this.bank()).cancel(
       paymentId as string | number,
-      toKopecks(input.amount)
+      amountKopecks,
+      receipt
     )
     return { data: { ...input.data, ...result, id: String(paymentId) } }
   }

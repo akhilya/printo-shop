@@ -64,7 +64,11 @@ async function submit(event) {
       cart,
       {
         provider_id: "pp_tbank_tbank",
-        data: { cart_id: cart.id },
+        data: {
+          cart_id: cart.id,
+          email: form.email,
+          phone: form.phone,
+        },
       }
     )
     const sessions = payment_collection?.payment_sessions || []

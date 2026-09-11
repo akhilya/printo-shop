@@ -111,25 +111,38 @@ export class TbankClient {
     if (Object.keys(data).length) {
       body.DATA = data
     }
-    const email = input.customerEmail?.trim().slice(0, 64)
-    if (input.receipt && email) {
-      body.Receipt = {
-        Taxation: tbankTaxation(input.taxation),
-        Email: email,
-        Items: [
-          {
-            Name: (input.description || "Заказ").slice(0, 128),
-            Price: input.amountKopecks,
-            Quantity: 1,
-            Amount: input.amountKopecks,
-            Tax: tbankVat(input.vat),
-            PaymentMethod: "full_payment",
-            PaymentObject: "commodity",
-          },
-        ],
-      }
-    }
+    body.Receipt = this.receiptPayload(input)
     return this.request("Init", body)
+  }
+
+  receiptPayload(input: {
+    amountKopecks: number
+    description?: string
+    customerEmail?: string
+    customerPhone?: string
+    taxation?: string
+    vat?: string
+  }) {
+    const email =
+      input.customerEmail?.trim().slice(0, 64) || "order@printo.studio"
+    const phone = input.customerPhone?.replace(/[^\d+]/g, "").slice(0, 19)
+    const receipt: Record<string, unknown> = {
+      Taxation: tbankTaxation(input.taxation),
+      Email: email,
+      Items: [
+        {
+          Name: (input.description || "Заказ").slice(0, 128),
+          Price: input.amountKopecks,
+          Quantity: 1,
+          Amount: input.amountKopecks,
+          Tax: tbankVat(input.vat),
+          PaymentMethod: "full_payment",
+          PaymentObject: "commodity",
+        },
+      ],
+    }
+    if (phone) receipt.Phone = phone
+    return receipt
   }
 
   getState(paymentId: string | number) {
@@ -150,13 +163,20 @@ export class TbankClient {
     return this.request("Confirm", body)
   }
 
-  cancel(paymentId: string | number, amountKopecks?: number) {
+  cancel(
+    paymentId: string | number,
+    amountKopecks?: number,
+    receipt?: Record<string, unknown>
+  ) {
     const body: Record<string, unknown> = {
       TerminalKey: this.options.terminalKey,
       PaymentId: paymentId,
     }
     if (amountKopecks != null) {
       body.Amount = amountKopecks
+    }
+    if (receipt && amountKopecks != null) {
+      body.Receipt = receipt
     }
     return this.request("Cancel", body)
   }
