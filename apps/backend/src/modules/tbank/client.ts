@@ -1,3 +1,4 @@
+import { tbankPostJson } from "./ca"
 import { signTbankPayload } from "./token"
 
 export type TbankClientOptions = {
@@ -127,17 +128,24 @@ export class TbankClient {
     payload: Record<string, unknown>
   ): Promise<TbankApiResponse> {
     const Token = signTbankPayload(payload, this.options.password)
-    const fetchImpl = this.options.fetchImpl ?? fetch
-    const response = await fetchImpl(
-      `${this.options.apiUrl.replace(/\/$/, "")}/${method}`,
-      {
+    const url = `${this.options.apiUrl.replace(/\/$/, "")}/${method}`
+    const body = JSON.stringify({ ...payload, Token })
+    let ok = true
+    let json: TbankApiResponse
+    if (this.options.fetchImpl) {
+      const response = await this.options.fetchImpl(url, {
         method: "POST",
         headers: { "Content-Type": "application/json" },
-        body: JSON.stringify({ ...payload, Token }),
-      }
-    )
-    const json = (await response.json()) as TbankApiResponse
-    if (!response.ok || json.Success === false) {
+        body,
+      })
+      ok = response.ok
+      json = (await response.json()) as TbankApiResponse
+    } else {
+      const result = await tbankPostJson(url, body)
+      ok = result.ok
+      json = result.json as TbankApiResponse
+    }
+    if (!ok || json.Success === false) {
       throw new Error(
         json.Message || json.Details || `T-Bank ${method} failed (${json.ErrorCode})`
       )

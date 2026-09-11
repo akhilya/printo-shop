@@ -29,8 +29,9 @@ RUN apt-get update \
 
 COPY docker/certs/russian_trusted_root_ca.crt /usr/local/share/ca-certificates/russian_trusted_root_ca.crt
 COPY docker/certs/russian_trusted_sub_ca.crt /usr/local/share/ca-certificates/russian_trusted_sub_ca.crt
+COPY docker/certs/russian-trusted-ca-bundle.pem /app/certs/russian-trusted-ca-bundle.pem
 RUN update-ca-certificates
-ENV NODE_EXTRA_CA_CERTS=/etc/ssl/certs/ca-certificates.crt
+ENV NODE_EXTRA_CA_CERTS=/app/certs/russian-trusted-ca-bundle.pem
 
 COPY --from=build /app/apps/backend/.medusa/server ./
 COPY docker/backend-start.sh ./start.sh
