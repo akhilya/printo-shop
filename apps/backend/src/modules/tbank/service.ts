@@ -82,6 +82,26 @@ class TbankPaymentProviderService extends AbstractPaymentProvider<TbankOptions> 
     this.options_ = options
   }
 
+  private cradleGet<T>(id: string): T | undefined {
+    try {
+      return (this.container_ as Record<string, unknown>)[id] as T
+    } catch {
+      return undefined
+    }
+  }
+
+  private asContainer() {
+    return {
+      resolve: <T = unknown>(id: string) => {
+        const value = this.cradleGet<T>(id)
+        if (value === undefined) {
+          throw new Error(`Could not resolve ${id}`)
+        }
+        return value
+      },
+    }
+  }
+
   private fallbackOptions(): TbankLiveOptions {
     return {
       terminalKey: this.options_.terminalKey || "",
@@ -101,13 +121,9 @@ class TbankPaymentProviderService extends AbstractPaymentProvider<TbankOptions> 
     const cached = tbankOptionsFromRow(peekShopSetting())
     if (cached) return cached
     try {
-      const resolve = (
-        this.container_ as { resolve?: (id: string) => unknown }
-      ).resolve
-      const service =
-        typeof resolve === "function"
-          ? (resolve(SHOP_SETTING_MODULE) as ShopSettingModuleService)
-          : undefined
+      const service = this.cradleGet<ShopSettingModuleService>(
+        SHOP_SETTING_MODULE
+      )
       if (service) {
         const rows = await service.listShopSettings(
           { key: "storefront" },
@@ -138,15 +154,9 @@ class TbankPaymentProviderService extends AbstractPaymentProvider<TbankOptions> 
 
   private async loadCart(cartId: string) {
     try {
-      const resolve = (
-        this.container_ as { resolve?: (id: string) => unknown }
-      ).resolve
-      const query =
-        typeof resolve === "function"
-          ? (resolve(ContainerRegistrationKeys.QUERY) as {
-              graph: (opts: unknown) => Promise<{ data?: unknown[] }>
-            })
-          : undefined
+      const query = this.cradleGet<{
+        graph: (opts: unknown) => Promise<{ data?: unknown[] }>
+      }>(ContainerRegistrationKeys.QUERY)
       if (!query?.graph) return null
       const { data } = await query.graph({
         entity: "cart",
@@ -179,19 +189,16 @@ class TbankPaymentProviderService extends AbstractPaymentProvider<TbankOptions> 
     const metadata = (cart?.metadata || {}) as Record<string, unknown>
     const current = String(metadata.shop_number || "")
     if (isShopNumber(current)) return current
-    const resolve = (
-      this.container_ as { resolve?: (id: string) => unknown }
-    ).resolve
-    if (typeof resolve !== "function") return null
     try {
+      const container = this.asContainer()
       const number = await allocateShopNumber(
-        this.container_ as unknown as import("@medusajs/framework").MedusaContainer,
+        container as unknown as import("@medusajs/framework").MedusaContainer,
         "cart",
         cartId
       )
-      const cartModule = resolve(Modules.CART) as {
+      const cartModule = this.cradleGet<{
         updateCarts?: (data: unknown) => Promise<unknown>
-      }
+      }>(Modules.CART)
       if (typeof cartModule?.updateCarts === "function") {
         await cartModule.updateCarts({
           id: cartId,
