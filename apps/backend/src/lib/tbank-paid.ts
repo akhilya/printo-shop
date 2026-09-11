@@ -15,6 +15,22 @@ export function isTbankPaidStatus(status?: string | null) {
   return mapped === "captured" || mapped === "authorized"
 }
 
+export function isTbankClosedStatus(status?: string | null) {
+  return mapTbankStatus(status) === "canceled"
+}
+
+export function isAlreadyClosedTbankError(error: unknown) {
+  const message =
+    error instanceof Error
+      ? error.message
+      : typeof error === "string"
+        ? error
+        : ""
+  return /неверный статус|already (cancel|refund|revers)|платеж уже|ErrorCode.?8\b/i.test(
+    message
+  )
+}
+
 export function assertTbankPaidState(
   state: Pick<TbankApiResponse, "Status" | "Amount">,
   expectedKopecks: number

@@ -1,17 +1,27 @@
 import { MedusaContainer } from "@medusajs/framework"
-import { ContainerRegistrationKeys, Modules } from "@medusajs/framework/utils"
+import { ContainerRegistrationKeys, MedusaError, Modules } from "@medusajs/framework/utils"
 import { refundPaymentWorkflow } from "@medusajs/medusa/core-flows"
+import { isAlreadyClosedTbankError } from "./tbank-paid"
 
-function money(value: unknown): number {
-  if (typeof value === "number" && Number.isFinite(value)) return value
-  if (value && typeof value === "object") {
-    const rec = value as { numeric?: unknown; value?: unknown }
-    if (typeof rec.numeric === "number") return rec.numeric
-    const fromValue = Number(rec.value)
-    if (Number.isFinite(fromValue)) return fromValue
+export function errorText(error: unknown): string {
+  if (!error) return "cancel_failed"
+  if (typeof error === "string" && error.trim()) return error.trim()
+  if (error instanceof Error && error.message) return error.message
+  if (typeof error === "object") {
+    const rec = error as Record<string, unknown>
+    if (typeof rec.message === "string" && rec.message.trim()) {
+      return rec.message.trim()
+    }
+    if (rec.error && rec.error !== error) {
+      const nested = errorText(rec.error)
+      if (nested !== "cancel_failed") return nested
+    }
+    if (Array.isArray(rec.errors) && rec.errors[0]) {
+      const nested = errorText(rec.errors[0])
+      if (nested !== "cancel_failed") return nested
+    }
   }
-  const numeric = Number(value)
-  return Number.isFinite(numeric) ? numeric : 0
+  return "cancel_failed"
 }
 
 function flattenPayments(order: Record<string, unknown>) {
@@ -22,6 +32,16 @@ function flattenPayments(order: Record<string, unknown>) {
     payments.push(...rows)
   }
   return payments
+}
+
+function paymentCaptured(payment: Record<string, unknown>) {
+  const captures = (payment.captures as unknown[]) || []
+  return captures.length > 0 || Boolean(payment.captured_at)
+}
+
+function paymentAlreadyRefunded(payment: Record<string, unknown>) {
+  const refunds = (payment.refunds as unknown[]) || []
+  return refunds.length > 0
 }
 
 export async function cancelShopOrder(
@@ -37,20 +57,28 @@ export async function cancelShopOrder(
       "status",
       "payment_collections.payments.id",
       "payment_collections.payments.amount",
+      "payment_collections.payments.captured_at",
       "payment_collections.payments.captures.id",
       "payment_collections.payments.captures.amount",
+      "payment_collections.payments.refunds.id",
       "payment_collections.payments.refunds.amount",
     ],
     filters: { id: orderId },
   })
   const order = ((data ?? [])[0] || null) as Record<string, unknown> | null
   if (!order) {
-    throw new Error("order_not_found")
+    throw new MedusaError(MedusaError.Types.NOT_FOUND, "order_not_found")
   }
   if (order.status === "canceled") {
     return { id: orderId, canceled: true, refunded: false }
   }
 
+  let logger: { warn?: (message: string) => void } = {}
+  try {
+    logger = container.resolve(ContainerRegistrationKeys.LOGGER)
+  } catch {
+    // Logging is optional during cancel.
+  }
   const paymentModule = container.resolve(Modules.PAYMENT) as {
     cancelPayment?: (id: string) => Promise<unknown>
   }
@@ -58,13 +86,28 @@ export async function cancelShopOrder(
   for (const payment of flattenPayments(order)) {
     const id = String(payment.id || "")
     if (!id) continue
-    const captures = (payment.captures as unknown[]) || []
-    if (refund && captures.length) {
-      await refundPaymentWorkflow(container).run({
-        input: { payment_id: id },
-      })
-      refunded = true
-    } else if (!captures.length && paymentModule.cancelPayment) {
+    const captured = paymentCaptured(payment)
+    if (refund && captured) {
+      if (paymentAlreadyRefunded(payment)) {
+        refunded = true
+        continue
+      }
+      try {
+        await refundPaymentWorkflow(container).run({
+          input: { payment_id: id },
+        })
+        refunded = true
+      } catch (error) {
+        const message = errorText(error)
+        if (isAlreadyClosedTbankError(error) || isAlreadyClosedTbankError(message)) {
+          refunded = true
+          continue
+        }
+        logger.warn?.(
+          `Refund failed while canceling ${orderId} payment ${id}: ${message}`
+        )
+      }
+    } else if (!captured && paymentModule.cancelPayment) {
       try {
         await paymentModule.cancelPayment(id)
       } catch {

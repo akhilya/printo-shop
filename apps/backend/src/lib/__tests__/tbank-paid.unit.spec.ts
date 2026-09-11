@@ -1,6 +1,8 @@
 import { MedusaError } from "@medusajs/framework/utils"
 import {
   assertTbankPaidState,
+  isAlreadyClosedTbankError,
+  isTbankClosedStatus,
   isTbankPaidStatus,
   tbankPaymentId,
   tbankSessionFromCart,
@@ -13,6 +15,28 @@ describe("isTbankPaidStatus", () => {
     expect(isTbankPaidStatus("NEW")).toBe(false)
     expect(isTbankPaidStatus("FORM_SHOWED")).toBe(false)
     expect(isTbankPaidStatus("REJECTED")).toBe(false)
+  })
+})
+
+describe("isTbankClosedStatus", () => {
+  it("treats refunded and canceled bank statuses as closed", () => {
+    expect(isTbankClosedStatus("CANCELED")).toBe(true)
+    expect(isTbankClosedStatus("REFUNDED")).toBe(true)
+    expect(isTbankClosedStatus("PARTIAL_REFUNDED")).toBe(true)
+    expect(isTbankClosedStatus("REVERSED")).toBe(true)
+    expect(isTbankClosedStatus("CONFIRMED")).toBe(false)
+  })
+})
+
+describe("isAlreadyClosedTbankError", () => {
+  it("matches T-Bank invalid-status replies", () => {
+    expect(
+      isAlreadyClosedTbankError(new Error("Неверный статус транзакции — 8"))
+    ).toBe(true)
+    expect(isAlreadyClosedTbankError("Payment already canceled")).toBe(true)
+    expect(isAlreadyClosedTbankError(new Error("Missing T-Bank PaymentId"))).toBe(
+      false
+    )
   })
 })
 

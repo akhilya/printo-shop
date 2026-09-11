@@ -2,7 +2,7 @@ import type {
   AuthenticatedMedusaRequest,
   MedusaResponse,
 } from "@medusajs/framework/http"
-import { cancelShopOrder } from "../../../../../../lib/shop-order"
+import { cancelShopOrder, errorText } from "../../../../../../lib/shop-order"
 import { getDelegatOrder } from "../../../../../../lib/delegat-bridge/orders"
 
 export async function POST(
@@ -17,7 +17,7 @@ export async function POST(
   } catch (error) {
     res.status(400).json({
       success: false,
-      error: error instanceof Error ? error.message : "cancel_failed",
+      error: errorText(error),
     })
   }
 }

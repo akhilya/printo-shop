@@ -43,6 +43,8 @@ import {
 } from "./receipt-lines"
 import {
   assertTbankPaidState,
+  isAlreadyClosedTbankError,
+  isTbankClosedStatus,
   isTbankPaidStatus,
   tbankPaymentId,
 } from "../../lib/tbank-paid"
@@ -367,46 +369,72 @@ class TbankPaymentProviderService extends AbstractPaymentProvider<TbankOptions> 
   }
 
   async cancelPayment(input: CancelPaymentInput): Promise<CancelPaymentOutput> {
-    const paymentId = input.data?.PaymentId ?? input.data?.id
+    const paymentId = tbankPaymentId(input.data as Record<string, unknown>)
     if (!paymentId) {
       return { data: input.data }
     }
-    const result = await (await this.bank()).cancel(paymentId as string | number)
-    return { data: { ...input.data, ...result, id: String(paymentId) } }
+    const client = await this.bank()
+    try {
+      const state = await client.getState(paymentId)
+      if (isTbankClosedStatus(state.Status)) {
+        return { data: { ...input.data, ...state, id: String(paymentId) } }
+      }
+    } catch {
+      // Cancel still attempts the bank call below.
+    }
+    try {
+      const result = await client.cancel(paymentId)
+      return { data: { ...input.data, ...result, id: String(paymentId) } }
+    } catch (error) {
+      if (isAlreadyClosedTbankError(error)) {
+        return { data: { ...input.data, id: String(paymentId) } }
+      }
+      throw error
+    }
   }
 
   async refundPayment(input: RefundPaymentInput): Promise<RefundPaymentOutput> {
-    const paymentId = input.data?.PaymentId ?? input.data?.id
+    const paymentId = tbankPaymentId(input.data as Record<string, unknown>)
     if (!paymentId) {
       throw new MedusaError(MedusaError.Types.INVALID_DATA, "Missing T-Bank PaymentId")
     }
+    const options = await this.liveOptions()
+    const client = this.clientFor(options)
+    try {
+      const state = await client.getState(paymentId)
+      if (isTbankClosedStatus(state.Status)) {
+        return { data: { ...input.data, ...state, id: String(paymentId) } }
+      }
+    } catch {
+      // Refund still attempts Cancel below.
+    }
     const amountKopecks = toKopecks(input.amount)
     const stored = input.data?.receipt as Record<string, unknown> | undefined
-    const receipt =
-      stored && amountKopecks
-        ? {
-            ...stored,
-            Items: [
-              {
-                Name: "Оплата заказа",
-                Price: amountKopecks,
-                Quantity: 1,
-                Amount: amountKopecks,
-                Tax:
-                  (stored.Items as Array<Record<string, unknown>> | undefined)?.[0]
-                    ?.Tax || "none",
-                PaymentMethod: "full_payment",
-                PaymentObject: "commodity",
-              },
-            ],
-          }
-        : undefined
-    const result = await (await this.bank()).cancel(
-      paymentId as string | number,
-      amountKopecks,
-      receipt
-    )
-    return { data: { ...input.data, ...result, id: String(paymentId) } }
+    const receipt = amountKopecks
+      ? client.receiptPayload({
+          amountKopecks,
+          description: "Возврат оплаты",
+          customerEmail:
+            typeof stored?.Email === "string" ? stored.Email : undefined,
+          customerPhone:
+            typeof stored?.Phone === "string" ? stored.Phone : undefined,
+          taxation: options.taxation,
+          vat: options.vat,
+        })
+      : undefined
+    try {
+      const result = await client.cancel(
+        paymentId,
+        amountKopecks > 0 ? amountKopecks : undefined,
+        receipt
+      )
+      return { data: { ...input.data, ...result, id: String(paymentId) } }
+    } catch (error) {
+      if (isAlreadyClosedTbankError(error)) {
+        return { data: { ...input.data, id: String(paymentId) } }
+      }
+      throw error
+    }
   }
 
   async retrievePayment(

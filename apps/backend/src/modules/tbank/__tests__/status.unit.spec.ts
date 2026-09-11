@@ -6,6 +6,8 @@ describe("T-Bank status mapping", () => {
     expect(mapTbankStatus("AUTHORIZED")).toBe("authorized")
     expect(mapTbankStatus("REJECTED")).toBe("failed")
     expect(mapTbankStatus("CANCELED")).toBe("canceled")
+    expect(mapTbankStatus("REFUNDED")).toBe("canceled")
+    expect(mapTbankStatus("PARTIAL_REFUNDED")).toBe("canceled")
     expect(mapTbankStatus("NEW")).toBe("pending")
   })
 

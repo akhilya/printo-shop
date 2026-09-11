@@ -4,6 +4,10 @@ import { createShippingOptionsWorkflow } from "@medusajs/medusa/core-flows"
 
 const OPTION_NAME = "Ozon Доставка"
 
+type ShippingOptionPrice =
+  | { currency_code: string; amount: number }
+  | { region_id: string; amount: number }
+
 function money(value: unknown) {
   const numeric = Number(value)
   return Number.isFinite(numeric) ? numeric : null
@@ -11,13 +15,7 @@ function money(value: unknown) {
 
 export async function ensureOzonShipping(container: MedusaContainer) {
   const query = container.resolve(ContainerRegistrationKeys.QUERY)
-  const fulfillment = container.resolve(Modules.FULFILLMENT) as {
-    updateShippingOptions?: (data: unknown) => Promise<unknown>
-    listShippingOptions?: (
-      filters?: unknown,
-      config?: unknown
-    ) => Promise<Array<Record<string, unknown>>>
-  }
+  const fulfillment = container.resolve(Modules.FULFILLMENT)
   const { data: options } = await query.graph({
     entity: "shipping_option",
     fields: ["id", "name", "provider_id", "service_zone_id", "shipping_profile_id"],
@@ -26,9 +24,8 @@ export async function ensureOzonShipping(container: MedusaContainer) {
   const existing =
     rows.find((row) => String(row.name || "").toLowerCase().includes("ozon")) ||
     rows[0]
-  if (existing?.id && typeof fulfillment.updateShippingOptions === "function") {
-    await fulfillment.updateShippingOptions({
-      id: String(existing.id),
+  if (existing?.id) {
+    await fulfillment.updateShippingOptions(String(existing.id), {
       name: OPTION_NAME,
     })
     await zeroShippingPrices(container, String(existing.id))
@@ -53,12 +50,12 @@ export async function ensureOzonShipping(container: MedusaContainer) {
   if (!profileId || !zoneId) {
     return null
   }
-  const prices: Array<Record<string, unknown>> = [
-    { currency_code: "rub", amount: 0 },
-  ]
-  if (region.id) {
-    prices.push({ region_id: region.id, amount: 0 })
-  }
+  const prices: ShippingOptionPrice[] = region.id
+    ? [
+        { currency_code: "rub", amount: 0 },
+        { region_id: String(region.id), amount: 0 },
+      ]
+    : [{ currency_code: "rub", amount: 0 }]
   await createShippingOptionsWorkflow(container).run({
     input: [
       {
@@ -100,7 +97,7 @@ async function zeroShippingPrices(container: MedusaContainer, optionId: string) 
   })
   const option = ((data ?? [])[0] || null) as Record<string, unknown> | null
   const prices = (option?.prices as Array<Record<string, unknown>>) || []
-  const pricing = container.resolve(Modules.PRICING) as {
+  const pricing = container.resolve(Modules.PRICING) as unknown as {
     updatePrices?: (data: unknown) => Promise<unknown>
   }
   const updates = prices

@@ -17,6 +17,8 @@ export function mapTbankStatus(status?: string | null): MedusaPaymentStatus {
     case "CANCELED":
     case "REVERSED":
     case "PARTIAL_REVERSED":
+    case "REFUNDED":
+    case "PARTIAL_REFUNDED":
       return "canceled"
     default:
       return "pending"
