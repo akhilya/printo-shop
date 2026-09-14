@@ -3,7 +3,12 @@ import { onMounted, ref } from "vue"
 import SiteHeader from "./components/SiteHeader.vue"
 import CartDrawer from "./components/CartDrawer.vue"
 import { loadCart } from "./lib/cart.js"
-import { legalPages, loadLegalPages } from "./lib/legal.js"
+import {
+  legalDocumentPages,
+  legalPages,
+  loadLegalPages,
+  usefulExtraPages,
+} from "./lib/legal.js"
 import { loadCatalogSales } from "./lib/sales.js"
 import { loadShopStatus, shopState } from "./lib/shop.js"
 
@@ -35,18 +40,35 @@ onMounted(async () => {
       <router-view />
     </main>
     <footer class="footer">
-      <div class="bar footer-links">
-        <router-link to="/products">Товары</router-link>
-        <router-link to="/collections">Коллекции</router-link>
-        <router-link to="/custom-order">Индивидуальный заказ</router-link>
-        <router-link to="/order">Заказ</router-link>
-        <router-link
-          v-for="page in legalPages"
-          :key="page.slug"
-          :to="`/${page.slug}`"
-        >
-          {{ page.title }}
-        </router-link>
+      <div class="bar footer-grid">
+        <nav class="footer-col" aria-label="Магазин">
+          <p class="footer-label">Магазин</p>
+          <div class="footer-links">
+            <router-link to="/products">Товары</router-link>
+            <router-link to="/collections">Коллекции</router-link>
+            <router-link to="/custom-order">Индивидуальный заказ</router-link>
+            <router-link to="/order">Заказ</router-link>
+            <router-link
+              v-for="page in usefulExtraPages(legalPages)"
+              :key="page.slug"
+              :to="`/${page.slug}`"
+            >
+              {{ page.title }}
+            </router-link>
+          </div>
+        </nav>
+        <nav class="footer-col" aria-label="Документы">
+          <p class="footer-label">Документы</p>
+          <div class="footer-links">
+            <router-link
+              v-for="page in legalDocumentPages(legalPages)"
+              :key="page.slug"
+              :to="`/${page.slug}`"
+            >
+              {{ page.title }}
+            </router-link>
+          </div>
+        </nav>
       </div>
     </footer>
     <CartDrawer />

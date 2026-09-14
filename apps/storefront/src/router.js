@@ -45,6 +45,7 @@ export const router = createRouter({
       },
     },
     { path: "/delivery", component: LegalPage },
+    { path: "/returns", component: LegalPage },
     { path: "/offer", component: LegalPage },
     { path: "/contacts", component: LegalPage },
     { path: "/privacy", component: LegalPage },

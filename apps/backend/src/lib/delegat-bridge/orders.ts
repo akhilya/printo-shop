@@ -3,7 +3,8 @@ import { ContainerRegistrationKeys } from "@medusajs/framework/utils"
 import {
   mapDelegatOrderStatus,
   mapMedusaOrderStatus,
-} from "../shop-fulfillment"
+  shopFulfillmentOf,
+} from "../shop-fulfillment-status"
 
 export { mapMedusaOrderStatus }
 
@@ -33,6 +34,10 @@ const ORDER_FIELDS = [
   "shipping_address.city",
   "shipping_address.postal_code",
   "metadata",
+  "fulfillments.id",
+  "fulfillments.canceled_at",
+  "fulfillments.shipped_at",
+  "fulfillments.delivered_at",
   "payment_collections.status",
   "payment_collections.payments.captured_at",
   "payment_collections.payments.captures.id",
@@ -89,6 +94,14 @@ export function presentDelegatOrder(order: Record<string, unknown>) {
       item.quantity > 1 ? `${item.name} ×${item.quantity}` : item.name
     )
     .join(", ")
+  const fulfillment = mapDelegatOrderStatus(order)
+  const hasLabel = Boolean(
+    metadata.ozon_label_url ||
+      (metadata.ozon_posting_number &&
+        (fulfillment === "awaiting_deliver" ||
+          fulfillment === "delivering" ||
+          fulfillment === "delivered"))
+  )
   return {
     external_id: String(order.id || ""),
     display_id: metadata.shop_number
@@ -96,14 +109,22 @@ export function presentDelegatOrder(order: Record<string, unknown>) {
       : order.display_id != null
         ? String(order.display_id)
         : null,
-    status: mapDelegatOrderStatus(order),
+    status: fulfillment,
     raw_status: [
       String(order.status || ""),
-      (order.metadata as Record<string, unknown> | undefined)?.shop_fulfillment,
+      shopFulfillmentOf(order),
+      metadata.ozon_posting_status,
     ]
       .filter(Boolean)
       .join(":"),
     channel: "shop",
+    has_label: hasLabel,
+    ozon_posting_number: metadata.ozon_posting_number
+      ? String(metadata.ozon_posting_number)
+      : null,
+    ozon_tracking: metadata.ozon_tracking
+      ? String(metadata.ozon_tracking)
+      : null,
     created_at: order.created_at || null,
     updated_at: order.updated_at || null,
     currency: String(order.currency_code || "rub").toUpperCase(),
@@ -130,7 +151,8 @@ export async function listDelegatOrders(
   else if (
     query.status === "awaiting_pack" ||
     query.status === "awaiting_deliver" ||
-    query.status === "delivering"
+    query.status === "delivering" ||
+    query.status === "returned"
   ) {
     filters.status = ["completed", "pending"]
   } else if (query.status === "unpaid") filters.status = "pending"
@@ -145,6 +167,7 @@ export async function listDelegatOrders(
     query.status === "delivering" ||
     query.status === "awaiting_pack" ||
     query.status === "awaiting_deliver" ||
+    query.status === "returned" ||
     query.status === "unpaid"
   ) {
     items = items.filter((item) => item.status === query.status)

@@ -14,6 +14,7 @@ describe("mapMedusaOrderStatus", () => {
     expect(mapMedusaOrderStatus("completed", "awaiting_deliver", true)).toBe(
       "awaiting_deliver"
     )
+    expect(mapMedusaOrderStatus("completed", "returned", true)).toBe("returned")
   })
 })
 
@@ -98,6 +99,61 @@ describe("presentDelegatOrder", () => {
       items: [],
     })
     expect(presented.status).toBe("delivering")
+  })
+
+  it("prefers native Medusa fulfillment over legacy metadata", () => {
+    const presented = presentDelegatOrder({
+      id: "order_native",
+      status: "completed",
+      metadata: { shop_fulfillment: "awaiting_pack", shop_number: "1234567890" },
+      fulfillments: [{ id: "ful_1", shipped_at: "2026-09-14T10:00:00Z" }],
+      items: [],
+    })
+    expect(presented.status).toBe("delivering")
+  })
+
+  it("maps an Ozon return onto returned", () => {
+    const presented = presentDelegatOrder({
+      id: "order_return",
+      status: "completed",
+      metadata: {
+        shop_number: "1234567890",
+        ozon_posting_status: "returned",
+      },
+      items: [],
+    })
+    expect(presented.status).toBe("returned")
+  })
+
+  it("keeps an unclaimed pickup as returned even if Ozon says cancelled", () => {
+    const presented = presentDelegatOrder({
+      id: "order_unclaimed",
+      status: "completed",
+      metadata: {
+        shop_number: "1234567890",
+        ozon_posting_status: "cancelled",
+        ozon_return_kind: "unclaimed",
+      },
+      fulfillments: [{ id: "ful_1", shipped_at: "2026-09-14T10:00:00Z" }],
+      items: [],
+    })
+    expect(presented.status).toBe("returned")
+  })
+
+  it("flags a packed Ozon label", () => {
+    const presented = presentDelegatOrder({
+      id: "order_label",
+      status: "completed",
+      metadata: {
+        shop_number: "1234567890",
+        shop_fulfillment: "awaiting_deliver",
+        ozon_posting_number: "123-1",
+        ozon_label_url: "https://shop/static/ozon-label-123-1.pdf",
+      },
+      items: [],
+    })
+    expect(presented.has_label).toBe(true)
+    expect(presented.ozon_posting_number).toBe("123-1")
   })
 
   it("prefixes Ozon PVZ onto the address", () => {

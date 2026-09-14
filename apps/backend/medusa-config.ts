@@ -51,6 +51,9 @@ module.exports = defineConfig({
       resolve: "./src/modules/shop-setting",
     },
     {
+      resolve: "./src/modules/shop-event",
+    },
+    {
       resolve: "@medusajs/medusa/file",
       options: {
         providers: [

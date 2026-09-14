@@ -1,3 +1,12 @@
+import { MedusaError } from "@medusajs/framework/utils"
+
+function ozonHttpError(status: number, text: string) {
+  return new MedusaError(
+    MedusaError.Types.UNEXPECTED_STATE,
+    `Ozon HTTP ${status}: ${text.slice(0, 240)}`
+  )
+}
+
 export type OzonPoint = {
   id: string
   name: string
@@ -6,6 +15,16 @@ export type OzonPoint = {
   lon: number
   schedule?: string
   city?: string
+}
+
+export type OzonMapCluster = {
+  count: number
+  lat: number
+  lon: number
+  south?: number
+  west?: number
+  north?: number
+  east?: number
 }
 
 export type OzonCreds = {
@@ -40,7 +59,7 @@ export function normalizeOzonPhone(phone: string) {
   return digits
 }
 
-function asRecord(value: unknown): Record<string, unknown> | null {
+export function asRecord(value: unknown): Record<string, unknown> | null {
   return value && typeof value === "object" && !Array.isArray(value)
     ? (value as Record<string, unknown>)
     : null
@@ -72,12 +91,142 @@ function coordLon(coord: unknown) {
   )
 }
 
-function firstText(...values: unknown[]) {
+export function firstText(...values: unknown[]) {
   for (const value of values) {
     const text = String(value ?? "").trim()
     if (text) return text
   }
   return ""
+}
+
+function clusterViewport(rec: Record<string, unknown>) {
+  const view = asRecord(rec.viewport)
+  if (!view) return {}
+  const bottom = asRecord(view.left_bottom) || asRecord(view.south_west)
+  const top = asRecord(view.right_top) || asRecord(view.north_east)
+  const south = firstNumber(bottom?.lat, bottom?.latitude, view.south)
+  const west = firstNumber(bottom?.long, bottom?.lon, bottom?.longitude, view.west)
+  const north = firstNumber(top?.lat, top?.latitude, view.north)
+  const east = firstNumber(top?.long, top?.lon, top?.longitude, view.east)
+  if (
+    south == null ||
+    west == null ||
+    north == null ||
+    east == null ||
+    north <= south ||
+    east <= west
+  ) {
+    return {}
+  }
+  return { south, west, north, east }
+}
+
+export function parseOzonClusters(raw: unknown): OzonMapCluster[] {
+  const out: OzonMapCluster[] = []
+  const stack: unknown[] = [raw]
+  while (stack.length) {
+    const cur = stack.pop()
+    if (!cur) continue
+    if (Array.isArray(cur)) {
+      for (const item of cur) stack.push(item)
+      continue
+    }
+    const rec = asRecord(cur)
+    if (!rec) continue
+    const count = firstNumber(rec.points_count, rec.count)
+    const coord = rec.coordinate || rec.coordinates || rec.location
+    const lat = firstNumber(rec.lat, rec.latitude, coordLat(coord))
+    const lon = firstNumber(
+      rec.lon,
+      rec.lng,
+      rec.longitude,
+      rec.long,
+      coordLon(coord)
+    )
+    const ids = Array.isArray(rec.map_point_ids) ? rec.map_point_ids : []
+    const isBucket =
+      count != null &&
+      count > 1 &&
+      rec.map_point_id == null &&
+      rec.point_id == null &&
+      lat != null &&
+      lon != null
+    if (isBucket) {
+      out.push({
+        count,
+        lat,
+        lon,
+        ...clusterViewport(rec),
+      })
+      continue
+    }
+    if (count != null && count <= 1 && ids.length <= 1) {
+      for (const value of Object.values(rec)) {
+        if (value && typeof value === "object") stack.push(value)
+      }
+      continue
+    }
+    if (Array.isArray(rec.clusters)) stack.push(rec.clusters)
+    else {
+      for (const value of Object.values(rec)) {
+        if (value && typeof value === "object") stack.push(value)
+      }
+    }
+  }
+  return out
+}
+
+export const PVZ_PIN_ZOOM = 15
+
+export function resolveOzonMapLayers(
+  points: OzonPoint[],
+  clusters: OzonMapCluster[],
+  zoom: number
+) {
+  const z = Number(zoom)
+  if (Number.isFinite(z) && z >= PVZ_PIN_ZOOM && points.length) {
+    return { points, clusters: [] as OzonMapCluster[] }
+  }
+  return { points, clusters }
+}
+
+export function clusterOzonPoints(
+  points: OzonPoint[],
+  zoom: number,
+  cell?: number
+) {
+  const z = Number.isFinite(zoom) ? zoom : 12
+  if (z >= PVZ_PIN_ZOOM || points.length < 2) {
+    return { points, clusters: [] as OzonMapCluster[] }
+  }
+  const size = cell ?? Math.max(0.003, 0.42 / 2 ** Math.max(0, z - 6))
+  const buckets = new Map<string, OzonPoint[]>()
+  for (const point of points) {
+    const key = `${Math.round(point.lat / size)}:${Math.round(point.lon / size)}`
+    const list = buckets.get(key)
+    if (list) list.push(point)
+    else buckets.set(key, [point])
+  }
+  const singles: OzonPoint[] = []
+  const clusters: OzonMapCluster[] = []
+  for (const group of buckets.values()) {
+    if (group.length === 1) {
+      singles.push(group[0])
+      continue
+    }
+    const lat = group.reduce((sum, item) => sum + item.lat, 0) / group.length
+    const lon = group.reduce((sum, item) => sum + item.lon, 0) / group.length
+    clusters.push({
+      count: group.length,
+      lat,
+      lon,
+      south: Math.min(...group.map((item) => item.lat)),
+      north: Math.max(...group.map((item) => item.lat)),
+      west: Math.min(...group.map((item) => item.lon)),
+      east: Math.max(...group.map((item) => item.lon)),
+    })
+  }
+  return { points: singles, clusters }
 }
 
 export function parseOzonPoints(raw: unknown): OzonPoint[] {
@@ -170,6 +319,24 @@ export function nearestOzonPoints(
       const db = (b.lat - center.lat) ** 2 + (b.lon - center.lon) ** 2
       return da - db
     })
+    .slice(0, limit)
+}
+
+export function clustersInBounds(
+  clusters: OzonMapCluster[],
+  bounds: OzonBounds,
+  limit = 80
+) {
+  const padLat = Math.max((bounds.north - bounds.south) * 0.02, 0.002)
+  const padLon = Math.max((bounds.east - bounds.west) * 0.02, 0.002)
+  return clusters
+    .filter(
+      (item) =>
+        item.lat >= bounds.south - padLat &&
+        item.lat <= bounds.north + padLat &&
+        item.lon >= bounds.west - padLon &&
+        item.lon <= bounds.east + padLon
+    )
     .slice(0, limit)
 }
 
@@ -351,12 +518,24 @@ export async function quoteOzonDelivery(input: {
 
 export function extractOzonCreateIds(raw: unknown) {
   const rec = asRecord(raw) || {}
+  const result = asRecord(rec.result) || rec
   const nested = JSON.stringify(raw ?? {})
   const orderNumber =
-    firstText(rec.order_number, rec.orderNumber) ||
+    firstText(
+      result.order_number,
+      result.orderNumber,
+      rec.order_number,
+      rec.orderNumber
+    ) ||
     (nested.match(/"order_number"\s*:\s*"([^"]+)"/i) || [])[1] ||
     ""
-  const postingRaw = rec.posting_number ?? rec.postingNumber ?? rec.postings
+  const postingRaw =
+    result.posting_number ??
+    result.postingNumber ??
+    result.postings ??
+    rec.posting_number ??
+    rec.postingNumber ??
+    rec.postings
   const posting =
     firstText(
       Array.isArray(postingRaw) ? postingRaw[0] : postingRaw
@@ -369,7 +548,7 @@ export function extractOzonCreateIds(raw: unknown) {
   }
 }
 
-async function readJson(response: Response) {
+export async function readJson(response: Response) {
   const text = await response.text()
   let json: unknown = null
   try {
@@ -378,12 +557,12 @@ async function readJson(response: Response) {
     json = { raw: text }
   }
   if (!response.ok) {
-    throw new Error(`Ozon HTTP ${response.status}: ${text.slice(0, 240)}`)
+    throw ozonHttpError(response.status, text)
   }
   return json
 }
 
-async function sellerPost(
+export async function sellerRequest(
   creds: OzonCreds,
   path: string,
   body: Record<string, unknown>
@@ -397,10 +576,31 @@ async function sellerPost(
     },
     body: JSON.stringify(body),
   })
-  return readJson(response)
+  const buffer = Buffer.from(await response.arrayBuffer())
+  const contentType = String(response.headers.get("content-type") || "")
+  return { ok: response.ok, status: response.status, contentType, buffer }
 }
 
-async function rocketToken(creds: OzonCreds) {
+export async function sellerPost(
+  creds: OzonCreds,
+  path: string,
+  body: Record<string, unknown>
+) {
+  const raw = await sellerRequest(creds, path, body)
+  const text = raw.buffer.toString("utf8")
+  let json: unknown = null
+  try {
+    json = text ? JSON.parse(text) : null
+  } catch {
+    json = { raw: text }
+  }
+  if (!raw.ok) {
+    throw ozonHttpError(raw.status, text)
+  }
+  return json
+}
+
+export async function rocketToken(creds: OzonCreds) {
   const response = await fetch(
     "https://xapi.ozon.ru/principal-auth-api/connect/token",
     {
@@ -415,11 +615,16 @@ async function rocketToken(creds: OzonCreds) {
   )
   const json = (await readJson(response)) as { access_token?: string }
   const token = String(json.access_token || "").trim()
-  if (!token) throw new Error("Ozon Rocket: нет access_token")
+  if (!token) {
+    throw new MedusaError(
+      MedusaError.Types.UNAUTHORIZED,
+      "Ozon Rocket: нет access_token"
+    )
+  }
   return token
 }
 
-async function rocketRequest(
+export async function rocketRequestRaw(
   token: string,
   method: string,
   path: string,
@@ -436,7 +641,29 @@ async function rocketRequest(
       body: body ? JSON.stringify(body) : undefined,
     }
   )
-  return readJson(response)
+  const buffer = Buffer.from(await response.arrayBuffer())
+  const contentType = String(response.headers.get("content-type") || "")
+  return { ok: response.ok, status: response.status, contentType, buffer }
+}
+
+export async function rocketRequest(
+  token: string,
+  method: string,
+  path: string,
+  body?: Record<string, unknown>
+) {
+  const raw = await rocketRequestRaw(token, method, path, body)
+  const text = raw.buffer.toString("utf8")
+  let json: unknown = null
+  try {
+    json = text ? JSON.parse(text) : null
+  } catch {
+    json = { raw: text }
+  }
+  if (!raw.ok) {
+    throw ozonHttpError(raw.status, text)
+  }
+  return json
 }
 
 export async function geocodeCity(city: string) {
@@ -487,7 +714,7 @@ async function loadSellerPoints(
   bounds: OzonBounds,
   center: { lat: number; lon: number },
   zoom: number
-) {
+): Promise<{ points: OzonPoint[]; clusters: OzonMapCluster[] }> {
   try {
     const raw = await sellerPost(creds, "/v1/delivery/map", {
       zoom: Math.round(Math.min(19, Math.max(0, zoom))),
@@ -502,8 +729,20 @@ async function loadSellerPoints(
         },
       },
     })
-    const mapped = pointsInBounds(parseOzonPoints(raw), bounds)
-    if (mapped.length) return enrichSellerPoints(creds, mapped)
+    const points = pointsInBounds(parseOzonPoints(raw), bounds)
+    const clusters = clustersInBounds(parseOzonClusters(raw), bounds)
+    if (zoom >= PVZ_PIN_ZOOM && points.length) {
+      return {
+        points: await enrichSellerPoints(creds, points),
+        clusters: [],
+      }
+    }
+    if (zoom < PVZ_PIN_ZOOM && (points.length || clusters.length)) {
+      return {
+        points: await enrichSellerPoints(creds, points),
+        clusters,
+      }
+    }
   } catch {
     // Fall through to the full list, then clip to the viewport.
   }
@@ -511,13 +750,22 @@ async function loadSellerPoints(
     latitude: center.lat,
     longitude: center.lon,
   })
-  return enrichSellerPoints(creds, pointsInBounds(parseOzonPoints(raw), bounds))
+  return {
+    points: await enrichSellerPoints(
+      creds,
+      pointsInBounds(parseOzonPoints(raw), bounds)
+    ),
+    clusters: [],
+  }
 }
 
 async function loadRocketPoints(creds: OzonCreds, bounds: OzonBounds) {
   const token = await rocketToken(creds)
   const raw = await rocketRequest(token, "GET", "/v1/delivery/variants")
-  return pointsInBounds(parseOzonPoints(raw), bounds)
+  return {
+    points: pointsInBounds(parseOzonPoints(raw), bounds),
+    clusters: [] as OzonMapCluster[],
+  }
 }
 
 export async function loadOzonPoints(
@@ -548,6 +796,7 @@ export async function loadOzonPoints(
       return {
         configured: Boolean(creds),
         points: [] as OzonPoint[],
+        clusters: [] as OzonMapCluster[],
         center: null,
         message: "Не нашли это место.",
       }
@@ -566,20 +815,11 @@ export async function loadOzonPoints(
     bounds = boundsFromCenter(center)
   }
   const zoom = Number(input.zoom)
-  if (Number.isFinite(zoom) && zoom < 8) {
-    return {
-      configured: Boolean(creds),
-      points: [] as OzonPoint[],
-      center,
-      message: creds
-        ? "Приблизьте карту, чтобы показать пункты Ozon."
-        : "Подключите Ozon Доставку в настройках магазина.",
-    }
-  }
   if (!creds) {
     return {
       configured: false,
       points: [] as OzonPoint[],
+      clusters: [] as OzonMapCluster[],
       center,
       message: "Подключите Ozon Доставку в настройках магазина.",
     }
@@ -596,26 +836,66 @@ export async function loadOzonPoints(
         // Availability check is best-effort until the cabinet is enabled.
       }
     }
-    const points = isOzonRocketCreds(creds)
+    const loaded = isOzonRocketCreds(creds)
       ? await loadRocketPoints(creds, bounds)
-      : await loadSellerPoints(creds, bounds, center, Number.isFinite(zoom) ? zoom : 12)
+      : await loadSellerPoints(
+          creds,
+          bounds,
+          center,
+          Number.isFinite(zoom) ? zoom : 12
+        )
+    const grouped = loaded.clusters.length
+      ? loaded
+      : clusterOzonPoints(loaded.points, Number.isFinite(zoom) ? zoom : 12)
+    const layers = resolveOzonMapLayers(
+      grouped.points,
+      grouped.clusters,
+      Number.isFinite(zoom) ? zoom : 12
+    )
     return {
       configured: true,
-      points,
+      points: layers.points,
+      clusters: layers.clusters,
       center,
-      message: points.length
+      message: layers.points.length
         ? null
-        : "В этой области пунктов нет. Сдвиньте карту или найдите другой город.",
+        : layers.clusters.length
+          ? "Нажмите на цифру, чтобы увидеть пункты."
+          : "В этой области пунктов нет. Сдвиньте карту или найдите другой город.",
     }
   } catch (error) {
     return {
       configured: true,
       points: [] as OzonPoint[],
+      clusters: [] as OzonMapCluster[],
       center,
       message:
         error instanceof Error ? error.message : "Не удалось загрузить ПВЗ Ozon.",
     }
   }
+}
+
+export async function loadOzonPointById(
+  row: Record<string, unknown>,
+  id: string
+) {
+  const creds = ozonCredsFromRow(row)
+  const pointId = String(id || "").trim()
+  if (!creds || !pointId) return null
+  const stub: OzonPoint = {
+    id: pointId,
+    name: `Пункт ${pointId}`,
+    address: "",
+    lat: 0,
+    lon: 0,
+  }
+  if (isOzonRocketCreds(creds)) {
+    const token = await rocketToken(creds)
+    const raw = await rocketRequest(token, "GET", "/v1/delivery/variants")
+    return parseOzonPoints(raw).find((point) => point.id === pointId) || stub
+  }
+  const [enriched] = await enrichSellerPoints(creds, [stub])
+  return enriched || stub
 }
 
 function splitName(name: string) {

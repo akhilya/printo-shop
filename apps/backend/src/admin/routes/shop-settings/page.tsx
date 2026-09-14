@@ -14,6 +14,7 @@ import {
 } from "@medusajs/ui"
 import { useMutation, useQuery, useQueryClient } from "@tanstack/react-query"
 import { useEffect, useState } from "react"
+import OzonFromPlaceMap from "../../components/ozon-from-place-map"
 import { sdk } from "../../lib/sdk"
 
 type ShopSetting = {
@@ -370,12 +371,13 @@ const ShopSettingsPage = () => {
         )}
       </Container>
 
-      <Container className="flex max-w-xl flex-col gap-y-4 p-6">
+      <Container className="flex max-w-3xl flex-col gap-y-4 p-6">
         <Heading>Ozon Доставка</Heading>
         <Text size="small" className="text-ui-fg-subtle">
           Пока только ПВЗ. Client-Id и Api-Key из кабинета Ozon после
           подключения доставки. Для Rocket Client-Id начинается с Principal_.
-          Пустой ключ не затирает сохранённый.
+          Пустой ключ не затирает сохранённый. Сохраните ключи, затем выберите
+          пункт сдачи на карте.
         </Text>
         {isLoading ? null : (
           <>
@@ -405,18 +407,15 @@ const ShopSettingsPage = () => {
                 }
               />
             </div>
-            <div className="flex flex-col gap-y-2">
-              <Label>From place id (склад сдачи)</Label>
-              <Input
-                value={form.ozon_from_place_id}
-                onChange={(event) =>
-                  setForm((current) => ({
-                    ...current,
-                    ozon_from_place_id: event.target.value,
-                  }))
-                }
-              />
-            </div>
+            <OzonFromPlaceMap
+              selectedId={form.ozon_from_place_id}
+              onSelect={(id) =>
+                setForm((current) => ({
+                  ...current,
+                  ozon_from_place_id: id,
+                }))
+              }
+            />
             <Button onClick={() => save.mutate()} isLoading={save.isPending}>
               Сохранить
             </Button>

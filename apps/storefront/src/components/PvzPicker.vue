@@ -2,6 +2,10 @@
 import { computed, nextTick, onBeforeUnmount, onMounted, ref, watch } from "vue"
 import L from "leaflet"
 import "leaflet/dist/leaflet.css"
+import {
+  mergeNearbyClusters,
+  showPvzClusters,
+} from "../lib/pvz-cluster.js"
 import { BACKEND_URL, storeHeaders } from "../lib/sdk.js"
 
 const props = defineProps({
@@ -12,6 +16,7 @@ const props = defineProps({
 const emit = defineEmits(["select"])
 
 const points = ref([])
+const clusters = ref([])
 const message = ref("")
 const configured = ref(true)
 const loading = ref(false)
@@ -37,6 +42,48 @@ function clearMarkers() {
   markers = []
 }
 
+function pinIcon(selected) {
+  return L.divIcon({
+    className: selected ? "pvz-marker is-on" : "pvz-marker",
+    iconSize: [44, 44],
+    iconAnchor: [22, 22],
+    html: '<span class="pvz-marker-dot"></span>',
+  })
+}
+
+function clusterIcon(count) {
+  const size = count > 99 ? 36 : count > 9 ? 32 : 28
+  return L.divIcon({
+    className: "pvz-cluster",
+    iconSize: [size, size],
+    iconAnchor: [size / 2, size / 2],
+    html: `<span>${count}</span>`,
+  })
+}
+
+function openCluster(cluster) {
+  if (!map) return
+  if (
+    Number.isFinite(cluster.south) &&
+    Number.isFinite(cluster.west) &&
+    Number.isFinite(cluster.north) &&
+    Number.isFinite(cluster.east)
+  ) {
+    map.fitBounds(
+      [
+        [cluster.south, cluster.west],
+        [cluster.north, cluster.east],
+      ],
+      { padding: [36, 36], maxZoom: 16 }
+    )
+    return
+  }
+  map.setView(
+    [cluster.lat, cluster.lon],
+    Math.min(18, (map.getZoom() || 10) + 2)
+  )
+}
+
 function resizeMap() {
   if (!map) return
   map.invalidateSize()
@@ -57,14 +104,28 @@ function viewport() {
 function paintMarkers() {
   if (!map) return
   clearMarkers()
+  const zoom = map.getZoom()
+  const drawClusters = showPvzClusters(zoom, points.value.length)
+    ? mergeNearbyClusters(clusters.value, (cluster) =>
+        map.latLngToLayerPoint([cluster.lat, cluster.lon])
+      )
+    : []
+  for (const cluster of drawClusters) {
+    const marker = L.marker([cluster.lat, cluster.lon], {
+      icon: clusterIcon(cluster.count),
+      keyboard: true,
+      zIndexOffset: 200,
+    })
+    marker.on("click", () => openCluster(cluster))
+    marker.addTo(map)
+    markers.push(marker)
+  }
   for (const point of points.value) {
     const selected = point.id === props.selectedId
-    const marker = L.circleMarker([point.lat, point.lon], {
-      radius: selected ? 8 : 5,
-      color: "#000",
-      weight: selected ? 2 : 1,
-      fillColor: selected ? "#000" : "#fff",
-      fillOpacity: 1,
+    const marker = L.marker([point.lat, point.lon], {
+      icon: pinIcon(selected),
+      keyboard: true,
+      zIndexOffset: selected ? 400 : 300,
     })
     marker.on("click", () => emit("select", point))
     marker.addTo(map)
@@ -94,6 +155,7 @@ async function loadPoints() {
     if (seq !== requestSeq) return
     configured.value = data.configured !== false
     points.value = data.points || []
+    clusters.value = data.clusters || []
     message.value = data.message || ""
     await nextTick()
     resizeMap()
@@ -102,6 +164,7 @@ async function loadPoints() {
     if (seq !== requestSeq) return
     message.value = "Не удалось загрузить пункты выдачи."
     points.value = []
+    clusters.value = []
   } finally {
     if (seq === requestSeq) loading.value = false
   }

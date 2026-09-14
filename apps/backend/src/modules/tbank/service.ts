@@ -53,6 +53,7 @@ import {
   allocateShopNumber,
   isShopNumber,
 } from "../../lib/shop-order-number"
+import { hasLegalAccepted, LEGAL_ACCEPT_ERROR } from "../../lib/legal-accept"
 import { fromKopecks, mapTbankStatus, toKopecks } from "./status"
 import { verifyTbankToken } from "./token"
 
@@ -249,6 +250,17 @@ class TbankPaymentProviderService extends AbstractPaymentProvider<TbankOptions> 
     const cartId =
       typeof input.data?.cart_id === "string" ? input.data.cart_id : undefined
     const cart = cartId ? await this.loadCart(cartId) : null
+    const metadata = (cart?.metadata || {}) as Record<string, unknown>
+    if (
+      cartId &&
+      !hasLegalAccepted(metadata.legal_accepted) &&
+      !hasLegalAccepted(input.data?.legal_accepted)
+    ) {
+      throw new MedusaError(
+        MedusaError.Types.INVALID_DATA,
+        LEGAL_ACCEPT_ERROR
+      )
+    }
     const shopNumber = cartId
       ? await this.shopNumberForCart(cartId, cart)
       : null

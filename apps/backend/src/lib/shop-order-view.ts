@@ -1,6 +1,6 @@
 import { shopOrderUrl } from "./custom-order"
 import { ozonTrackingUrl } from "./ozon-delivery"
-import { orderLooksPaid } from "./shop-fulfillment"
+import { orderLooksPaid, shopFulfillmentOf } from "./shop-fulfillment-status"
 
 function money(value: unknown) {
   if (typeof value === "number" && Number.isFinite(value)) return value
@@ -41,6 +41,9 @@ export function customerOrderStatus(input: {
     }
     return { code: "new", label: "Заявка" }
   }
+  if (input.fulfillment === "returned") {
+    return { code: "returned", label: "Возврат" }
+  }
   if (input.status === "canceled") {
     return { code: "canceled", label: "Отменён" }
   }
@@ -72,9 +75,7 @@ export function presentShopOrderFromMedusa(
     source: "order",
     status: String(order.status || ""),
     paid: orderLooksPaid(order),
-    fulfillment: metadata.shop_fulfillment
-      ? String(metadata.shop_fulfillment)
-      : null,
+    fulfillment: shopFulfillmentOf(order),
   })
   return {
     number,
@@ -83,8 +84,10 @@ export function presentShopOrderFromMedusa(
     status,
     paid:
       status.code === "packing" ||
+      status.code === "ready_to_ship" ||
       status.code === "delivering" ||
-      status.code === "delivered",
+      status.code === "delivered" ||
+      status.code === "returned",
     email: order.email ? String(order.email) : null,
     total: money(order.total),
     currency_code: String(order.currency_code || "rub"),
@@ -99,6 +102,9 @@ export function presentShopOrderFromMedusa(
       metadata.ozon_tracking
         ? String(metadata.ozon_tracking)
         : ozonTrackingUrl(ozonNumber),
+    ozon_label_url: metadata.ozon_label_url
+      ? String(metadata.ozon_label_url)
+      : null,
     ozon_point_name:
       (metadata.ozon_point_name && String(metadata.ozon_point_name)) ||
       (address.address_2 && String(address.address_2)) ||

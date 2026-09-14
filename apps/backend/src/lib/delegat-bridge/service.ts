@@ -94,6 +94,8 @@ export async function getHealth(container: MedusaContainer) {
       "stocks.bulk",
       "groups.upsert",
       "orders.list",
+      "orders.status",
+      "orders.label",
     ],
   }
 }

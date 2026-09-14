@@ -10,6 +10,7 @@ const props = defineProps({
 
 const STATIC_SLUGS = {
   "/delivery": "delivery",
+  "/returns": "returns",
   "/offer": "offer",
   "/contacts": "contacts",
   "/privacy": "privacy",

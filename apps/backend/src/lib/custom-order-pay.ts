@@ -22,6 +22,7 @@ import {
   presentPublicCustomCheckout,
   storefrontOrigin,
 } from "./custom-order"
+import { hasLegalAccepted, LEGAL_ACCEPT_ERROR } from "./legal-accept"
 
 import {
   getShopSetting,
@@ -142,7 +143,10 @@ export async function markCustomOrderPaid(
     paid_at: new Date(),
     status: "paid",
   })
-  return createOzonForCustomOrder(container, { ...order, ...next })
+  const paid = await createOzonForCustomOrder(container, { ...order, ...next })
+  const { sendCustomOrderMail } = await import("./order-mail")
+  await sendCustomOrderMail(container, paid, "placed")
+  return paid
 }
 
 export function parseCustomCheckoutPay(body: unknown):
@@ -154,6 +158,7 @@ export function parseCustomCheckoutPay(body: unknown):
       ozon_point_id: string | null
       ozon_point_name: string | null
       ozon_point_address: string | null
+      legal_accepted: boolean
     } {
   const rec = asRecord(body)
   const email = text(rec.email)
@@ -165,6 +170,9 @@ export function parseCustomCheckoutPay(body: unknown):
   if (email && !email.includes("@")) {
     return { error: "Проверьте адрес почты" }
   }
+  if (!hasLegalAccepted(rec.legal_accepted)) {
+    return { error: LEGAL_ACCEPT_ERROR }
+  }
   return {
     email: email || null,
     phone: phone || null,
@@ -172,6 +180,7 @@ export function parseCustomCheckoutPay(body: unknown):
     ozon_point_id: ozonPointId || null,
     ozon_point_name: ozonPointName || null,
     ozon_point_address: ozonPointAddress || null,
+    legal_accepted: true,
   }
 }
 

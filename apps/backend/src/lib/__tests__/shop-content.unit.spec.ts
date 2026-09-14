@@ -29,6 +29,19 @@ describe("parseBannerInput", () => {
     expect(parsed.slot).toBe("home_hero")
     expect(parsed.enabled).toBe(true)
   })
+
+  it("accepts the home order-tracking banner", () => {
+    const parsed = parseBannerInput({
+      slot: "home_order",
+      title: "Отследить заказ",
+      body: "Номер из письма — 10 цифр.",
+      cta_label: "Найти",
+      cta_href: "/order",
+    })
+    expect("error" in parsed).toBe(false)
+    if ("error" in parsed) return
+    expect(parsed.cta_href).toBe("/order")
+  })
 })
 
 describe("parseCustomOrderInput", () => {

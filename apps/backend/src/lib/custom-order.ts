@@ -109,6 +109,10 @@ export function customOrderCheckoutUrl(
   return `${storefrontOrigin(env)}/custom-order/pay/${encodeURIComponent(value)}`
 }
 
+export function shopReturnsUrl(env: NodeJS.ProcessEnv = process.env) {
+  return `${storefrontOrigin(env)}/returns`
+}
+
 export function shopOrderUrl(
   number?: string | null,
   env: NodeJS.ProcessEnv = process.env

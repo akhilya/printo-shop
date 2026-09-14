@@ -1,0 +1,344 @@
+import { MedusaError } from "@medusajs/framework/utils"
+import {
+  asRecord,
+  firstText,
+  isOzonRocketCreds,
+  ozonTrackingUrl,
+  rocketRequest,
+  rocketRequestRaw,
+  rocketToken,
+  sellerPost,
+  sellerRequest,
+  type OzonCreds,
+} from "./ozon-delivery"
+
+export type OzonPackageLabel = {
+  bytes: Buffer
+  contentType: string
+  fileName: string
+}
+
+export type OzonPostingInfo = {
+  postingNumber: string | null
+  orderNumber: string | null
+  status: string | null
+  products: Array<{ productId: number; quantity: number }>
+}
+
+export type OzonReturnKind = "unclaimed" | "refused" | "returned"
+
+function normOzonStatus(raw?: string | null) {
+  return String(raw || "")
+    .trim()
+    .toLowerCase()
+    .replace(/[\s-]+/g, "_")
+}
+
+function isCancelStatus(key: string) {
+  return key === "cancelled" || key === "canceled"
+}
+
+function isReturnFlowStatus(key: string) {
+  return (
+    key === "returned" ||
+    key === "returning" ||
+    key === "not_accepted" ||
+    key === "given_to_seller" ||
+    key === "sent_to_seller" ||
+    key === "on_way_to_return"
+  )
+}
+
+function wasHandedToOzon(previous?: string | null) {
+  const mapped = mapOzonPostingStatus(previous)
+  return (
+    mapped === "awaiting_deliver" ||
+    mapped === "delivering" ||
+    mapped === "delivered" ||
+    mapped === "returned"
+  )
+}
+
+export function ozonReturnKind(
+  raw?: string | null,
+  previous?: string | null
+): OzonReturnKind | null {
+  const key = normOzonStatus(raw)
+  if (key === "not_accepted") return "refused"
+  if (isCancelStatus(key) && wasHandedToOzon(previous)) return "unclaimed"
+  if (
+    key === "returned" ||
+    key === "returning" ||
+    key === "given_to_seller" ||
+    key === "sent_to_seller" ||
+    key === "on_way_to_return"
+  ) {
+    return "returned"
+  }
+  return null
+}
+
+export function ozonReturnMessage(kind: OzonReturnKind | null) {
+  switch (kind) {
+    case "unclaimed":
+      return "Покупатель не забрал заказ на ПВЗ. Отправление возвращается вам."
+    case "refused":
+      return "Покупатель отказался от заказа на пункте выдачи. Отправление возвращается вам."
+    case "returned":
+      return "Ozon вернул отправление в пункт сдачи."
+    default:
+      return null
+  }
+}
+
+export function mapOzonPostingStatus(
+  raw?: string | null,
+  previous?: string | null
+) {
+  const key = normOzonStatus(raw)
+  switch (key) {
+    case "awaiting_packaging":
+    case "awaiting_approve":
+    case "created":
+    case "registered":
+      return "awaiting_pack"
+    case "awaiting_deliver":
+    case "awaiting_registration":
+    case "arbitration":
+      return "awaiting_deliver"
+    case "delivering":
+    case "driver_pickup":
+    case "in_transit":
+    case "on_way":
+    case "sent":
+    case "posting_in_pickup_point":
+    case "in_pickup_point":
+      return "delivering"
+    case "delivered":
+    case "received":
+    case "posting_received":
+      return "delivered"
+    case "returned":
+    case "returning":
+    case "not_accepted":
+    case "given_to_seller":
+    case "sent_to_seller":
+    case "on_way_to_return":
+      return "returned"
+    case "cancelled":
+    case "canceled":
+      return wasHandedToOzon(previous) ? "returned" : "cancelled"
+    default:
+      return isReturnFlowStatus(key) ? "returned" : null
+  }
+}
+
+export function extractOzonPostingStatus(raw: unknown): string | null {
+  const rec = asRecord(raw) || {}
+  const result = asRecord(rec.result) || rec
+  const tracking = asRecord(result.tracking) || asRecord(rec.tracking)
+  return (
+    firstText(
+      result.status,
+      rec.status,
+      result.tracking_status,
+      tracking?.status,
+      tracking?.event
+    ) || null
+  )
+}
+
+function postingProducts(raw: unknown): Array<{ productId: number; quantity: number }> {
+  const rec = asRecord(raw) || {}
+  const result = asRecord(rec.result) || rec
+  const rows = Array.isArray(result.products)
+    ? result.products
+    : Array.isArray(rec.products)
+      ? rec.products
+      : []
+  return rows
+    .map((row) => {
+      const item = asRecord(row) || {}
+      const productId = Number(item.product_id || item.sku || 0)
+      const quantity = Math.max(1, Number(item.quantity || 1))
+      return { productId, quantity }
+    })
+    .filter((row) => row.productId > 0)
+}
+
+export function parseOzonPosting(raw: unknown): OzonPostingInfo {
+  const rec = asRecord(raw) || {}
+  const result = asRecord(rec.result) || rec
+  const postingNumber =
+    firstText(
+      result.posting_number,
+      result.postingNumber,
+      rec.posting_number,
+      rec.postingNumber
+    ) || null
+  const orderNumber =
+    firstText(
+      result.order_number,
+      result.orderNumber,
+      rec.order_number,
+      rec.orderNumber
+    ) || null
+  return {
+    postingNumber,
+    orderNumber,
+    status: extractOzonPostingStatus(raw),
+    products: postingProducts(raw),
+  }
+}
+
+function isPdf(contentType: string, buffer: Buffer) {
+  if (/pdf/i.test(contentType)) return true
+  return buffer.subarray(0, 4).toString("utf8") === "%PDF"
+}
+
+function labelFromRaw(
+  raw: { ok: boolean; status: number; contentType: string; buffer: Buffer },
+  postingNumber: string
+): OzonPackageLabel {
+  if (!raw.ok) {
+    throw new MedusaError(
+      MedusaError.Types.UNEXPECTED_STATE,
+      `Ozon HTTP ${raw.status}: ${raw.buffer.toString("utf8").slice(0, 240)}`
+    )
+  }
+  if (!raw.buffer.length) {
+    throw new MedusaError(
+      MedusaError.Types.UNEXPECTED_STATE,
+      "Ozon вернул пустую этикетку"
+    )
+  }
+  const pdf = isPdf(raw.contentType, raw.buffer)
+  return {
+    bytes: raw.buffer,
+    contentType: pdf ? "application/pdf" : raw.contentType || "application/pdf",
+    fileName: `ozon-${postingNumber}.${pdf ? "pdf" : "bin"}`,
+  }
+}
+
+export async function getOzonPosting(
+  creds: OzonCreds,
+  postingNumber: string
+): Promise<OzonPostingInfo> {
+  if (isOzonRocketCreds(creds)) {
+    const token = await rocketToken(creds)
+    const raw = await rocketRequest(
+      token,
+      "GET",
+      `/v1/tracking?orderNumber=${encodeURIComponent(postingNumber)}`
+    ).catch(() =>
+      rocketRequest(token, "GET", `/v1/order/${encodeURIComponent(postingNumber)}`)
+    )
+    return parseOzonPosting(raw)
+  }
+  const raw = await sellerPost(creds, "/v3/posting/fbs/get", {
+    posting_number: postingNumber,
+    with: { analytics_data: true },
+  })
+  return parseOzonPosting(raw)
+}
+
+export async function shipOzonPosting(
+  creds: OzonCreds,
+  posting: OzonPostingInfo
+) {
+  if (isOzonRocketCreds(creds)) return posting
+  const postingNumber = posting.postingNumber
+  if (!postingNumber) {
+    throw new MedusaError(
+      MedusaError.Types.INVALID_DATA,
+      "Нет номера отправления Ozon"
+    )
+  }
+  const mapped = mapOzonPostingStatus(posting.status)
+  if (mapped === "awaiting_deliver" || mapped === "delivering" || mapped === "delivered") {
+    return posting
+  }
+  if (!posting.products.length) {
+    throw new MedusaError(
+      MedusaError.Types.INVALID_DATA,
+      "В отправлении Ozon нет товаров для сборки"
+    )
+  }
+  await sellerPost(creds, "/v4/posting/fbs/ship", {
+    posting_number: postingNumber,
+    packages: [
+      {
+        products: posting.products.map((product) => ({
+          product_id: product.productId,
+          quantity: product.quantity,
+        })),
+      },
+    ],
+  })
+  return { ...posting, status: "awaiting_deliver" }
+}
+
+export async function handOverOzonPosting(creds: OzonCreds, postingNumber: string) {
+  if (isOzonRocketCreds(creds)) return
+  await sellerPost(creds, "/v2/posting/fbs/awaiting-delivery", {
+    posting_number: [postingNumber],
+  })
+}
+
+export async function cancelOzonPosting(creds: OzonCreds, postingNumber: string) {
+  if (isOzonRocketCreds(creds)) {
+    const token = await rocketToken(creds)
+    try {
+      await rocketRequest(
+        token,
+        "POST",
+        `/v1/order/${encodeURIComponent(postingNumber)}/cancel`
+      )
+    } catch {
+      await rocketRequest(token, "POST", "/v1/order/cancel", {
+        orderNumber: postingNumber,
+      })
+    }
+    return
+  }
+  await sellerPost(creds, "/v2/posting/fbs/cancel", {
+    posting_number: postingNumber,
+    cancel_reason_id: 352,
+  })
+}
+
+export async function getOzonPackageLabel(
+  creds: OzonCreds,
+  postingNumber: string
+): Promise<OzonPackageLabel> {
+  if (isOzonRocketCreds(creds)) {
+    const token = await rocketToken(creds)
+    const paths = [
+      `/v1/ticket?orderNumber=${encodeURIComponent(postingNumber)}`,
+      `/v1/order/${encodeURIComponent(postingNumber)}/ticket`,
+    ]
+    let lastError: unknown = null
+    for (const path of paths) {
+      try {
+        const raw = await rocketRequestRaw(token, "GET", path)
+        return labelFromRaw(raw, postingNumber)
+      } catch (error) {
+        lastError = error
+      }
+    }
+    throw lastError instanceof Error
+      ? lastError
+      : new MedusaError(
+          MedusaError.Types.UNEXPECTED_STATE,
+          "Не удалось получить этикетку Ozon"
+        )
+  }
+  const raw = await sellerRequest(creds, "/v2/posting/fbs/package-label", {
+    posting_number: [postingNumber],
+  })
+  return labelFromRaw(raw, postingNumber)
+}
+
+export function ozonLabelTracking(orderNumber?: string | null) {
+  return ozonTrackingUrl(orderNumber) || ""
+}

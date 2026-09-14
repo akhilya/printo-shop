@@ -1,7 +1,9 @@
+import { LEGAL_COPY } from "./legal-copy"
 import { renderLegalMarkdown } from "./legal-markdown"
 
 export const LEGAL_SLUGS = [
   "delivery",
+  "returns",
   "offer",
   "contacts",
   "privacy",
@@ -10,6 +12,7 @@ export type LegalSlug = (typeof LEGAL_SLUGS)[number]
 
 export const LEGAL_SLUG_LABELS: Record<LegalSlug, string> = {
   delivery: "Доставка",
+  returns: "Возврат",
   offer: "Оферта",
   contacts: "Контакты",
   privacy: "Конфиденциальность",
@@ -27,25 +30,31 @@ export const DEFAULT_LEGAL_PAGES: Array<{
   {
     slug: "delivery",
     title: "Доставка",
-    body: "Доставляем по России. Способ и срок уточняются на чекауте.\n\nТекст условий появится здесь.",
+    body: LEGAL_COPY.delivery,
+    enabled: true,
+  },
+  {
+    slug: "returns",
+    title: "Возврат",
+    body: LEGAL_COPY.returns,
     enabled: true,
   },
   {
     slug: "offer",
     title: "Оферта",
-    body: "Публичная оферта будет опубликована на этой странице перед запуском продаж.",
+    body: LEGAL_COPY.offer,
     enabled: true,
   },
   {
     slug: "contacts",
     title: "Контакты",
-    body: "Напишите на почту магазина. Реквизиты появятся здесь.",
+    body: LEGAL_COPY.contacts,
     enabled: true,
   },
   {
     slug: "privacy",
     title: "Конфиденциальность",
-    body: "Политика обработки персональных данных будет опубликована на этой странице.",
+    body: LEGAL_COPY.privacy,
     enabled: true,
   },
 ]

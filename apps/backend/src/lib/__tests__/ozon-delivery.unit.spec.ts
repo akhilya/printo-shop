@@ -1,4 +1,5 @@
 import {
+  clusterOzonPoints,
   extractOzonAmount,
   extractOzonCreateIds,
   isOzonRocketCreds,
@@ -7,8 +8,10 @@ import {
   normalizeOzonPhone,
   ozonCredsFromRow,
   ozonTrackingUrl,
+  parseOzonClusters,
   parseOzonPoints,
   pointsInBounds,
+  resolveOzonMapLayers,
 } from "../ozon-delivery"
 
 describe("ozonCredsFromRow", () => {
@@ -104,6 +107,87 @@ describe("parseOzonPoints", () => {
   })
 })
 
+describe("parseOzonClusters", () => {
+  it("reads map buckets and their viewport", () => {
+    expect(
+      parseOzonClusters({
+        clusters: [
+          {
+            points_count: 40,
+            coordinate: { lat: 55.7, long: 37.6 },
+            viewport: {
+              left_bottom: { lat: 55.5, long: 37.4 },
+              right_top: { lat: 55.9, long: 37.8 },
+            },
+          },
+        ],
+      })
+    ).toEqual([
+      {
+        count: 40,
+        lat: 55.7,
+        lon: 37.6,
+        south: 55.5,
+        west: 37.4,
+        north: 55.9,
+        east: 37.8,
+      },
+    ])
+  })
+
+  it("does not treat a single pickup as a cluster", () => {
+    expect(
+      parseOzonClusters({
+        clusters: [
+          {
+            points_count: 1,
+            map_point_ids: ["77"],
+            coordinate: { lat: 55.75, long: 37.61 },
+          },
+        ],
+      })
+    ).toEqual([])
+  })
+})
+
+describe("resolveOzonMapLayers", () => {
+  it("drops numbered clusters once street-level points exist", () => {
+    const point = { id: "1", name: "a", address: "a", lat: 55, lon: 37 }
+    const cluster = { count: 12, lat: 55, lon: 37 }
+    expect(resolveOzonMapLayers([point], [cluster], 16).clusters).toEqual([])
+    expect(resolveOzonMapLayers([], [cluster], 12).clusters).toHaveLength(1)
+  })
+})
+
+describe("clusterOzonPoints", () => {
+  it("groups nearby points when zoomed out", () => {
+    const grouped = clusterOzonPoints(
+      [
+        { id: "1", name: "a", address: "a", lat: 55.75, lon: 37.61 },
+        { id: "2", name: "b", address: "b", lat: 55.751, lon: 37.612 },
+        { id: "3", name: "c", address: "c", lat: 59.93, lon: 30.31 },
+      ],
+      10,
+      0.05
+    )
+    expect(grouped.points.map((point) => point.id)).toEqual(["3"])
+    expect(grouped.clusters).toHaveLength(1)
+    expect(grouped.clusters[0].count).toBe(2)
+  })
+
+  it("keeps points separate when zoomed in", () => {
+    const grouped = clusterOzonPoints(
+      [
+        { id: "1", name: "a", address: "a", lat: 55.75, lon: 37.61 },
+        { id: "2", name: "b", address: "b", lat: 55.751, lon: 37.612 },
+      ],
+      16
+    )
+    expect(grouped.clusters).toEqual([])
+    expect(grouped.points).toHaveLength(2)
+  })
+})
+
 describe("pointsInBounds", () => {
   it("keeps only points inside the map viewport", () => {
     const moscow = { id: "msk", name: "a", address: "a", lat: 55.75, lon: 37.62 }
@@ -160,6 +244,17 @@ describe("extractOzonCreateIds", () => {
       trackingUrl: "https://www.ozon.ru/my/orderdetails/?order=123-456",
     })
   })
+
+  it("reads nested seller result.posting_number", () => {
+    expect(
+      extractOzonCreateIds({
+        result: { order_number: "99-1", posting_number: "99-1-1" },
+      })
+    ).toMatchObject({
+      orderNumber: "99-1",
+      postingNumber: "99-1-1",
+    })
+  })
 })
 
 describe("ozonTrackingUrl", () => {
@@ -175,13 +270,31 @@ describe("loadOzonPoints", () => {
     global.fetch = fetchFn
   })
 
-  it("does not load points when the map is zoomed out", async () => {
+  it("loads clustered buckets when the map is zoomed out", async () => {
+    const payload = {
+      clusters: [
+        {
+          points_count: 40,
+          coordinate: { lat: 55.7, long: 37.6 },
+          viewport: {
+            left_bottom: { lat: 55.5, long: 37.4 },
+            right_top: { lat: 55.9, long: 37.8 },
+          },
+        },
+      ],
+    }
+    global.fetch = jest.fn().mockResolvedValue({
+      ok: true,
+      headers: { get: () => "application/json" },
+      arrayBuffer: async () => Buffer.from(JSON.stringify(payload)),
+    })
     const result = await loadOzonPoints(
       { ozon_client_id: "1", ozon_api_key: "secret" },
       { zoom: 5, south: 50, west: 20, north: 70, east: 50 }
     )
     expect(result.points).toEqual([])
-    expect(result.message).toMatch(/Приблизьте/)
+    expect(result.clusters?.[0]?.count).toBe(40)
+    expect(result.message).toMatch(/цифру/)
   })
 
   it("geocodes the city even without keys so the map can center", async () => {

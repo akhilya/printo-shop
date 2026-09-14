@@ -5,6 +5,7 @@ import {
   extractOzonCreateIds,
   ozonCredsFromRow,
 } from "../lib/ozon-delivery"
+import { recordShopEvent } from "../lib/shop-event"
 import { getShopSetting } from "../lib/shop-setting"
 
 function money(value: unknown) {
@@ -112,10 +113,32 @@ export default async function orderPlacedOzon({
       ozon_create_error: null,
       ozon_create_raw: JSON.stringify(created).slice(0, 2000),
     })
+    await recordShopEvent(container, {
+      kind: "ozon_create",
+      title: "Отправление создано в Ozon",
+      message: ids.postingNumber
+        ? `Номер отправления ${ids.postingNumber}`
+        : "Ozon принял заказ",
+      order_id: orderId,
+      shop_number: metadata.shop_number
+        ? String(metadata.shop_number)
+        : null,
+      posting_number: ids.postingNumber,
+    })
   } catch (error) {
     const logger = container.resolve(ContainerRegistrationKeys.LOGGER)
     const message = error instanceof Error ? error.message : String(error)
     logger.warn(`Ozon order create failed for ${orderId}: ${message}`)
+    await recordShopEvent(container, {
+      kind: "ozon_create",
+      level: "error",
+      title: "Не удалось создать отправление Ozon",
+      message,
+      order_id: orderId,
+      shop_number: metadata.shop_number
+        ? String(metadata.shop_number)
+        : null,
+    })
     try {
       await saveMeta({
         ...metadata,

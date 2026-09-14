@@ -30,6 +30,7 @@ const SLOT_LABELS: Record<string, string> = {
   home_hero: "Главная — сверху",
   home_catalog: "Главная — каталог",
   home_custom: "Главная — индивидуальный заказ",
+  home_order: "Главная — заказ",
 }
 
 const BannerEditPage = () => {

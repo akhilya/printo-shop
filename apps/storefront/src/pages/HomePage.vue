@@ -132,6 +132,10 @@ onMounted(async () => {
         v-if="bannerBySlot('home_custom')"
         :banner="bannerBySlot('home_custom')"
       />
+      <SiteBanner
+        v-if="bannerBySlot('home_order')"
+        :banner="bannerBySlot('home_order')"
+      />
       <p v-if="!groups.length && !products.length" class="empty">
         Товаров нет
       </p>

@@ -11,6 +11,11 @@ const query = ref(numberParam.value)
 const order = ref(null)
 const loading = ref(false)
 const error = ref("")
+const writeEmail = ref("")
+const writeMessage = ref("")
+const writeBusy = ref(false)
+const writeError = ref("")
+const writeDone = ref(false)
 
 async function load(number) {
   const value = String(number || "").replace(/\D/g, "")
@@ -33,11 +38,46 @@ async function load(number) {
     }
     const data = await res.json()
     order.value = data.order
+    writeEmail.value = ""
+    writeMessage.value = ""
+    writeError.value = ""
+    writeDone.value = false
   } catch {
     order.value = null
     error.value = "Не удалось загрузить заказ."
   } finally {
     loading.value = false
+  }
+}
+
+async function onWrite(event) {
+  event.preventDefault()
+  if (!order.value?.number || writeBusy.value) return
+  writeBusy.value = true
+  writeError.value = ""
+  try {
+    const res = await fetch(
+      `${BACKEND_URL}/store/shop-orders/${encodeURIComponent(order.value.number)}/message`,
+      {
+        method: "POST",
+        headers: { ...storeHeaders(), "Content-Type": "application/json" },
+        body: JSON.stringify({
+          email: writeEmail.value,
+          message: writeMessage.value,
+        }),
+      }
+    )
+    const data = await res.json().catch(() => ({}))
+    if (!res.ok) {
+      writeError.value = data.message || "Не удалось отправить."
+      return
+    }
+    writeDone.value = true
+    writeMessage.value = ""
+  } catch {
+    writeError.value = "Не удалось отправить."
+  } finally {
+    writeBusy.value = false
   }
 }
 
@@ -127,6 +167,40 @@ watch(numberParam, (value) => {
             Отследить на Ozon
           </a>
         </p>
+      </section>
+      <section class="checkout-done-block">
+        <h2>Написать о заказе</h2>
+        <p class="muted">
+          Вернуть товар одной кнопкой нельзя.
+          Если брак или ошибка — напишите. Разберём по почте.
+          <router-link to="/returns">Правила возврата</router-link>
+        </p>
+        <p v-if="writeDone" class="muted">Письмо получили. Ответим на эту почту.</p>
+        <form v-else class="form" @submit="onWrite">
+          <label>
+            Почта с оформления
+            <input
+              v-model="writeEmail"
+              type="email"
+              required
+              autocomplete="email"
+            />
+          </label>
+          <label>
+            Что случилось
+            <textarea
+              v-model="writeMessage"
+              rows="4"
+              required
+              minlength="10"
+              maxlength="4000"
+            />
+          </label>
+          <p v-if="writeError" class="err">{{ writeError }}</p>
+          <button class="btn" type="submit" :disabled="writeBusy">
+            {{ writeBusy ? "Отправка" : "Отправить" }}
+          </button>
+        </form>
       </section>
     </template>
   </article>

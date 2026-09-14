@@ -26,6 +26,7 @@ type AdminLegalPage = {
 
 const SLUG_LABELS: Record<string, string> = {
   delivery: "Доставка",
+  returns: "Возврат",
   offer: "Оферта",
   contacts: "Контакты",
   privacy: "Конфиденциальность",

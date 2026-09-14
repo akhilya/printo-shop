@@ -15,9 +15,12 @@ const isProduct = computed(
     props.banner.slot === "product_custom" ||
     props.banner.slot === "home_custom"
 )
-const ctaClass = computed(() =>
-  isProduct.value ? "btn banner-cta banner-product-cta" : "btn banner-cta"
-)
+const isOrder = computed(() => props.banner.slot === "home_order")
+const ctaClass = computed(() => {
+  if (isProduct.value) return "btn banner-cta banner-product-cta"
+  if (isOrder.value) return "btn banner-cta banner-order-cta"
+  return "btn banner-cta"
+})
 </script>
 
 <template>
@@ -26,6 +29,7 @@ const ctaClass = computed(() =>
     :class="{
       'banner-hero': banner.slot === 'home_hero',
       'banner-catalog': banner.slot === 'home_catalog',
+      'banner-order': isOrder,
       'banner-product':
         banner.slot === 'product_custom' || banner.slot === 'home_custom',
     }"

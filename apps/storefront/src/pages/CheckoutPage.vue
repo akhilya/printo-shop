@@ -20,6 +20,7 @@ import {
   shopError,
   storeHeaders,
 } from "../lib/sdk.js"
+import { legalPages, LEGAL_FALLBACK } from "../lib/legal.js"
 import { shopState } from "../lib/shop.js"
 
 const route = useRoute()
@@ -28,6 +29,12 @@ const isCustom = computed(() => Boolean(token.value))
 
 const busy = ref(false)
 const error = ref("")
+const legalAccepted = ref(false)
+const consentPages = computed(() =>
+  (legalPages.value.length ? legalPages.value : LEGAL_FALLBACK).filter(
+    (page) => page.enabled !== false
+  )
+)
 const quotedShipping = ref(null)
 const custom = ref(null)
 const customLoading = ref(false)
@@ -210,6 +217,8 @@ async function payCart() {
       ozon_point_lat: form.ozon_point_lat,
       ozon_point_lon: form.ozon_point_lon,
       ozon_shipping_amount: quotedShipping.value,
+      legal_accepted: true,
+      legal_accepted_at: new Date().toISOString(),
     },
   })
   const options = await sdk.store.fulfillment.listCartOptions({
@@ -247,6 +256,7 @@ async function payCart() {
         cart_id: cart.id,
         email: form.email,
         phone: form.phone,
+        legal_accepted: true,
       },
     }
   )
@@ -275,6 +285,7 @@ async function payCustom() {
         ozon_point_id: form.ozon_point_id,
         ozon_point_name: form.ozon_point_name,
         ozon_point_address: form.ozon_point_address,
+        legal_accepted: true,
       }),
     }
   )
@@ -289,6 +300,10 @@ async function submit(event) {
   event.preventDefault()
   if (shopState.ordersClosed) {
     error.value = shopState.ordersMessage
+    return
+  }
+  if (!legalAccepted.value) {
+    error.value = "Примите условия магазина"
     return
   }
   if (showPvz.value && !form.ozon_point_id) {
@@ -438,6 +453,21 @@ const empty = computed(() => {
         <p v-if="showPvz && form.ozon_point_id" class="muted">
           ПВЗ: {{ form.ozon_point_name }}. {{ form.ozon_point_address }}
         </p>
+        <label class="check">
+          <input v-model="legalAccepted" type="checkbox" required />
+          <span>
+            Оформляя заказ, принимаю
+            <template v-for="(page, index) in consentPages" :key="page.slug">
+              <router-link :to="`/${page.slug}`" target="_blank">{{
+                page.title.toLowerCase()
+              }}</router-link>
+              <template v-if="index < consentPages.length - 2">, </template>
+              <template v-else-if="index === consentPages.length - 2">
+                и
+              </template>
+            </template>.
+          </span>
+        </label>
         <p v-if="shopState.ordersClosed" class="muted">{{ shopState.ordersMessage }}</p>
         <p v-if="error" class="err">{{ error }}</p>
         <button

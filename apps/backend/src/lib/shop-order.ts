@@ -1,6 +1,7 @@
 import { MedusaContainer } from "@medusajs/framework"
 import { ContainerRegistrationKeys, MedusaError, Modules } from "@medusajs/framework/utils"
 import { refundPaymentWorkflow } from "@medusajs/medusa/core-flows"
+import { cancelOzonForOrder } from "./ozon-fulfill"
 import { isAlreadyClosedTbankError } from "./tbank-paid"
 
 export function errorText(error: unknown, fallback = "cancel_failed"): string {
@@ -72,6 +73,7 @@ export async function cancelShopOrder(
   if (order.status === "canceled") {
     return { id: orderId, canceled: true, refunded: false }
   }
+  await cancelOzonForOrder(container, orderId)
 
   let logger: { warn?: (message: string) => void } = {}
   try {
