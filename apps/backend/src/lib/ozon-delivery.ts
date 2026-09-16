@@ -61,16 +61,14 @@ export function isOzonAccessToken(value: string) {
   )
 }
 
-export function sellerAuthHeaders(creds: OzonCreds) {
-  if (isOzonAccessToken(creds.accessToken)) {
-    return {
-      "Content-Type": "application/json",
-      Authorization: `Bearer ${creds.accessToken}`,
-    }
-  }
-  return {
+export function sellerAuthHeaders(creds: OzonCreds): Record<string, string> {
+  const headers: Record<string, string> = {
     "Content-Type": "application/json",
   }
+  if (isOzonAccessToken(creds.accessToken)) {
+    headers.Authorization = `Bearer ${creds.accessToken}`
+  }
+  return headers
 }
 
 export function sellerAuthHeadersFor(creds: OzonCreds, _path?: string) {
