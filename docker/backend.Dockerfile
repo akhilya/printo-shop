@@ -35,10 +35,14 @@ RUN update-ca-certificates
 ENV NODE_EXTRA_CA_CERTS=/etc/ssl/certs/ca-certificates.crt
 
 COPY --from=build /app/apps/backend/.medusa/server ./
-COPY --from=build /app/node_modules ./node_modules
 COPY docker/backend-start.sh ./start.sh
 
-RUN chmod +x ./start.sh
+RUN chmod +x ./start.sh \
+  && npm pkg set "overrides.@aws-sdk/client-s3=3.1128.0" \
+  && npm pkg set "overrides.@aws-sdk/lib-storage=3.1128.0" \
+  && npm pkg set "overrides.@aws-sdk/s3-request-presigner=3.1128.0" \
+  && npm pkg set "overrides.@aws-sdk/client-dynamodb=3.1128.0" \
+  && npm install --omit=dev
 
 EXPOSE 9000
 CMD ["./start.sh"]
