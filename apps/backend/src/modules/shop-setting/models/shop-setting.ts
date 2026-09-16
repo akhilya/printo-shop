@@ -19,7 +19,12 @@ const ShopSetting = model.define("shop_setting", {
   tbank_vat: model.text().default("none"),
   ozon_client_id: model.text().nullable(),
   ozon_api_key: model.text().nullable(),
+  ozon_oauth_token: model.text().nullable(),
+  ozon_refresh_token: model.text().nullable(),
+  ozon_oauth_state: model.text().nullable(),
   ozon_from_place_id: model.text().nullable(),
+  ozon_quote_mode: model.text().default("fixed"),
+  ozon_fixed_amount: model.number().default(350),
 })
 
 export default ShopSetting

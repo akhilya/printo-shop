@@ -2,6 +2,7 @@ import { MedusaContainer } from "@medusajs/framework"
 import { SHOP_SETTING_MODULE } from "../modules/shop-setting"
 import type ShopSettingModuleService from "../modules/shop-setting/service"
 import { publicBackendUrl } from "./public-url"
+import { isOzonAccessToken, ozonOAuthRedirectUri } from "./ozon-delivery"
 
 export const SHOP_SETTING_KEY = "storefront"
 export const DEFAULT_CLOSED_MESSAGE = "Магазин в разработке."
@@ -117,6 +118,17 @@ export function tbankOptionsFromRow(
   }
 }
 
+export type OzonQuoteMode = "ozon" | "fixed"
+
+export function parseOzonQuoteMode(value: unknown): OzonQuoteMode {
+  return String(value || "").trim() === "fixed" ? "fixed" : "ozon"
+}
+
+export function parseOzonFixedAmount(value: unknown): number | null {
+  const amount = Math.round(Number(value))
+  return Number.isFinite(amount) && amount > 0 ? amount : null
+}
+
 export type ShopSettingPublic = {
   id: string
   closed: boolean
@@ -125,12 +137,15 @@ export type ShopSettingPublic = {
   orders_message: string
   ozon_configured: boolean
   ozon_from_place_id: string
+  ozon_quote_mode: OzonQuoteMode
 }
 
 export type ShopSettingAdmin = ShopSettingPublic & {
   ozon_client_id: string
-  ozon_api_key_set: boolean
-  ozon_from_place_id: string
+  ozon_oauth_token_set: boolean
+  ozon_connected: boolean
+  ozon_oauth_redirect_uri: string
+  ozon_fixed_amount: number
   tbank_terminal_key: string
   tbank_password_set: boolean
   tbank_api_url: string
@@ -162,17 +177,22 @@ export function presentShopSetting(
     orders_closed: row.orders_closed === true,
     orders_message: text(row, "orders_message") || DEFAULT_ORDERS_MESSAGE,
     ozon_configured: Boolean(
-      text(row, "ozon_client_id") && text(row, "ozon_api_key")
+      text(row, "ozon_refresh_token") ||
+        isOzonAccessToken(text(row, "ozon_oauth_token"))
     ),
     ozon_from_place_id: text(row, "ozon_from_place_id"),
+    ozon_quote_mode: parseOzonQuoteMode(row.ozon_quote_mode),
   }
   if (!opts.admin) return base
   const urls = defaultTbankUrls()
   return {
     ...base,
     ozon_client_id: text(row, "ozon_client_id"),
-    ozon_api_key_set: Boolean(text(row, "ozon_api_key")),
+    ozon_oauth_token_set: Boolean(text(row, "ozon_oauth_token")),
+    ozon_connected: Boolean(text(row, "ozon_refresh_token")),
+    ozon_oauth_redirect_uri: ozonOAuthRedirectUri(),
     ozon_from_place_id: text(row, "ozon_from_place_id"),
+    ozon_fixed_amount: parseOzonFixedAmount(row.ozon_fixed_amount) || 0,
     tbank_terminal_key: text(row, "tbank_terminal_key"),
     tbank_password_set: Boolean(text(row, "tbank_password")),
     tbank_api_url: resolveTbankApiUrl(
@@ -247,12 +267,19 @@ export function parseShopSettingUpdate(
   if ("ozon_client_id" in rec) {
     update.ozon_client_id = String(rec.ozon_client_id || "").trim() || null
   }
-  if ("ozon_api_key" in rec) {
-    const key = String(rec.ozon_api_key || "").trim()
-    if (key) update.ozon_api_key = key
+  if ("ozon_oauth_token" in rec) {
+    const token = String(rec.ozon_oauth_token || "").trim()
+    if (token) update.ozon_oauth_token = token
   }
   if ("ozon_from_place_id" in rec) {
     update.ozon_from_place_id = String(rec.ozon_from_place_id || "").trim() || null
+  }
+  if ("ozon_quote_mode" in rec) {
+    update.ozon_quote_mode = parseOzonQuoteMode(rec.ozon_quote_mode)
+  }
+  if ("ozon_fixed_amount" in rec) {
+    const amount = parseOzonFixedAmount(rec.ozon_fixed_amount)
+    if (amount != null) update.ozon_fixed_amount = amount
   }
   return update
 }
@@ -301,7 +328,8 @@ export async function getShopSetting(container: MedusaContainer) {
     tbank_notification_url: process.env.TBANK_NOTIFICATION_URL || null,
     tbank_pay_type: process.env.TBANK_PAY_TYPE === "T" ? "T" : "O",
     ozon_client_id: process.env.OZON_CLIENT_ID || null,
-    ozon_api_key: process.env.OZON_API_KEY || null,
+    ozon_oauth_token: process.env.OZON_OAUTH_TOKEN || null,
+    ozon_refresh_token: process.env.OZON_REFRESH_TOKEN || null,
     ozon_from_place_id: process.env.OZON_FROM_PLACE_ID || null,
   })
   const row = (Array.isArray(created) ? created[0] : created) as unknown as Record<

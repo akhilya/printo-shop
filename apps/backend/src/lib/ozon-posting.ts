@@ -2,11 +2,7 @@ import { MedusaError } from "@medusajs/framework/utils"
 import {
   asRecord,
   firstText,
-  isOzonRocketCreds,
   ozonTrackingUrl,
-  rocketRequest,
-  rocketRequestRaw,
-  rocketToken,
   sellerPost,
   sellerRequest,
   type OzonCreds,
@@ -224,17 +220,6 @@ export async function getOzonPosting(
   creds: OzonCreds,
   postingNumber: string
 ): Promise<OzonPostingInfo> {
-  if (isOzonRocketCreds(creds)) {
-    const token = await rocketToken(creds)
-    const raw = await rocketRequest(
-      token,
-      "GET",
-      `/v1/tracking?orderNumber=${encodeURIComponent(postingNumber)}`
-    ).catch(() =>
-      rocketRequest(token, "GET", `/v1/order/${encodeURIComponent(postingNumber)}`)
-    )
-    return parseOzonPosting(raw)
-  }
   const raw = await sellerPost(creds, "/v3/posting/fbs/get", {
     posting_number: postingNumber,
     with: { analytics_data: true },
@@ -246,7 +231,6 @@ export async function shipOzonPosting(
   creds: OzonCreds,
   posting: OzonPostingInfo
 ) {
-  if (isOzonRocketCreds(creds)) return posting
   const postingNumber = posting.postingNumber
   if (!postingNumber) {
     throw new MedusaError(
@@ -279,28 +263,12 @@ export async function shipOzonPosting(
 }
 
 export async function handOverOzonPosting(creds: OzonCreds, postingNumber: string) {
-  if (isOzonRocketCreds(creds)) return
   await sellerPost(creds, "/v2/posting/fbs/awaiting-delivery", {
     posting_number: [postingNumber],
   })
 }
 
 export async function cancelOzonPosting(creds: OzonCreds, postingNumber: string) {
-  if (isOzonRocketCreds(creds)) {
-    const token = await rocketToken(creds)
-    try {
-      await rocketRequest(
-        token,
-        "POST",
-        `/v1/order/${encodeURIComponent(postingNumber)}/cancel`
-      )
-    } catch {
-      await rocketRequest(token, "POST", "/v1/order/cancel", {
-        orderNumber: postingNumber,
-      })
-    }
-    return
-  }
   await sellerPost(creds, "/v2/posting/fbs/cancel", {
     posting_number: postingNumber,
     cancel_reason_id: 352,
@@ -311,28 +279,6 @@ export async function getOzonPackageLabel(
   creds: OzonCreds,
   postingNumber: string
 ): Promise<OzonPackageLabel> {
-  if (isOzonRocketCreds(creds)) {
-    const token = await rocketToken(creds)
-    const paths = [
-      `/v1/ticket?orderNumber=${encodeURIComponent(postingNumber)}`,
-      `/v1/order/${encodeURIComponent(postingNumber)}/ticket`,
-    ]
-    let lastError: unknown = null
-    for (const path of paths) {
-      try {
-        const raw = await rocketRequestRaw(token, "GET", path)
-        return labelFromRaw(raw, postingNumber)
-      } catch (error) {
-        lastError = error
-      }
-    }
-    throw lastError instanceof Error
-      ? lastError
-      : new MedusaError(
-          MedusaError.Types.UNEXPECTED_STATE,
-          "Не удалось получить этикетку Ozon"
-        )
-  }
   const raw = await sellerRequest(creds, "/v2/posting/fbs/package-label", {
     posting_number: [postingNumber],
   })

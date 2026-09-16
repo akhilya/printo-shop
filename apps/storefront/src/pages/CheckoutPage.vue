@@ -1,5 +1,5 @@
 <script setup>
-import { computed, onMounted, ref } from "vue"
+import { computed, onMounted, ref, watch } from "vue"
 import { useRoute } from "vue-router"
 import ProductPhoto from "../components/ProductPhoto.vue"
 import PromoField from "../components/PromoField.vue"
@@ -21,7 +21,8 @@ import {
   storeHeaders,
 } from "../lib/sdk.js"
 import { legalPages, LEGAL_FALLBACK } from "../lib/legal.js"
-import { shopState } from "../lib/shop.js"
+import { shopState, loadShopStatus } from "../lib/shop.js"
+import { visibleCheckoutShipping } from "../lib/checkout-shipping.js"
 
 const route = useRoute()
 const token = computed(() => String(route.params.token || ""))
@@ -36,6 +37,8 @@ const consentPages = computed(() =>
   )
 )
 const quotedShipping = ref(null)
+const shippingQuoteFailed = ref(false)
+let quoteTimer = 0
 const custom = ref(null)
 const customLoading = ref(false)
 const form = persistObject("shop_checkout", {
@@ -89,18 +92,36 @@ const totals = computed(() => {
     }
   }
   const base = cartTotals(cartState.cart)
-  const shipping =
-    quotedShipping.value != null ? Number(quotedShipping.value) : base.shipping
-  const total =
-    base.shipping || quotedShipping.value == null
-      ? base.total
-      : Math.max(0, base.items - base.discount + shipping)
+  const shipping = visibleCheckoutShipping({
+    quoteMode: shopState.ozonQuoteMode,
+    quoted: quotedShipping.value,
+    cartShipping: base.shipping,
+  })
+  const total = Math.max(0, base.items - base.discount + shipping)
   return { ...base, shipping, total }
 })
 
 const showPvz = computed(
   () => !isCustom.value || custom.value?.client_picks_pvz === true
 )
+
+const pvzChosen = computed(() => Boolean(form.ozon_point_id))
+
+const shippingLabel = computed(() => {
+  if (totals.value.shipping) {
+    return formatPrice(totals.value.shipping, currency.value)
+  }
+  if (!showPvz.value) return formatPrice(0, currency.value)
+  if (!pvzChosen.value) return "После выбора ПВЗ"
+  if (
+    shopState.ozonQuoteMode !== "fixed" &&
+    !String(form.phone || "").replace(/\D/g, "")
+  ) {
+    return "Укажите телефон, чтобы посчитать доставку"
+  }
+  if (shippingQuoteFailed.value) return "Не удалось посчитать доставку"
+  return "Считаем доставку…"
+})
 
 const extraPhotos = computed(() => {
   if (!custom.value) return []
@@ -120,8 +141,10 @@ const details = computed(() => {
 })
 
 onMounted(async () => {
+  await loadShopStatus()
   if (!token.value) {
     await loadCart()
+    if (form.ozon_point_id) await quoteShipping()
     return
   }
   customLoading.value = true
@@ -160,16 +183,14 @@ function pointCity(address) {
   return text.split(",")[0]?.trim() || "Россия"
 }
 
-async function onPvz(point) {
-  form.ozon_point_id = String(point.id)
-  form.ozon_point_name = point.name || ""
-  form.ozon_point_address = point.address || ""
-  form.ozon_point_lat = String(point.lat || "")
-  form.ozon_point_lon = String(point.lon || "")
-  form.address_1 = point.address || ""
-  form.city = point.city || form.city
-  error.value = ""
-  if (isCustom.value || !cartState.cart?.id) return
+async function quoteShipping(point = {
+  id: form.ozon_point_id,
+  address: form.ozon_point_address,
+  lat: Number(form.ozon_point_lat),
+  lon: Number(form.ozon_point_lon),
+}) {
+  if (isCustom.value || !cartState.cart?.id || !point.id) return
+  shippingQuoteFailed.value = false
   try {
     const res = await fetch(`${BACKEND_URL}/store/ozon/quote`, {
       method: "POST",
@@ -181,18 +202,55 @@ async function onPvz(point) {
         cart_id: cartState.cart.id,
         point_id: point.id,
         point_address: point.address,
-        lat: point.lat,
-        lon: point.lon,
+        lat: Number.isFinite(point.lat) ? point.lat : undefined,
+        lon: Number.isFinite(point.lon) ? point.lon : undefined,
         phone: form.phone,
       }),
     })
     const data = await res.json().catch(() => ({}))
-    if (res.ok && Number(data.amount) > 0) quotedShipping.value = Number(data.amount)
+    const amount = Number(data.amount)
+    if (res.ok && amount > 0) {
+      quotedShipping.value = amount
+      shippingQuoteFailed.value = false
+    } else {
+      quotedShipping.value = null
+      shippingQuoteFailed.value = true
+    }
     if (res.ok) await loadCart()
   } catch {
-    // Quote is best-effort; pay still works.
+    quotedShipping.value = null
+    shippingQuoteFailed.value = true
   }
 }
+
+async function onPvz(point) {
+  form.ozon_point_id = String(point.id)
+  form.ozon_point_name = point.name || ""
+  form.ozon_point_address = point.address || ""
+  form.ozon_point_lat = String(point.lat || "")
+  form.ozon_point_lon = String(point.lon || "")
+  form.address_1 = point.address || ""
+  form.city = point.city || form.city
+  error.value = ""
+  quotedShipping.value = null
+  await quoteShipping({
+    id: String(point.id),
+    address: point.address,
+    lat: Number(point.lat),
+    lon: Number(point.lon),
+  })
+}
+
+watch(
+  () => form.phone,
+  () => {
+    if (!pvzChosen.value) return
+    clearTimeout(quoteTimer)
+    quoteTimer = setTimeout(() => {
+      quoteShipping()
+    }, 400)
+  }
+)
 
 async function payCart() {
   const address = {
@@ -314,7 +372,11 @@ async function submit(event) {
     })
     return
   }
-  if (showPvz.value && !shopState.ozonConfigured) {
+  if (
+    showPvz.value &&
+    !shopState.ozonConfigured &&
+    shopState.ozonQuoteMode !== "fixed"
+  ) {
     error.value = "Ozon Доставка ещё не подключена"
     return
   }
@@ -425,7 +487,7 @@ const empty = computed(() => {
           </div>
           <div v-if="showPvz || totals.shipping">
             <span>Доставка</span>
-            <span>{{ formatPrice(totals.shipping, currency) }}</span>
+            <span>{{ shippingLabel }}</span>
           </div>
           <div v-if="totals.other">
             <span>Ещё</span>

@@ -33,9 +33,13 @@ type ShopSetting = {
   tbank_taxation: string
   tbank_vat: string
   ozon_client_id: string
-  ozon_api_key: string
-  ozon_api_key_set: boolean
+  ozon_oauth_token: string
+  ozon_oauth_token_set: boolean
+  ozon_connected: boolean
+  ozon_oauth_redirect_uri: string
   ozon_from_place_id: string
+  ozon_quote_mode: "ozon" | "fixed"
+  ozon_fixed_amount: number
 }
 
 const EMPTY: ShopSetting = {
@@ -54,9 +58,13 @@ const EMPTY: ShopSetting = {
   tbank_taxation: "usn_income",
   tbank_vat: "none",
   ozon_client_id: "",
-  ozon_api_key: "",
-  ozon_api_key_set: false,
+  ozon_oauth_token: "",
+  ozon_oauth_token_set: false,
+  ozon_connected: false,
+  ozon_oauth_redirect_uri: "",
   ozon_from_place_id: "",
+  ozon_quote_mode: "fixed",
+  ozon_fixed_amount: 350,
 }
 
 const ShopSettingsPage = () => {
@@ -78,7 +86,7 @@ const ShopSettingsPage = () => {
       ...EMPTY,
       ...data.shop,
       tbank_password: "",
-      ozon_api_key: "",
+      ozon_oauth_token: "",
     })
   }, [data])
 
@@ -102,8 +110,10 @@ const ShopSettingsPage = () => {
           tbank_taxation: form.tbank_taxation,
           tbank_vat: form.tbank_vat,
           ozon_client_id: form.ozon_client_id,
-          ozon_api_key: form.ozon_api_key,
+          ozon_oauth_token: form.ozon_oauth_token,
           ozon_from_place_id: form.ozon_from_place_id,
+          ozon_quote_mode: form.ozon_quote_mode,
+          ozon_fixed_amount: form.ozon_fixed_amount,
         },
       }),
     onSuccess: () => {
@@ -112,6 +122,15 @@ const ShopSettingsPage = () => {
     },
     onError: () => toast.error("Не удалось сохранить"),
   })
+
+  useEffect(() => {
+    const status = new URLSearchParams(window.location.search).get("ozon")
+    if (status === "connected") toast.success("Кабинет Ozon подключён")
+    if (status === "denied") toast.error("Доступ к кабинету Ozon не выдан")
+    if (status === "invalid" || status === "failed") {
+      toast.error("Не удалось подключить кабинет Ozon")
+    }
+  }, [])
 
   return (
     <div className="flex flex-col gap-y-4">
@@ -374,15 +393,15 @@ const ShopSettingsPage = () => {
       <Container className="flex max-w-3xl flex-col gap-y-4 p-6">
         <Heading>Ozon Доставка</Heading>
         <Text size="small" className="text-ui-fg-subtle">
-          Пока только ПВЗ. Client-Id и Api-Key из кабинета Ozon после
-          подключения доставки. Для Rocket Client-Id начинается с Principal_.
-          Пустой ключ не затирает сохранённый. Сохраните ключи, затем выберите
-          пункт сдачи на карте.
+          Redirect URI задаётся в этом приложении, не в Delivery API. В правах
+          включите seller-api.ozon-logistics, product и posting-fbs. Затем
+          снова «Подключить кабинет» — в окне Ozon должен появиться список
+          этих прав, не пустая форма.
         </Text>
         {isLoading ? null : (
           <>
             <div className="flex flex-col gap-y-2">
-              <Label>Client-Id</Label>
+              <Label>Client ID приложения</Label>
               <Input
                 value={form.ozon_client_id}
                 onChange={(event) =>
@@ -394,19 +413,97 @@ const ShopSettingsPage = () => {
               />
             </div>
             <div className="flex flex-col gap-y-2">
-              <Label>Api-Key</Label>
+              <Label>Client Secret приложения</Label>
               <Input
                 type="password"
-                value={form.ozon_api_key}
-                placeholder={form.ozon_api_key_set ? "Ключ сохранён" : ""}
+                autoComplete="new-password"
+                value={form.ozon_oauth_token}
+                placeholder={
+                  form.ozon_oauth_token_set ? "Секрет сохранён" : ""
+                }
                 onChange={(event) =>
                   setForm((current) => ({
                     ...current,
-                    ozon_api_key: event.target.value,
+                    ozon_oauth_token: event.target.value,
                   }))
                 }
               />
             </div>
+            <div className="flex flex-col gap-y-2">
+              <Label>Redirect URI для приложения</Label>
+              <Input
+                readOnly
+                value={form.ozon_oauth_redirect_uri}
+              />
+            </div>
+            <Text size="small" className="text-ui-fg-subtle">
+              {form.ozon_connected
+                ? "Кабинет продавца подключён."
+                : "Кабинет ещё не подключён."}
+            </Text>
+            <div className="flex gap-x-2">
+              <Button onClick={() => save.mutate()} isLoading={save.isPending}>
+                Сохранить
+              </Button>
+              <Button
+                variant="secondary"
+                isLoading={save.isPending}
+                onClick={() => {
+                  save.mutate(undefined, {
+                    onSuccess: () => {
+                      window.location.assign("/admin/ozon/oauth")
+                    },
+                  })
+                }}
+              >
+                Подключить кабинет
+              </Button>
+            </div>
+            <div className="flex flex-col gap-y-2">
+              <Label>Цена доставки</Label>
+              <Select
+                value={form.ozon_quote_mode}
+                onValueChange={(value) =>
+                  setForm((current) => ({
+                    ...current,
+                    ozon_quote_mode: value === "fixed" ? "fixed" : "ozon",
+                    ozon_fixed_amount:
+                      value === "fixed" && !current.ozon_fixed_amount
+                        ? 350
+                        : current.ozon_fixed_amount,
+                  }))
+                }
+              >
+                <Select.Trigger>
+                  <Select.Value />
+                </Select.Trigger>
+                <Select.Content>
+                  <Select.Item value="ozon">Считать в Ozon</Select.Item>
+                  <Select.Item value="fixed">Фиксированная сумма</Select.Item>
+                </Select.Content>
+              </Select>
+              <Text size="small" className="text-ui-fg-subtle">
+                Ozon сейчас не отдаёт тариф. Пока стоит фиксированная сумма — её
+                можно сменить в любой момент.
+              </Text>
+            </div>
+            {form.ozon_quote_mode === "fixed" ? (
+              <div className="flex flex-col gap-y-2">
+                <Label>Фиксированная доставка, ₽</Label>
+                <Input
+                  type="number"
+                  min={1}
+                  step={1}
+                  value={String(form.ozon_fixed_amount || "")}
+                  onChange={(event) =>
+                    setForm((current) => ({
+                      ...current,
+                      ozon_fixed_amount: Number(event.target.value),
+                    }))
+                  }
+                />
+              </div>
+            ) : null}
             <OzonFromPlaceMap
               selectedId={form.ozon_from_place_id}
               onSelect={(id) =>

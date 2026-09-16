@@ -95,33 +95,111 @@ describe("presentShopSetting", () => {
     expect(presented.tbank_notification_url).toMatch(/\/hooks\/tbank$/)
   })
 
-  it("exposes ozon configured without the api key", () => {
+  it("marks ozon configured from the private app id and secret", () => {
     const publicView = presentShopSetting({
-      ozon_client_id: "11",
-      ozon_api_key: "secret",
+      ozon_client_id: "app-uuid",
+      ozon_oauth_token: "app-secret",
     })
-    expect(publicView.ozon_configured).toBe(true)
+    expect(publicView.ozon_configured).toBe(false)
+    expect(publicView.ozon_quote_mode).toBe("ozon")
+    expect(
+      presentShopSetting({
+        ozon_quote_mode: "fixed",
+        ozon_fixed_amount: 350,
+      }).ozon_quote_mode
+    ).toBe("fixed")
+    expect(
+      presentShopSetting({
+        ozon_client_id: "app-uuid",
+        ozon_oauth_token: "app-secret",
+        ozon_refresh_token: "refresh-1",
+      }).ozon_configured
+    ).toBe(true)
     expect(publicView.ozon_from_place_id).toBe("")
+    expect(publicView).not.toHaveProperty("ozon_oauth_token")
     expect(publicView).not.toHaveProperty("ozon_api_key")
+    const sellerOnly = presentShopSetting({
+      ozon_client_id: "12345",
+      ozon_api_key: "seller-key",
+    })
+    expect(sellerOnly.ozon_configured).toBe(false)
     const admin = presentShopSetting(
-      { ozon_client_id: "11", ozon_api_key: "secret", ozon_from_place_id: "wh" },
+      {
+        ozon_client_id: "app-uuid",
+        ozon_oauth_token: "app-secret",
+        ozon_from_place_id: "wh",
+      },
       { admin: true }
     )
-    expect(admin.ozon_api_key_set).toBe(true)
-    expect(admin.ozon_client_id).toBe("11")
+    expect(admin.ozon_client_id).toBe("app-uuid")
+    expect(admin.ozon_oauth_token_set).toBe(true)
+    expect(admin.ozon_connected).toBe(false)
+    const connected = presentShopSetting(
+      {
+        ozon_client_id: "app-uuid",
+        ozon_oauth_token: "app-secret",
+        ozon_refresh_token: "refresh-1",
+      },
+      { admin: true }
+    )
+    expect(connected.ozon_connected).toBe(true)
+    expect(connected.ozon_quote_mode).toBe("ozon")
+    expect(connected.ozon_fixed_amount).toBe(0)
+    const priced = presentShopSetting(
+      { ozon_quote_mode: "fixed", ozon_fixed_amount: 350 },
+      { admin: true }
+    )
+    expect(priced.ozon_quote_mode).toBe("fixed")
+    expect(priced.ozon_fixed_amount).toBe(350)
+    expect(connected).not.toHaveProperty("ozon_refresh_token")
+    expect(connected.ozon_oauth_redirect_uri).toMatch(/\/hooks\/ozon\/oauth$/)
+    expect(admin).not.toHaveProperty("ozon_api_key_set")
     expect(admin).not.toHaveProperty("ozon_api_key")
+    expect(admin).not.toHaveProperty("ozon_oauth_token")
   })
 })
 
 describe("parseShopSettingUpdate", () => {
-  it("keeps ozon api key when the field is empty", () => {
+  it("saves the private app client id and ignores seller api keys", () => {
     const update = parseShopSettingUpdate(
-      { ozon_client_id: "11", ozon_api_key: "", ozon_from_place_id: "wh-1" },
+      {
+        ozon_client_id: " app-uuid ",
+        ozon_api_key: "seller-key",
+        ozon_from_place_id: "wh-1",
+      },
       { ozon_api_key: "old" }
     )
-    expect(update.ozon_client_id).toBe("11")
+    expect(update.ozon_client_id).toBe("app-uuid")
     expect(update.ozon_api_key).toBeUndefined()
     expect(update.ozon_from_place_id).toBe("wh-1")
+  })
+
+  it("keeps the ozon oauth token when the field is empty", () => {
+    const update = parseShopSettingUpdate(
+      { ozon_oauth_token: "" },
+      { ozon_oauth_token: "old" }
+    )
+    expect(update.ozon_oauth_token).toBeUndefined()
+  })
+
+  it("saves the private app secret", () => {
+    const update = parseShopSettingUpdate(
+      { ozon_client_id: "app-uuid", ozon_oauth_token: "app-secret" },
+      {}
+    )
+    expect(update.ozon_client_id).toBe("app-uuid")
+    expect(update.ozon_oauth_token).toBe("app-secret")
+  })
+
+  it("saves the ozon quote mode and fixed amount", () => {
+    const update = parseShopSettingUpdate(
+      { ozon_quote_mode: "fixed", ozon_fixed_amount: " 350 " },
+      {}
+    )
+    expect(update.ozon_quote_mode).toBe("fixed")
+    expect(update.ozon_fixed_amount).toBe(350)
+    const ozon = parseShopSettingUpdate({ ozon_quote_mode: "ozon" }, {})
+    expect(ozon.ozon_quote_mode).toBe("ozon")
   })
 
   it("keeps the current password when the field is empty", () => {

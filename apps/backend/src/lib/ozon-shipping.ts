@@ -1,10 +1,27 @@
 import { MedusaContainer } from "@medusajs/framework"
 import { ContainerRegistrationKeys, Modules } from "@medusajs/framework/utils"
 import {
+  ozonCartArticle,
   ozonCredsFromRow,
   quoteOzonDelivery,
 } from "./ozon-delivery"
-import { getShopSetting } from "./shop-setting"
+import { getShopSetting, parseOzonFixedAmount, parseOzonQuoteMode } from "./shop-setting"
+
+export type OzonQuoteMode = "ozon" | "fixed"
+
+export { parseOzonFixedAmount, parseOzonQuoteMode }
+
+export function resolveOzonQuoteAmount(input: {
+  mode?: unknown
+  fixedAmount?: unknown
+  quoted?: number | null
+}): number | null {
+  if (parseOzonQuoteMode(input.mode) === "fixed") {
+    return parseOzonFixedAmount(input.fixedAmount)
+  }
+  const quoted = Number(input.quoted)
+  return Number.isFinite(quoted) && quoted > 0 ? quoted : null
+}
 
 function money(value: unknown) {
   if (typeof value === "number" && Number.isFinite(value)) return value
@@ -40,10 +57,13 @@ export async function applyOzonShippingToCart(
       "email",
       "metadata",
       "shipping_address.phone",
+      "items.id",
       "items.title",
       "items.quantity",
       "items.unit_price",
+      "items.variant_id",
       "items.variant.sku",
+      "items.variant.weight",
       "shipping_methods.id",
       "shipping_methods.name",
       "shipping_methods.amount",
@@ -55,16 +75,23 @@ export async function applyOzonShippingToCart(
     return { amount: 0 }
   }
   const items = ((cart.items as Array<Record<string, unknown>>) || []).map(
-    (item) => ({
-      article: String(
-        (item.variant as Record<string, unknown> | undefined)?.sku || item.id || "sku"
-      ),
-      quantity: Number(item.quantity || 1),
-      price: money(item.unit_price),
-    })
+    (item) => {
+      const variant = (item.variant as Record<string, unknown> | undefined) || {}
+      return {
+        article: ozonCartArticle(item),
+        quantity: Number(item.quantity || 1),
+        price: money(item.unit_price),
+        weight: money(variant.weight),
+      }
+    }
   )
   let amount: number | null = null
-  if (creds) {
+  const quoteMode = parseOzonQuoteMode(settings.ozon_quote_mode)
+  if (quoteMode === "fixed") {
+    amount = parseOzonFixedAmount(settings.ozon_fixed_amount)
+  } else if (!creds) {
+    return { amount: 0 }
+  } else {
     try {
       amount = await quoteOzonDelivery({
         creds,
@@ -82,14 +109,20 @@ export async function applyOzonShippingToCart(
     } catch (error) {
       const logger = container.resolve(ContainerRegistrationKeys.LOGGER)
       logger.warn(
-        `Ozon quote failed: ${error instanceof Error ? error.message : String(error)}`
+        `Ozon quote failed (${items
+          .map((item) => item.article)
+          .filter(Boolean)
+          .join(", ") || "no offer_id"}): ${error instanceof Error ? error.message : String(error)}`
       )
       amount = null
     }
   }
-  if (amount == null) {
-    return { amount: 0 }
-  }
+  amount = resolveOzonQuoteAmount({
+    mode: quoteMode,
+    fixedAmount: settings.ozon_fixed_amount,
+    quoted: amount,
+  })
+  amount = amount ?? 0
 
   const cartModule = container.resolve(Modules.CART) as {
     updateCarts?: (data: unknown) => Promise<unknown>

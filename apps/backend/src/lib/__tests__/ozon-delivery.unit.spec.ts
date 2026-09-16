@@ -2,7 +2,6 @@ import {
   clusterOzonPoints,
   extractOzonAmount,
   extractOzonCreateIds,
-  isOzonRocketCreds,
   loadOzonPoints,
   nearestOzonPoints,
   normalizeOzonPhone,
@@ -11,32 +10,227 @@ import {
   parseOzonClusters,
   parseOzonPoints,
   pointsInBounds,
+  quoteOzonDelivery,
+  ozonQuoteErrorMessage,
+  ozonCartArticle,
+  ozonCheckoutItems,
   resolveOzonMapLayers,
+  sellerAuthHeaders,
+  sellerAuthHeadersFor,
+  fetchOzonAppToken,
+  resetOzonAppTokenCache,
+  ozonAuthorizeUrl,
+  ozonOAuthRedirectUri,
+  exchangeOzonAuthCode,
 } from "../ozon-delivery"
 
 describe("ozonCredsFromRow", () => {
-  it("needs both client id and api key", () => {
-    expect(ozonCredsFromRow({ ozon_client_id: "1" })).toBeNull()
+  it("ignores seller api keys", () => {
     expect(
-      ozonCredsFromRow({ ozon_client_id: "1", ozon_api_key: "secret" })
+      ozonCredsFromRow({ ozon_client_id: "12345", ozon_api_key: "seller-key" })
+    ).toBeNull()
+  })
+
+  it("reads the private app client id and secret", () => {
+    expect(
+      ozonCredsFromRow({
+        ozon_client_id: "app-uuid",
+        ozon_oauth_token: "app-secret",
+        ozon_refresh_token: "refresh-1",
+      })
     ).toEqual({
-      clientId: "1",
-      apiKey: "secret",
+      clientId: "app-uuid",
+      clientSecret: "app-secret",
+      refreshToken: "refresh-1",
       fromPlaceId: "",
+      accessToken: "",
     })
   })
 
-  it("detects rocket principal credentials", () => {
+  it("keeps a jwt in the oauth field as the access token", () => {
     expect(
-      isOzonRocketCreds({
-        clientId: "Principal_abc",
-        apiKey: "x",
-        fromPlaceId: "",
+      ozonCredsFromRow({ ozon_oauth_token: "aaa.bbb.ccc" })
+    ).toEqual({
+      clientId: "",
+      clientSecret: "",
+      refreshToken: "",
+      fromPlaceId: "",
+      accessToken: "aaa.bbb.ccc",
+    })
+  })
+})
+
+describe("sellerAuthHeaders", () => {
+  const creds = {
+    clientId: "app-uuid",
+    clientSecret: "app-secret",
+    refreshToken: "refresh-1",
+    fromPlaceId: "",
+    accessToken: "aaa.bbb.ccc",
+  }
+
+  it("uses a bearer token for private apps", () => {
+    expect(sellerAuthHeaders(creds)).toEqual({
+      "Content-Type": "application/json",
+      Authorization: "Bearer aaa.bbb.ccc",
+    })
+  })
+
+  it("does not send seller api keys or a client secret", () => {
+    expect(
+      sellerAuthHeaders({ ...creds, accessToken: "" })
+    ).toEqual({
+      "Content-Type": "application/json",
+    })
+    expect(
+      sellerAuthHeaders({ ...creds, accessToken: "not-a-jwt" })
+    ).toEqual({
+      "Content-Type": "application/json",
+    })
+  })
+
+  it("sends bearer for map, checkout and postings", () => {
+    expect(sellerAuthHeadersFor(creds, "/v1/delivery/map")).toEqual({
+      "Content-Type": "application/json",
+      Authorization: "Bearer aaa.bbb.ccc",
+    })
+    expect(sellerAuthHeadersFor(creds, "/v3/posting/fbs/get")).toEqual({
+      "Content-Type": "application/json",
+      Authorization: "Bearer aaa.bbb.ccc",
+    })
+  })
+})
+
+describe("fetchOzonAppToken", () => {
+  const fetchFn = global.fetch
+
+  afterEach(() => {
+    global.fetch = fetchFn
+    resetOzonAppTokenCache()
+  })
+
+  it("refreshes a seller-issued token, not a client_credentials token", async () => {
+    global.fetch = jest.fn(async () => ({
+      ok: true,
+      status: 200,
+      text: async () =>
+        JSON.stringify({
+          access_token: "aaa.bbb.ccc",
+          expires_in: 3600,
+          token_type: "Bearer",
+        }),
+    })) as typeof fetch
+    await expect(
+      fetchOzonAppToken({
+        clientId: "app-uuid",
+        clientSecret: "app-secret",
+        refreshToken: "refresh-1",
       })
-    ).toBe(true)
-    expect(
-      isOzonRocketCreds({ clientId: "12345", apiKey: "x", fromPlaceId: "" })
-    ).toBe(false)
+    ).resolves.toBe("aaa.bbb.ccc")
+    const call = (global.fetch as jest.Mock).mock.calls[0]
+    expect(String(call[0])).toBe("https://xapi.ozon.ru/oauth/token")
+    expect(JSON.parse(call[1].body)).toEqual({
+      grant_type: "refresh_token",
+      client_id: "app-uuid",
+      client_secret: "app-secret",
+      refresh_token: "refresh-1",
+    })
+    expect(call[1].headers["Content-Type"]).toBe("application/json")
+  })
+
+  it("does not use client_credentials for seller methods", async () => {
+    global.fetch = jest.fn()
+    await expect(
+      fetchOzonAppToken({ clientId: "app-uuid", clientSecret: "app-secret" })
+    ).rejects.toThrow(/кабинет/)
+    expect(global.fetch).not.toHaveBeenCalled()
+  })
+
+  it("reuses a cached token", async () => {
+    global.fetch = jest.fn(async () => ({
+      ok: true,
+      status: 200,
+      text: async () =>
+        JSON.stringify({ access_token: "aaa.bbb.ccc", expires_in: 3600 }),
+    })) as typeof fetch
+    const input = {
+      clientId: "app-uuid",
+      clientSecret: "app-secret",
+      refreshToken: "refresh-1",
+    }
+    await expect(fetchOzonAppToken(input)).resolves.toBe("aaa.bbb.ccc")
+    await expect(fetchOzonAppToken(input)).resolves.toBe("aaa.bbb.ccc")
+    expect(global.fetch).toHaveBeenCalledTimes(1)
+  })
+})
+
+describe("ozonAuthorizeUrl", () => {
+  it("sends the seller to grant the private app", () => {
+    const url = ozonAuthorizeUrl({
+      clientId: "app-uuid",
+      redirectUri: "https://api.example.com/hooks/ozon/oauth",
+      state: "csrf-1",
+    })
+    expect(url.startsWith("https://seller.ozon.ru/app/appstore/oauth/authorize?")).toBe(
+      true
+    )
+    const parsed = new URL(url)
+    expect(parsed.searchParams.get("response_type")).toBe("code")
+    expect(parsed.searchParams.get("access_type")).toBe("offline")
+    expect(parsed.searchParams.get("client_id")).toBe("app-uuid")
+    expect(parsed.searchParams.get("redirect_uri")).toBe(
+      "https://api.example.com/hooks/ozon/oauth"
+    )
+    expect(parsed.searchParams.get("state")).toBe("csrf-1")
+    expect(parsed.searchParams.get("scope")).toContain("seller-api.ozon-logistics")
+    expect(parsed.searchParams.get("scope")).toContain("seller-api.product")
+    expect(parsed.searchParams.get("scope")).toContain("seller-api.posting-fbs")
+  })
+
+  it("builds the callback from the public backend url", () => {
+    expect(ozonOAuthRedirectUri({ MEDUSA_BACKEND_URL: "https://api.example.com/" })).toBe(
+      "https://api.example.com/hooks/ozon/oauth"
+    )
+  })
+})
+
+describe("exchangeOzonAuthCode", () => {
+  const fetchFn = global.fetch
+
+  afterEach(() => {
+    global.fetch = fetchFn
+    resetOzonAppTokenCache()
+  })
+
+  it("exchanges a seller grant code for access and refresh tokens", async () => {
+    global.fetch = jest.fn(async () => ({
+      ok: true,
+      status: 200,
+      text: async () =>
+        JSON.stringify({
+          access_token: "aaa.bbb.ccc",
+          refresh_token: "refresh-1",
+          expires_in: 3600,
+        }),
+    })) as typeof fetch
+    await expect(
+      exchangeOzonAuthCode({
+        clientId: "app-uuid",
+        clientSecret: "app-secret",
+        code: "auth-code",
+        redirectUri: "https://api.example.com/hooks/ozon/oauth",
+      })
+    ).resolves.toEqual({
+      accessToken: "aaa.bbb.ccc",
+      refreshToken: "refresh-1",
+    })
+    expect(JSON.parse((global.fetch as jest.Mock).mock.calls[0][1].body)).toEqual({
+      grant_type: "authorization_code",
+      client_id: "app-uuid",
+      client_secret: "app-secret",
+      code: "auth-code",
+      redirect_uri: "https://api.example.com/hooks/ozon/oauth",
+    })
   })
 })
 
@@ -229,6 +423,237 @@ describe("extractOzonAmount", () => {
     ).toBe(420)
     expect(extractOzonAmount({ amount: 350 })).toBe(350)
   })
+
+  it("does not let a zero deliveryPrice hide the real amount", () => {
+    expect(extractOzonAmount({ deliveryPrice: 0, amount: 350 })).toBe(350)
+    expect(extractOzonAmount({ delivery_cost: 0, tariff: 280 })).toBe(280)
+    expect(
+      extractOzonAmount({
+        price: { currency_code: "RUB", units: 0, nanos: 0 },
+        deliveryPrice: 410,
+      })
+    ).toBe(410)
+    expect(
+      extractOzonAmount({
+        splits: [
+          {
+            delivery_method: {
+              price: { currency_code: "RUB", units: "390", nanos: "0" },
+            },
+          },
+        ],
+      })
+    ).toBe(390)
+  })
+
+  it("reads protojson Money with currencyCode or units only", () => {
+    expect(
+      extractOzonAmount({
+        splits: [
+          {
+            delivery_method: {
+              price: { currencyCode: "RUB", units: "250", nanos: "0" },
+            },
+          },
+        ],
+      })
+    ).toBe(250)
+    expect(
+      extractOzonAmount({
+        delivery_method: { price: { units: "180", nanos: 0 } },
+      })
+    ).toBe(180)
+  })
+})
+
+describe("ozonCartArticle", () => {
+  it("uses the variant sku from the bridge", () => {
+    expect(
+      ozonCartArticle({ id: "orli_1", variant: { sku: "GE57" } })
+    ).toBe("GE57")
+  })
+
+  it("does not send a medusa line id as an ozon article", () => {
+    expect(ozonCartArticle({ id: "orli_1", title: "Varesa" })).toBe("")
+  })
+})
+
+describe("ozonCheckoutItems", () => {
+  it("sends offer_id on the item, not under id", () => {
+    expect(
+      ozonCheckoutItems([{ article: "GE57", quantity: 2 }])
+    ).toEqual([
+      {
+        offer_id: "GE57",
+        quantity: 2,
+      },
+    ])
+    expect(ozonCheckoutItems([{ article: "GE57", quantity: 2 }])[0]).not.toHaveProperty(
+      "id"
+    )
+  })
+
+  it("adds a catalog sku next to offer_id", () => {
+    expect(
+      ozonCheckoutItems([{ article: "GE57", quantity: 1, sku: 987 }])
+    ).toEqual([
+      {
+        offer_id: "GE57",
+        sku: 987,
+        quantity: 1,
+      },
+    ])
+  })
+})
+
+describe("quoteOzonDelivery", () => {
+  const fetchFn = global.fetch
+
+  afterEach(() => {
+    global.fetch = fetchFn
+    resetOzonAppTokenCache()
+  })
+
+  function jsonResponse(payload: unknown, status = 200) {
+    const text = JSON.stringify(payload)
+    return {
+      ok: status >= 200 && status < 300,
+      status,
+      headers: { get: () => "application/json" },
+      arrayBuffer: async () => Buffer.from(text),
+      text: async () => text,
+    }
+  }
+
+  const sellerInput = {
+    creds: {
+      clientId: "app-uuid",
+      clientSecret: "app-secret",
+      refreshToken: "refresh-1",
+      fromPlaceId: "555",
+      accessToken: "",
+    },
+    point: { id: "77" },
+    phone: "+7 (999) 123-45-67",
+    items: [{ article: "WA150", quantity: 1, price: 1500 }],
+  }
+
+  function mockOzon(
+    handler: (path: string, init?: RequestInit) => ReturnType<typeof jsonResponse>
+  ) {
+    global.fetch = jest.fn(async (url: string | URL, init?: RequestInit) => {
+      const path = String(url)
+      if (path.includes("/oauth/token")) {
+        return jsonResponse({ access_token: "aaa.bbb.ccc", expires_in: 3600 })
+      }
+      return handler(path, init)
+    }) as typeof fetch
+  }
+
+  it("exchanges the app secret and quotes pickup via checkout", async () => {
+    mockOzon((path) => {
+      if (path.includes("/v2/delivery/checkout")) {
+        return jsonResponse({ amount: 320 })
+      }
+      return jsonResponse({ message: path }, 404)
+    })
+    await expect(quoteOzonDelivery(sellerInput)).resolves.toBe(320)
+    const calls = (global.fetch as jest.Mock).mock.calls
+    expect(String(calls[0][0])).toBe("https://xapi.ozon.ru/oauth/token")
+    const checkout = calls.find((call) =>
+      String(call[0]).includes("/v2/delivery/checkout")
+    )
+    expect(checkout[1].headers.Authorization).toBe("Bearer aaa.bbb.ccc")
+    expect(
+      Object.keys(checkout[1].headers).some((key) =>
+        /client-id|api-key/i.test(key)
+      )
+    ).toBe(false)
+    expect(
+      calls.some((call) => String(call[0]).includes("/v1/delivery/calculate"))
+    ).toBe(false)
+  })
+
+  it("sends offer_id on checkout items", async () => {
+    mockOzon((path) => {
+      if (path.includes("/v2/delivery/checkout")) {
+        return jsonResponse({ amount: 320 })
+      }
+      return jsonResponse({ message: path }, 404)
+    })
+    await quoteOzonDelivery(sellerInput)
+    const checkout = (global.fetch as jest.Mock).mock.calls.find((call) =>
+      String(call[0]).includes("/v2/delivery/checkout")
+    )
+    expect(JSON.parse(String(checkout[1].body)).items).toEqual([
+      {
+        offer_id: "WA150",
+        quantity: 1,
+      },
+    ])
+    expect(JSON.parse(String(checkout[1].body)).from_place_id).toBe(555)
+  })
+
+  it("puts a catalog sku into checkout item id", async () => {
+    mockOzon((path) => {
+      if (path.includes("/product/info/list")) {
+        return jsonResponse({ items: [{ offer_id: "WA150", sku: 987 } ] })
+      }
+      if (path.includes("/v2/delivery/checkout")) {
+        return jsonResponse({ amount: 320 })
+      }
+      return jsonResponse({ message: path }, 404)
+    })
+    await quoteOzonDelivery(sellerInput)
+    const checkout = (global.fetch as jest.Mock).mock.calls.find((call) =>
+      String(call[0]).includes("/v2/delivery/checkout")
+    )
+    expect(JSON.parse(String(checkout[1].body)).items[0]).toEqual({
+      offer_id: "WA150",
+      sku: 987,
+      quantity: 1,
+    })
+  })
+
+  it("tries FBO checkout when FBS has no tariff", async () => {
+    mockOzon((path, init) => {
+      const body = String(init?.body || "")
+      if (path.includes("/v2/delivery/checkout")) {
+        if (body.includes('"FBO"')) return jsonResponse({ amount: 410 })
+        return jsonResponse({ splits: [] })
+      }
+      return jsonResponse({ message: path }, 404)
+    })
+    await expect(quoteOzonDelivery(sellerInput)).resolves.toBe(410)
+  })
+})
+
+describe("ozonQuoteErrorMessage", () => {
+  it("explains a forbidden seller checkout", () => {
+    expect(
+      ozonQuoteErrorMessage(
+        new Error('checkout FBS: Ozon HTTP 403: {"code":7,"message":"method is not allowed"}')
+      )
+    ).toMatch(/кабинет/)
+  })
+
+  it("explains an oauth-client token", () => {
+    expect(
+      ozonQuoteErrorMessage(
+        new Error(
+          'Ozon HTTP 403: {"code":7,"message":"token must be issued for seller, not oauth-client"}'
+        )
+      )
+    ).toMatch(/кабинет/)
+  })
+
+  it("explains a missing delivery service on the app", () => {
+    expect(
+      ozonQuoteErrorMessage(
+        new Error('Ozon HTTP 403: {"code":7,"message":"no access for this service"}')
+      )
+    ).toMatch(/Ozon Доставка/)
+  })
 })
 
 describe("extractOzonCreateIds", () => {
@@ -289,7 +714,7 @@ describe("loadOzonPoints", () => {
       arrayBuffer: async () => Buffer.from(JSON.stringify(payload)),
     })
     const result = await loadOzonPoints(
-      { ozon_client_id: "1", ozon_api_key: "secret" },
+      { ozon_client_id: "app-uuid", ozon_oauth_token: "aaa.bbb.ccc" },
       { zoom: 5, south: 50, west: 20, north: 70, east: 50 }
     )
     expect(result.points).toEqual([])

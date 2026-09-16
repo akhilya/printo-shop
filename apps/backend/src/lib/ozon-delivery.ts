@@ -1,4 +1,5 @@
 import { MedusaError } from "@medusajs/framework/utils"
+import { publicBackendUrl } from "./public-url"
 
 function ozonHttpError(status: number, text: string) {
   return new MedusaError(
@@ -29,8 +30,10 @@ export type OzonMapCluster = {
 
 export type OzonCreds = {
   clientId: string
-  apiKey: string
+  clientSecret: string
+  refreshToken: string
   fromPlaceId: string
+  accessToken: string
 }
 
 export function ozonCredsFromRow(
@@ -38,17 +41,218 @@ export function ozonCredsFromRow(
 ): OzonCreds | null {
   if (!row) return null
   const clientId = String(row.ozon_client_id || "").trim()
-  const apiKey = String(row.ozon_api_key || "").trim()
-  if (!clientId || !apiKey) return null
+  const oauth = String(row.ozon_oauth_token || "").trim()
+  const refreshToken = String(row.ozon_refresh_token || "").trim()
+  const accessToken = isOzonAccessToken(oauth) ? oauth : ""
+  const clientSecret = accessToken ? "" : oauth
+  if (!accessToken && !refreshToken && (!clientId || !clientSecret)) return null
   return {
     clientId,
-    apiKey,
+    clientSecret,
+    refreshToken,
     fromPlaceId: String(row.ozon_from_place_id || "").trim(),
+    accessToken,
   }
 }
 
-export function isOzonRocketCreds(creds: OzonCreds) {
-  return /^principal_/i.test(creds.clientId)
+export function isOzonAccessToken(value: string) {
+  return /^[A-Za-z0-9_-]+\.[A-Za-z0-9_-]+\.[A-Za-z0-9_-]+$/.test(
+    String(value || "").trim()
+  )
+}
+
+export function sellerAuthHeaders(creds: OzonCreds) {
+  if (isOzonAccessToken(creds.accessToken)) {
+    return {
+      "Content-Type": "application/json",
+      Authorization: `Bearer ${creds.accessToken}`,
+    }
+  }
+  return {
+    "Content-Type": "application/json",
+  }
+}
+
+export function sellerAuthHeadersFor(creds: OzonCreds, _path?: string) {
+  return sellerAuthHeaders(creds)
+}
+
+const OZON_OAUTH_TOKEN_URL = "https://xapi.ozon.ru/oauth/token"
+const OZON_OAUTH_AUTHORIZE_URL =
+  "https://seller.ozon.ru/app/appstore/oauth/authorize"
+export const OZON_OAUTH_SCOPES = [
+  "seller-api.ozon-logistics",
+  "seller-api.product",
+  "seller-api.posting-fbs",
+  "seller-api.posting-fbo",
+  "seller-api.warehouse",
+  "seller-api.returns",
+].join(" ")
+export const OZON_OAUTH_CALLBACK_PATH = "/hooks/ozon/oauth"
+
+type OzonAppTokenCache = {
+  key: string
+  token: string
+  expiresAt: number
+}
+
+let ozonAppTokenCache: OzonAppTokenCache | null = null
+
+export function resetOzonAppTokenCache() {
+  ozonAppTokenCache = null
+}
+
+function tokenExpiryMs(expiresIn: unknown) {
+  const value = Number(expiresIn)
+  if (!Number.isFinite(value) || value <= 0) {
+    return Date.now() + 50 * 60 * 1000
+  }
+  if (value > 1e12) return value
+  if (value > 1e9) return value * 1000
+  return Date.now() + value * 1000
+}
+
+export function ozonOAuthRedirectUri(
+  env: NodeJS.ProcessEnv = process.env
+) {
+  return `${publicBackendUrl(undefined, env).replace(/\/$/, "")}${OZON_OAUTH_CALLBACK_PATH}`
+}
+
+export function ozonAuthorizeUrl(input: {
+  clientId: string
+  redirectUri: string
+  state: string
+  scope?: string
+}) {
+  const params = new URLSearchParams({
+    response_type: "code",
+    access_type: "offline",
+    client_id: String(input.clientId || "").trim(),
+    redirect_uri: String(input.redirectUri || "").trim(),
+    scope: String(input.scope || OZON_OAUTH_SCOPES).trim(),
+    state: String(input.state || "").trim(),
+    prompt: "select_company",
+  })
+  return `${OZON_OAUTH_AUTHORIZE_URL}?${params.toString()}`
+}
+
+async function postOzonOauth(body: Record<string, string>) {
+  const response = await fetch(OZON_OAUTH_TOKEN_URL, {
+    method: "POST",
+    headers: {
+      "Content-Type": "application/json",
+      Accept: "application/json",
+    },
+    body: JSON.stringify(body),
+  })
+  const text = await response.text()
+  let json: Record<string, unknown> = {}
+  try {
+    json = text ? (JSON.parse(text) as Record<string, unknown>) : {}
+  } catch {
+    json = { raw: text }
+  }
+  if (!response.ok) {
+    throw ozonHttpError(response.status, text)
+  }
+  const accessToken = String(json.access_token || json.accessToken || "").trim()
+  const refreshToken = String(json.refresh_token || json.refreshToken || "").trim()
+  if (!accessToken) {
+    throw new MedusaError(
+      MedusaError.Types.UNEXPECTED_STATE,
+      "Ozon не вернул access token для кабинета продавца"
+    )
+  }
+  return {
+    accessToken,
+    refreshToken,
+    expiresAt: tokenExpiryMs(json.expires_in ?? json.expiresIn),
+  }
+}
+
+export async function exchangeOzonAuthCode(input: {
+  clientId: string
+  clientSecret: string
+  code: string
+  redirectUri: string
+}) {
+  const clientId = String(input.clientId || "").trim()
+  const clientSecret = String(input.clientSecret || "").trim()
+  const code = String(input.code || "").trim()
+  const redirectUri = String(input.redirectUri || "").trim()
+  if (!clientId || !clientSecret || !code || !redirectUri) {
+    throw new MedusaError(
+      MedusaError.Types.INVALID_DATA,
+      "Нужны Client ID, Client Secret и код доступа кабинета Ozon"
+    )
+  }
+  const tokens = await postOzonOauth({
+    grant_type: "authorization_code",
+    client_id: clientId,
+    client_secret: clientSecret,
+    code,
+    redirect_uri: redirectUri,
+  })
+  ozonAppTokenCache = {
+    key: `${clientId}:${clientSecret}:${tokens.refreshToken}`,
+    token: tokens.accessToken,
+    expiresAt: tokens.expiresAt,
+  }
+  return {
+    accessToken: tokens.accessToken,
+    refreshToken: tokens.refreshToken,
+  }
+}
+
+export async function fetchOzonAppToken(input: {
+  clientId: string
+  clientSecret: string
+  refreshToken?: string
+}) {
+  const clientId = String(input.clientId || "").trim()
+  const clientSecret = String(input.clientSecret || "").trim()
+  const refreshToken = String(input.refreshToken || "").trim()
+  if (!clientId || !clientSecret) {
+    throw new MedusaError(
+      MedusaError.Types.INVALID_DATA,
+      "Нужны Client ID и Client Secret частного приложения Ozon"
+    )
+  }
+  if (!refreshToken) {
+    throw new MedusaError(
+      MedusaError.Types.INVALID_DATA,
+      "Подключите кабинет продавца Ozon в настройках магазина."
+    )
+  }
+  const key = `${clientId}:${clientSecret}:${refreshToken}`
+  if (
+    ozonAppTokenCache &&
+    ozonAppTokenCache.key === key &&
+    ozonAppTokenCache.expiresAt > Date.now() + 30_000
+  ) {
+    return ozonAppTokenCache.token
+  }
+  const tokens = await postOzonOauth({
+    grant_type: "refresh_token",
+    client_id: clientId,
+    client_secret: clientSecret,
+    refresh_token: refreshToken,
+  })
+  ozonAppTokenCache = {
+    key,
+    token: tokens.accessToken,
+    expiresAt: tokens.expiresAt,
+  }
+  return tokens.accessToken
+}
+
+export async function resolveSellerAccessToken(creds: OzonCreds) {
+  if (isOzonAccessToken(creds.accessToken)) return creds.accessToken
+  return fetchOzonAppToken({
+    clientId: creds.clientId,
+    clientSecret: creds.clientSecret,
+    refreshToken: creds.refreshToken,
+  })
 }
 
 export function normalizeOzonPhone(phone: string) {
@@ -407,6 +611,30 @@ export function ozonTrackingUrl(orderNumber?: string | null) {
   return `https://www.ozon.ru/my/orderdetails/?order=${encodeURIComponent(id)}`
 }
 
+export function ozonQuoteErrorMessage(error: unknown, fromPlaceId = "") {
+  const raw = error instanceof Error ? error.message : String(error || "")
+  if (/no access for this service|logistic is disabled/i.test(raw)) {
+    return "У приложения нет доступа к Ozon Доставка. Добавьте этот API в приложение и подключите его в кабинете."
+  }
+  if (/oauth-client|issued for seller/i.test(raw)) {
+    return "Подключите кабинет продавца к приложению в настройках магазина."
+  }
+  if (/method is not allowed/i.test(raw)) {
+    return "Подключите кабинет продавца Ozon в настройках магазина."
+  }
+  if (/invalid number of segments|failed to parse access token/i.test(raw)) {
+    return "Ozon не принял доступ приложения. Подключите кабинет продавца заново."
+  }
+  if (/HTTP 401|unauthorized|access_token|invalid_client/i.test(raw)) {
+    return "Ozon не принял доступ кабинета. Подключите приложение заново."
+  }
+  const text = raw.replace(/^Ozon HTTP \d+:\s*/i, "").trim()
+  if (text && !/^keys=/i.test(text)) return text.slice(0, 280)
+  return fromPlaceId
+    ? "Ozon не вернул тариф доставки"
+    : "В настройках не выбран пункт сдачи Ozon"
+}
+
 export function extractOzonAmount(raw: unknown): number | null {
   const preferred: number[] = []
   const fallback: number[] = []
@@ -422,7 +650,8 @@ export function extractOzonAmount(raw: unknown): number | null {
     if (!rec) continue
     const units = firstNumber(rec.units)
     const nanos = firstNumber(rec.nanos)
-    if (units != null && rec.currency_code) {
+    const currency = rec.currency_code || rec.currencyCode
+    if (units != null && units > 0 && (currency || nanos != null)) {
       preferred.push(units + (nanos != null ? nanos / 1_000_000_000 : 0))
     }
     const named = firstNumber(
@@ -430,9 +659,13 @@ export function extractOzonAmount(raw: unknown): number | null {
       rec.deliveryPrice,
       rec.tariff,
       rec.delivery_cost,
-      rec.deliveryCost
+      rec.deliveryCost,
+      rec.shipping_price,
+      rec.customer_price,
+      rec.price_for_customer,
+      rec.delivery_price_for_customer
     )
-    if (named != null && named >= 0) preferred.push(named)
+    if (named != null && named > 0) preferred.push(named)
     for (const [key, value] of Object.entries(rec)) {
       if (value && typeof value === "object") {
         stack.push(value)
@@ -440,80 +673,167 @@ export function extractOzonAmount(raw: unknown): number | null {
       }
       if (!/^(amount|price|cost)$/i.test(key)) continue
       const numeric = firstNumber(value)
-      if (numeric != null && numeric >= 0) fallback.push(numeric)
+      if (numeric != null && numeric > 0) fallback.push(numeric)
     }
   }
   const picked = preferred[0] ?? fallback[0]
-  if (picked == null || !Number.isFinite(picked) || picked < 0) return null
+  if (picked == null || !Number.isFinite(picked) || picked <= 0) return null
   const amount = picked > 100_000 ? picked / 100 : picked
   return Math.round(amount)
 }
 
-async function rocketVariantId(
-  token: string,
-  point: { id: string; lat?: number; lon?: number }
+function collectOfferSkus(raw: unknown) {
+  const map = new Map<string, number>()
+  const stack: unknown[] = [raw]
+  while (stack.length) {
+    const cur = stack.pop()
+    if (!cur) continue
+    if (Array.isArray(cur)) {
+      for (const item of cur) stack.push(item)
+      continue
+    }
+    const rec = asRecord(cur)
+    if (!rec) continue
+    const offer = firstText(rec.offer_id, rec.offerId)
+    const sku = firstNumber(rec.sku)
+    if (offer && sku != null && sku > 0) map.set(offer, sku)
+    for (const value of Object.values(rec)) {
+      if (value && typeof value === "object") stack.push(value)
+    }
+  }
+  return map
+}
+
+async function sellerOfferSkus(creds: OzonCreds, articles: string[]) {
+  const ids = [...new Set(articles.map((row) => String(row || "").trim()).filter(Boolean))]
+  if (!ids.length) return new Map<string, number>()
+  const attempts: Array<{ path: string; body: Record<string, unknown> }> = [
+    { path: "/v3/product/info/list", body: { offer_id: ids, product_id: [], sku: [] } },
+    { path: "/v2/product/info/list", body: { offer_id: ids } },
+  ]
+  for (const attempt of attempts) {
+    try {
+      const map = collectOfferSkus(await sellerPost(creds, attempt.path, attempt.body))
+      if (map.size) return map
+    } catch {
+      // Catalog lookup is optional for the tariff.
+    }
+  }
+  return new Map<string, number>()
+}
+
+export function ozonCartArticle(item: Record<string, unknown> | null | undefined) {
+  const rec = asRecord(item)
+  if (!rec) return ""
+  const variant = asRecord(rec.variant) || {}
+  const article = firstText(variant.sku, rec.variant_sku)
+  if (!article || article === "sku") return ""
+  return article
+}
+
+export function ozonCheckoutItems(
+  items: Array<{ article?: string; quantity?: number; sku?: number | null }>
 ) {
-  if (!Number.isFinite(point.lat) || !Number.isFinite(point.lon)) {
-    return point.id
+  return items
+    .map((item) => {
+      const offerId = String(item.article || "").trim()
+      const sku = Number(item.sku)
+      const row: { offer_id?: string; sku?: number; quantity: number } = {
+        quantity: Math.max(1, Math.round(Number(item.quantity) || 1)),
+      }
+      if (offerId) row.offer_id = offerId
+      if (Number.isFinite(sku) && sku > 0) row.sku = sku
+      if (!row.offer_id && row.sku == null) return null
+      return row
+    })
+    .filter(
+      (
+        item
+      ): item is { offer_id?: string; sku?: number; quantity: number } =>
+        Boolean(item)
+    )
+}
+
+async function quoteSellerDelivery(input: {
+  creds: OzonCreds
+  point: { id: string }
+  phone?: string
+  items: Array<{ article: string; quantity: number; price: number; weight?: number }>
+}) {
+  if (!input.point.id) return null
+  const phone = normalizeOzonPhone(input.phone || "")
+  const mapPointId = Number(input.point.id) || input.point.id
+  const skus = await sellerOfferSkus(
+    input.creds,
+    input.items.map((item) => item.article)
+  )
+  const fromPlaceId = Number(input.creds.fromPlaceId)
+  const body: Record<string, unknown> = {
+    delivery_schema: "FBS",
+    delivery_type: {
+      pick_up: { map_point_id: mapPointId },
+    },
+    items: ozonCheckoutItems(
+      input.items.map((item) => ({
+        article: item.article,
+        quantity: item.quantity,
+        sku:
+          skus.get(item.article) ??
+          (Number.isFinite(Number(item.article)) && Number(item.article) > 0
+            ? Number(item.article)
+            : null),
+      }))
+    ),
   }
-  try {
-    const raw = await rocketRequest(token, "GET", "/v1/delivery/variants")
-    const variants = parseOzonPoints(raw)
-    const sameId = variants.find((row) => row.id === String(point.id))
-    if (sameId) return sameId.id
-    const nearest = nearestOzonPoints(
-      variants,
-      { lat: Number(point.lat), lon: Number(point.lon) },
-      1
-    )[0]
-    return nearest?.id || point.id
-  } catch {
-    return point.id
+  if (Number.isFinite(fromPlaceId) && fromPlaceId > 0) {
+    body.from_place_id = fromPlaceId
   }
+  if (phone) {
+    body.buyer_phone = phone
+    body.client_phone = phone
+  }
+  const errors: string[] = []
+  const schemas = ["FBS", "FBO"]
+  for (const schema of schemas) {
+    try {
+      const raw = await sellerPost(input.creds, "/v2/delivery/checkout", {
+        ...body,
+        delivery_schema: schema,
+      })
+      const amount = extractOzonAmount(raw)
+      if (amount != null) return amount
+      const rec = asRecord(raw)
+      const ozonMessage = firstText(
+        rec?.message,
+        asRecord(rec?.error)?.message,
+        typeof rec?.error === "string" ? rec.error : ""
+      )
+      errors.push(
+        `checkout ${schema}: ${ozonMessage || `keys=${rec ? Object.keys(rec).join(",") : typeof raw}`}`
+      )
+    } catch (error) {
+      errors.push(
+        `checkout ${schema}: ${error instanceof Error ? error.message : String(error)}`
+      )
+    }
+  }
+  if (errors.length) {
+    throw new MedusaError(
+      MedusaError.Types.UNEXPECTED_STATE,
+      errors.join("; ").slice(0, 400)
+    )
+  }
+  return null
 }
 
 export async function quoteOzonDelivery(input: {
   creds: OzonCreds
   point: { id: string; address?: string; lat?: number; lon?: number }
   phone?: string
-  items: Array<{ article: string; quantity: number; price: number }>
+  items: Array<{ article: string; quantity: number; price: number; weight?: number }>
 }) {
-  if (!input.creds.fromPlaceId || !input.point.id) return null
-  const declared = Math.max(
-    1,
-    Math.round(
-      input.items.reduce(
-        (sum, item) => sum + item.price * item.quantity,
-        0
-      )
-    )
-  )
-  const token = await rocketToken(input.creds)
-  const variantId = await rocketVariantId(token, input.point)
-  const params = new URLSearchParams({
-    deliveryVariantId: String(variantId),
-    fromPlaceId: input.creds.fromPlaceId,
-    weight: "500",
-    estimatedCost: String(declared),
-  })
-  try {
-    const raw = await rocketRequest(
-      token,
-      "GET",
-      `/v1/delivery/calculate?${params.toString()}`
-    )
-    const amount = extractOzonAmount(raw)
-    if (amount != null) return amount
-  } catch {
-    // Some cabinets only accept POST.
-  }
-  const raw = await rocketRequest(token, "POST", "/v1/delivery/calculate", {
-    deliveryVariantId: variantId,
-    fromPlaceId: input.creds.fromPlaceId,
-    weight: 500,
-    estimatedCost: declared,
-  })
-  return extractOzonAmount(raw)
+  if (!input.point.id) return null
+  return quoteSellerDelivery(input)
 }
 
 export function extractOzonCreateIds(raw: unknown) {
@@ -567,13 +887,10 @@ export async function sellerRequest(
   path: string,
   body: Record<string, unknown>
 ) {
+  const accessToken = await resolveSellerAccessToken(creds)
   const response = await fetch(`https://api-seller.ozon.ru${path}`, {
     method: "POST",
-    headers: {
-      "Content-Type": "application/json",
-      "Client-Id": creds.clientId,
-      "Api-Key": creds.apiKey,
-    },
+    headers: sellerAuthHeaders({ ...creds, accessToken }),
     body: JSON.stringify(body),
   })
   const buffer = Buffer.from(await response.arrayBuffer())
@@ -587,72 +904,6 @@ export async function sellerPost(
   body: Record<string, unknown>
 ) {
   const raw = await sellerRequest(creds, path, body)
-  const text = raw.buffer.toString("utf8")
-  let json: unknown = null
-  try {
-    json = text ? JSON.parse(text) : null
-  } catch {
-    json = { raw: text }
-  }
-  if (!raw.ok) {
-    throw ozonHttpError(raw.status, text)
-  }
-  return json
-}
-
-export async function rocketToken(creds: OzonCreds) {
-  const response = await fetch(
-    "https://xapi.ozon.ru/principal-auth-api/connect/token",
-    {
-      method: "POST",
-      headers: { "Content-Type": "application/x-www-form-urlencoded" },
-      body: new URLSearchParams({
-        grant_type: "client_credentials",
-        client_id: creds.clientId,
-        client_secret: creds.apiKey,
-      }),
-    }
-  )
-  const json = (await readJson(response)) as { access_token?: string }
-  const token = String(json.access_token || "").trim()
-  if (!token) {
-    throw new MedusaError(
-      MedusaError.Types.UNAUTHORIZED,
-      "Ozon Rocket: нет access_token"
-    )
-  }
-  return token
-}
-
-export async function rocketRequestRaw(
-  token: string,
-  method: string,
-  path: string,
-  body?: Record<string, unknown>
-) {
-  const response = await fetch(
-    `https://xapi.ozon.ru/principal-integration-api${path}`,
-    {
-      method,
-      headers: {
-        Authorization: `Bearer ${token}`,
-        "Content-Type": "application/json",
-      },
-      body: body ? JSON.stringify(body) : undefined,
-    }
-  )
-  const buffer = Buffer.from(await response.arrayBuffer())
-  const contentType = String(response.headers.get("content-type") || "")
-  return { ok: response.ok, status: response.status, contentType, buffer }
-}
-
-export async function rocketRequest(
-  token: string,
-  method: string,
-  path: string,
-  body?: Record<string, unknown>
-) {
-  const raw = await rocketRequestRaw(token, method, path, body)
   const text = raw.buffer.toString("utf8")
   let json: unknown = null
   try {
@@ -759,15 +1010,6 @@ async function loadSellerPoints(
   }
 }
 
-async function loadRocketPoints(creds: OzonCreds, bounds: OzonBounds) {
-  const token = await rocketToken(creds)
-  const raw = await rocketRequest(token, "GET", "/v1/delivery/variants")
-  return {
-    points: pointsInBounds(parseOzonPoints(raw), bounds),
-    clusters: [] as OzonMapCluster[],
-  }
-}
-
 export async function loadOzonPoints(
   row: Record<string, unknown>,
   input: {
@@ -826,7 +1068,7 @@ export async function loadOzonPoints(
   }
   try {
     const phone = normalizeOzonPhone(input.phone || "")
-    if (phone && !isOzonRocketCreds(creds)) {
+    if (phone) {
       try {
         await sellerPost(creds, "/v1/delivery/check", {
           client_phone: phone,
@@ -836,14 +1078,12 @@ export async function loadOzonPoints(
         // Availability check is best-effort until the cabinet is enabled.
       }
     }
-    const loaded = isOzonRocketCreds(creds)
-      ? await loadRocketPoints(creds, bounds)
-      : await loadSellerPoints(
-          creds,
-          bounds,
-          center,
-          Number.isFinite(zoom) ? zoom : 12
-        )
+    const loaded = await loadSellerPoints(
+      creds,
+      bounds,
+      center,
+      Number.isFinite(zoom) ? zoom : 12
+    )
     const grouped = loaded.clusters.length
       ? loaded
       : clusterOzonPoints(loaded.points, Number.isFinite(zoom) ? zoom : 12)
@@ -889,11 +1129,6 @@ export async function loadOzonPointById(
     lat: 0,
     lon: 0,
   }
-  if (isOzonRocketCreds(creds)) {
-    const token = await rocketToken(creds)
-    const raw = await rocketRequest(token, "GET", "/v1/delivery/variants")
-    return parseOzonPoints(raw).find((point) => point.id === pointId) || stub
-  }
   const [enriched] = await enrichSellerPoints(creds, [stub])
   return enriched || stub
 }
@@ -918,13 +1153,16 @@ async function createSellerOrder(input: {
   const checkout = (await sellerPost(input.creds, "/v2/delivery/checkout", {
     buyer_phone: phone,
     delivery_schema: "FBS",
+    from_place_id: Number(input.creds.fromPlaceId) || input.creds.fromPlaceId,
     delivery_type: {
       pick_up: { map_point_id: mapPointId },
     },
-    items: input.items.map((item) => ({
-      offer_id: item.article,
-      quantity: item.quantity,
-    })),
+    items: ozonCheckoutItems(
+      input.items.map((item) => ({
+        article: item.article,
+        quantity: item.quantity,
+      }))
+    ),
   })) as Record<string, unknown>
   const splits = Array.isArray(checkout.splits) ? checkout.splits : []
   const schema =
@@ -951,74 +1189,6 @@ async function createSellerOrder(input: {
   })
 }
 
-async function createRocketOrder(input: {
-  creds: OzonCreds
-  orderNumber: string
-  buyer: { name: string; phone: string; email?: string }
-  point: { id: string; address: string }
-  amount: number
-  items: Array<{ article: string; name: string; quantity: number; price: number }>
-}) {
-  const token = await rocketToken(input.creds)
-  const payload: Record<string, unknown> = {
-    order_number: input.orderNumber,
-    orderNumber: input.orderNumber,
-    buyer: {
-      name: input.buyer.name,
-      phone: normalizeOzonPhone(input.buyer.phone),
-      email: input.buyer.email,
-      type: "NaturalPerson",
-    },
-    recipient: {
-      name: input.buyer.name,
-      phone: normalizeOzonPhone(input.buyer.phone),
-      email: input.buyer.email,
-      type: "NaturalPerson",
-    },
-    delivery_information: {
-      delivery_variant_id: input.point.id,
-      address: input.point.address,
-    },
-    deliveryInformation: {
-      deliveryVariantId: input.point.id,
-      address: input.point.address,
-    },
-    payment: {
-      type: "FullPrepayment",
-      prepaymentAmount: input.amount,
-      recipientPaymentAmount: 0,
-      deliveryPrice: 0,
-    },
-    order_lines: input.items.map((item, index) => ({
-      line_number: index + 1,
-      article_number: item.article,
-      name: item.name,
-      quantity: item.quantity,
-      selling_price: item.price,
-      estimated_price: item.price,
-    })),
-    orderLines: input.items.map((item, index) => ({
-      lineNumber: index + 1,
-      articleNumber: item.article,
-      name: item.name,
-      quantity: item.quantity,
-      sellingPrice: item.price,
-      estimatedPrice: item.price,
-    })),
-  }
-  if (input.creds.fromPlaceId) {
-    payload.firstMileTransfer = {
-      type: "DropOff",
-      fromPlaceId: input.creds.fromPlaceId,
-    }
-  }
-  try {
-    return await rocketRequest(token, "POST", "/v2/order/create", payload)
-  } catch {
-    return rocketRequest(token, "POST", "/v1/order", payload)
-  }
-}
-
 export async function createOzonDeliveryOrder(input: {
   creds: OzonCreds
   orderNumber: string
@@ -1027,41 +1197,5 @@ export async function createOzonDeliveryOrder(input: {
   amount: number
   items: Array<{ article: string; name: string; quantity: number; price: number }>
 }) {
-  if (isOzonRocketCreds(input.creds)) {
-    return createRocketOrder(input)
-  }
-  try {
-    return await createSellerOrder(input)
-  } catch {
-    return sellerPost(input.creds, "/v2/order/create", {
-      order_number: input.orderNumber,
-      buyer: {
-        name: input.buyer.name,
-        phone: normalizeOzonPhone(input.buyer.phone),
-        email: input.buyer.email,
-        type: "NaturalPerson",
-      },
-      delivery: {
-        pick_up: { map_point_id: Number(input.point.id) || input.point.id },
-      },
-      delivery_information: {
-        delivery_variant_id: input.point.id,
-        address: input.point.address,
-      },
-      payment: {
-        type: "FullPrepayment",
-        prepaymentAmount: input.amount,
-        recipientPaymentAmount: 0,
-        deliveryPrice: 0,
-      },
-      order_lines: input.items.map((item, index) => ({
-        line_number: index + 1,
-        article_number: item.article,
-        name: item.name,
-        quantity: item.quantity,
-        selling_price: item.price,
-        estimated_price: item.price,
-      })),
-    })
-  }
+  return createSellerOrder(input)
 }

@@ -7,6 +7,7 @@ export const shopState = reactive({
   ordersClosed: false,
   ordersMessage: "Заказы временно недоступны.",
   ozonConfigured: false,
+  ozonQuoteMode: "ozon",
 })
 
 export async function loadShopStatus() {
@@ -22,4 +23,6 @@ export async function loadShopStatus() {
     shopState.ordersMessage = data.shop.orders_message
   }
   shopState.ozonConfigured = data.shop?.ozon_configured === true
+  shopState.ozonQuoteMode =
+    data.shop?.ozon_quote_mode === "fixed" ? "fixed" : "ozon"
 }

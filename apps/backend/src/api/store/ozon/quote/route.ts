@@ -20,8 +20,8 @@ export async function POST(req: MedusaRequest, res: MedusaResponse) {
     cartId,
     pointId,
     pointAddress: String(body.point_address || "").trim() || undefined,
-    lat: Number(body.lat),
-    lon: Number(body.lon),
+    lat: Number.isFinite(Number(body.lat)) ? Number(body.lat) : undefined,
+    lon: Number.isFinite(Number(body.lon)) ? Number(body.lon) : undefined,
     phone: String(body.phone || "").trim() || undefined,
   })
   res.json(result)

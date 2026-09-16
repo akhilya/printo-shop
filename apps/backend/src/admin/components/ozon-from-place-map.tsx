@@ -182,7 +182,7 @@ const OzonFromPlaceMap = ({ selectedId, onSelect }: Props) => {
           if (data.configured === false) {
             setStatus(
               data.message ||
-                "Сохраните Client-Id и Api-Key, затем выберите пункт."
+                "Сохраните Client ID и Client Secret, подключите кабинет, затем выберите пункт."
             )
             return
           }
