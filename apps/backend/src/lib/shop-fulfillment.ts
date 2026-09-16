@@ -19,6 +19,7 @@ import { orderLogContext, recordShopEvent } from "./shop-event"
 import { cancelShopOrder } from "./shop-order"
 import {
   type ShopFulfillment,
+  orderLooksPaid,
   shopFulfillmentOf,
 } from "./shop-fulfillment-status"
 

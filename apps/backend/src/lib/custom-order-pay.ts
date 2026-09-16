@@ -144,7 +144,7 @@ export async function markCustomOrderPaid(
     status: "paid",
   })
   const paid = await createOzonForCustomOrder(container, { ...order, ...next })
-  const { sendCustomOrderMail } = await import("./order-mail")
+  const { sendCustomOrderMail } = await import("./order-mail.js")
   await sendCustomOrderMail(container, paid, "placed")
   return paid
 }

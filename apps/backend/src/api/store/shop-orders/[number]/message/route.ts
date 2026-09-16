@@ -20,7 +20,7 @@ export async function POST(req: MedusaRequest, res: MedusaResponse) {
   const number = String(req.params.number || "").trim()
   const result = await submitOrderMessage(req.scope, number, parsed)
   if ("error" in result) {
-    res.status(result.status).json({ message: result.error })
+    res.status(result.status ?? 400).json({ message: result.error })
     return
   }
   res.json({

@@ -1,5 +1,5 @@
 import { MedusaContainer } from "@medusajs/framework"
-import { MedusaError, Modules } from "@medusajs/framework/utils"
+import { ContainerRegistrationKeys, MedusaError, Modules } from "@medusajs/framework/utils"
 import {
   createOzonDeliveryOrder,
   extractOzonCreateIds,
@@ -278,7 +278,7 @@ export async function packOzonForOrder(
     ...orderLogContext({ ...order, metadata: next }),
     to_status: "awaiting_deliver",
   })
-  const { sendShopOrderMail } = await import("./order-mail")
+  const { sendShopOrderMail } = await import("./order-mail.js")
   await sendShopOrderMail(container, orderId, "packed")
   return next
 }
