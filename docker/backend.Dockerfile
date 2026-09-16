@@ -35,10 +35,10 @@ RUN update-ca-certificates
 ENV NODE_EXTRA_CA_CERTS=/etc/ssl/certs/ca-certificates.crt
 
 COPY --from=build /app/apps/backend/.medusa/server ./
+COPY --from=build /app/node_modules ./node_modules
 COPY docker/backend-start.sh ./start.sh
 
-RUN chmod +x ./start.sh \
-  && npm install --omit=dev
+RUN chmod +x ./start.sh
 
 EXPOSE 9000
 CMD ["./start.sh"]
