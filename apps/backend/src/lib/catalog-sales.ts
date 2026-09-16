@@ -39,6 +39,7 @@ export function presentCatalogSales(rows: Record<string, unknown>[]): CatalogSal
   for (const row of rows) {
     if (row.status && row.status !== "active") continue
     if (row.type && row.type !== "standard") continue
+    if (row.is_automatic !== true) continue
     const campaign = row.campaign as Record<string, unknown> | undefined
     if (!campaignLive(campaign)) continue
     const method = (row.application_method || {}) as Record<string, unknown>

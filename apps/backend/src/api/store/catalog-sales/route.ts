@@ -9,7 +9,7 @@ export async function GET(req: MedusaRequest, res: MedusaResponse) {
       Modules.PROMOTION
     )
     const rows = await promotion.listPromotions(
-      { status: ["active"] },
+      { status: ["active"], is_automatic: true },
       {
         take: 50,
         relations: [

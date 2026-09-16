@@ -7,7 +7,8 @@ import ProductPhoto from "../components/ProductPhoto.vue"
 import ProductRail from "../components/ProductRail.vue"
 import SelectField from "../components/SelectField.vue"
 import SiteBanner from "../components/SiteBanner.vue"
-import { addToCart, cartState } from "../lib/cart.js"
+import { addToCart, cartState, setQty } from "../lib/cart.js"
+import { cartLineForVariant } from "../lib/cart-line.js"
 import {
   descriptionParagraphs,
   productFields,
@@ -54,6 +55,9 @@ const selectedVariant = computed(
 )
 const price = computed(() =>
   variantSalePrice(selectedVariant.value, product.value)
+)
+const cartLine = computed(() =>
+  cartLineForVariant(cartState.cart, variantId.value)
 )
 const customOrderBanner = computed(() => {
   if (!product.value?.id) return null
@@ -316,7 +320,30 @@ watch(() => route.params.handle, load, { immediate: true })
             </option>
           </select>
         </SelectField>
+        <div v-if="cartLine" class="in-cart">
+          <p class="in-cart-label">В корзине</p>
+          <div class="buy-qty">
+            <button
+              type="button"
+              :disabled="cartState.busy"
+              :aria-label="cartLine.quantity < 2 ? 'Убрать из корзины' : 'Меньше'"
+              @click="setQty(cartLine.id, cartLine.quantity - 1)"
+            >
+              −
+            </button>
+            <span>{{ cartLine.quantity }}</span>
+            <button
+              type="button"
+              :disabled="cartState.busy"
+              aria-label="Больше"
+              @click="setQty(cartLine.id, cartLine.quantity + 1)"
+            >
+              +
+            </button>
+          </div>
+        </div>
         <button
+          v-else
           class="btn"
           type="button"
           :disabled="!variantId || cartState.busy"

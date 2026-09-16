@@ -6,6 +6,7 @@ describe("presentCatalogSales", () => {
       {
         status: "active",
         type: "standard",
+        is_automatic: true,
         application_method: {
           type: "percentage",
           target_type: "items",
@@ -36,6 +37,7 @@ describe("presentCatalogSales", () => {
       {
         status: "active",
         type: "standard",
+        is_automatic: true,
         application_method: {
           type: "percentage",
           target_type: "order",
@@ -45,5 +47,22 @@ describe("presentCatalogSales", () => {
     ])
     expect(sales[0].applies_to_all).toBe(true)
     expect(discountedAmount(1000, sales[0])).toBe(900)
+  })
+
+  it("does not paint checkout promo codes onto catalog prices", () => {
+    const sales = presentCatalogSales([
+      {
+        status: "active",
+        type: "standard",
+        is_automatic: false,
+        code: "1KE5XKTDQUJ9",
+        application_method: {
+          type: "percentage",
+          target_type: "items",
+          value: 99,
+        },
+      },
+    ])
+    expect(sales).toEqual([])
   })
 })

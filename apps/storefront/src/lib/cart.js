@@ -120,19 +120,37 @@ export async function setQty(lineId, quantity) {
     await removeLine(lineId)
     return
   }
-  const { cart } = await sdk.store.cart.updateLineItem(cartState.cart.id, lineId, {
-    quantity,
-  })
-  cartState.cart = cart
+  cartState.busy = true
+  cartState.error = ""
+  try {
+    const { cart } = await sdk.store.cart.updateLineItem(
+      cartState.cart.id,
+      lineId,
+      { quantity }
+    )
+    cartState.cart = cart
+  } catch (error) {
+    cartState.error = shopError(error, "Не удалось изменить количество")
+  } finally {
+    cartState.busy = false
+  }
 }
 
 export async function removeLine(lineId) {
   if (!cartState.cart?.id) return
-  const { parent: cart } = await sdk.store.cart.deleteLineItem(
-    cartState.cart.id,
-    lineId
-  )
-  cartState.cart = cart ?? (await retrieveCart(cartState.cart.id))
+  cartState.busy = true
+  cartState.error = ""
+  try {
+    const { parent: cart } = await sdk.store.cart.deleteLineItem(
+      cartState.cart.id,
+      lineId
+    )
+    cartState.cart = cart ?? (await retrieveCart(cartState.cart.id))
+  } catch (error) {
+    cartState.error = shopError(error, "Не удалось удалить товар")
+  } finally {
+    cartState.busy = false
+  }
 }
 
 export function clearCartId() {
