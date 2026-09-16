@@ -36,9 +36,8 @@ services:
       - default
 
   backend:
-    build:
-      context: .
-      dockerfile: docker/backend.Dockerfile
+    image: ${BACKEND_IMAGE:-ghcr.io/akhilya/printo-shop/backend:latest}
+    pull_policy: always
     restart: unless-stopped
     env_file:
       - .env
@@ -82,11 +81,8 @@ services:
       - traefik.http.services.shop-backend.loadbalancer.server.port=9000
 
   storefront:
-    build:
-      context: .
-      dockerfile: docker/storefront.Dockerfile
-      args:
-        VITE_MEDUSA_BACKEND_URL: ${VITE_MEDUSA_BACKEND_URL}
+    image: ${STOREFRONT_IMAGE:-ghcr.io/akhilya/printo-shop/storefront:latest}
+    pull_policy: always
     restart: unless-stopped
     depends_on:
       backend:

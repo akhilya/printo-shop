@@ -95,13 +95,20 @@ Webhook: `POST /hooks/tbank` (ответ `OK`). После старта вклю
 
 ## Деплой на Dokploy
 
-Compose-файл: `docker-compose.dokploy.yml`.
+Образы собирает GitHub Actions (`.github/workflows/publish-images.yml`) и публикует в GHCR:
 
-1. В Dokploy создайте **Compose** и подключите репозиторий.
-2. Укажите compose path: `docker-compose.dokploy.yml`.
-3. В Environment вставьте переменные из `.env.dokploy.example`. Нужен `POSTGRES_PASSWORD`. **Не задавайте `DATABASE_URL`, `POSTGRES_USER`, `POSTGRES_DB`** — в Docker пользователь/база всегда `medusa`, хост `printo-pg`. Старый volume `shop_postgres` можно удалить, данные теперь в `shop_pgdata`.
-4. DNS: A-записи `shop.example.com` и `api.example.com` на сервер Dokploy.
-5. Deploy. После `Frontend build completed successfully` Docker ещё собирает финальный образ — это может быть несколько минут без новых строк в логе. Первый старт бэкенда тоже молчит, пока идут миграции (`Running database migrations...`).
+- `ghcr.io/akhilya/printo-shop/backend`
+- `ghcr.io/akhilya/printo-shop/storefront`
+
+Сервер только `docker compose pull` + `up`. Сборка на VPS больше не нужна.
+
+1. В GitHub: **Settings → Secrets and variables → Actions → Variables** — `VITE_MEDUSA_BACKEND_URL` (например `https://api.printo.studio`). Без неё витрина собирается с этим адресом по умолчанию.
+2. GitHub PAT с правом `read:packages`. В Dokploy: **Registry** → URL `ghcr.io`, username аккаунта GitHub, password = PAT. Привяжите registry к Compose-приложению.
+3. В Dokploy создайте **Compose**, репозиторий, compose path: `docker-compose.dokploy.yml`. Автодеплой по git-push лучше выключить: образы ещё не готовы, пока Actions не зелёный.
+4. Environment — переменные из `.env.dokploy.example`. Нужен `POSTGRES_PASSWORD`. **Не задавайте `DATABASE_URL`, `POSTGRES_USER`, `POSTGRES_DB`**.
+5. Необязательно: секрет `DOKPLOY_WEBHOOK_URL` (кнопка webhook в Dokploy). Тогда после публикации образов Actions сам дёрнет деплой.
+6. DNS: A-записи витрины и API на сервер Dokploy.
+7. Первый раз: дождитесь зелёного workflow **Publish images**, затем Deploy в Dokploy. Первый старт бэкенда молчит, пока идут миграции.
 
 После первого запуска создайте админа:
 
@@ -109,6 +116,6 @@ Compose-файл: `docker-compose.dokploy.yml`.
 docker compose -f docker-compose.dokploy.yml exec backend npx medusa user -e you@shop.local -p 'пароль'
 ```
 
-Витрине нужен только `VITE_MEDUSA_BACKEND_URL` (адрес API). Publishable key и id региона она запрашивает у бэкенда сама.
+URL API витрины запекается в образ на CI (`VITE_MEDUSA_BACKEND_URL`). Publishable key и id региона она запрашивает у бэкенда сама.
 
 Т-Банк webhook: `https://api.example.com/hooks/tbank`. Терминал и пароль — в админке **Настройки**. Провайдер `pp_tbank_tbank` включается в регионе при старте бэкенда. В образ положены сертификаты НУЦ Минцифры (`NODE_EXTRA_CA_CERTS`). Режим витрины «в разработке» — в админке **Настройки**.
