@@ -157,7 +157,13 @@ export default async function orderPlacedOzon({
       ozon_posting_number: ids.postingNumber,
       ozon_tracking: ids.trackingUrl,
       ozon_create_error: null,
-      ozon_create_raw: JSON.stringify(created).slice(0, 2000),
+      ozon_create_raw: JSON.stringify({
+        ids,
+        created: {
+          order_number: ids.orderNumber,
+          posting_number: ids.postingNumber,
+        },
+      }).slice(0, 2000),
     })
     await recordShopEvent(container, {
       kind: "ozon_create",
@@ -165,7 +171,11 @@ export default async function orderPlacedOzon({
       message: ids.postingNumber
         ? `Номер отправления ${ids.postingNumber}`
         : "Ozon принял заказ",
-      detail: shopEventJsonDetail({ ids, created }),
+      detail: shopEventJsonDetail({
+        ids,
+        created,
+        requests: created.ozon_requests,
+      }),
       order_id: orderId,
       shop_number: metadata.shop_number
         ? String(metadata.shop_number)

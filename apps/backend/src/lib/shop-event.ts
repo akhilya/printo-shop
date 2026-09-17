@@ -16,15 +16,28 @@ export type ShopEventInput = {
 }
 
 export function shopEventErrorDetail(error: unknown) {
+  const requests =
+    error &&
+    typeof error === "object" &&
+    Array.isArray((error as { ozonRequests?: unknown }).ozonRequests)
+      ? (error as { ozonRequests: unknown[] }).ozonRequests
+      : []
+  const payload: Record<string, unknown> = {}
+  if (requests.length) payload.requests = requests
   if (error instanceof Error) {
-    return [error.name, error.message, error.stack].filter(Boolean).join("\n")
+    payload.name = error.name
+    payload.message = error.message
+    payload.stack = error.stack || null
+  } else if (typeof error === "string") {
+    payload.message = error
+  } else {
+    try {
+      payload.error = error
+    } catch {
+      payload.message = String(error ?? "")
+    }
   }
-  if (typeof error === "string") return error
-  try {
-    return JSON.stringify(error, null, 2)
-  } catch {
-    return String(error || "")
-  }
+  return shopEventJsonDetail(payload)
 }
 
 export function prettyShopEventText(value: unknown) {

@@ -11,6 +11,7 @@ import {
   ozonAdminErrorMessage,
   ozonCreateDeliveryType,
   createOzonDeliveryOrder,
+  ozonRequestsOf,
   ozonCredsFromRow,
   ozonSellerReady,
   ozonTrackingUrl,
@@ -1128,6 +1129,44 @@ describe("quoteOzonDelivery", () => {
       })
     ).rejects.toThrow(/нет sku\/offer_id/)
     expect(global.fetch).not.toHaveBeenCalled()
+  })
+
+  it("keeps the full checkout body on an ozon 400", async () => {
+    mockOzon((path) => {
+      if (path.includes("/v2/delivery/checkout")) {
+        return jsonResponse(
+          {
+            code: 3,
+            message: "either sku or offer_id should be specified for each item",
+          },
+          400
+        )
+      }
+      return jsonResponse({ message: path }, 404)
+    })
+    const error = await createOzonDeliveryOrder({
+      creds: sellerInput.creds,
+      orderNumber: "8272031168",
+      buyer: { name: "Иван Петров", phone: sellerInput.phone },
+      point: { id: "77", address: "Тверская 1" },
+      amount: 1500,
+      items: [{ article: "WA150", name: "Фигурка", quantity: 1, price: 1500 }],
+    }).catch((caught) => caught)
+    const requests = ozonRequestsOf(error)
+    expect(requests.map((row) => row.path)).toEqual([
+      "/v2/delivery/checkout",
+      "/v2/delivery/checkout",
+    ])
+    expect(requests[0]?.body).toMatchObject({
+      delivery_schema: "FBS",
+      buyer_phone: "79991234567",
+      delivery_type: { pick_up: { map_point_id: 77 } },
+      items: [{ offer_id: "WA150", quantity: 1 }],
+    })
+    expect(requests[1]?.body).toMatchObject({ delivery_schema: "FBO" })
+    expect(JSON.stringify(error.ozonRequests || requests, null, 2)).toContain(
+      "offer_id"
+    )
   })
 })
 

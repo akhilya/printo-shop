@@ -54,8 +54,28 @@ describe("shopEventErrorDetail", () => {
   it("keeps name, message and stack", () => {
     const error = new Error("Ozon HTTP 400: boom")
     const detail = shopEventErrorDetail(error)
-    expect(detail.startsWith("Error\nOzon HTTP 400: boom")).toBe(true)
-    expect(detail.split("\n").length).toBeGreaterThan(2)
+    expect(detail).toContain("Ozon HTTP 400: boom")
+    expect(detail).toContain('"name": "Error"')
+    expect(detail).toContain("stack")
+  })
+
+  it("prints the full ozon request body", () => {
+    const error = new Error("Ozon HTTP 400: either sku or offer_id")
+    ;(error as { ozonRequests: unknown[] }).ozonRequests = [
+      {
+        method: "POST",
+        url: "https://api-seller.ozon.ru/v2/delivery/checkout",
+        path: "/v2/delivery/checkout",
+        body: {
+          delivery_schema: "FBS",
+          items: [{ quantity: 1 }],
+        },
+      },
+    ]
+    const detail = shopEventErrorDetail(error)
+    expect(detail).toContain("/v2/delivery/checkout")
+    expect(detail).toContain('"delivery_schema": "FBS"')
+    expect(detail).toContain('"items"')
   })
 })
 

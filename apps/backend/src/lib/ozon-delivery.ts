@@ -1,11 +1,50 @@
 import { MedusaError } from "@medusajs/framework/utils"
 import { publicBackendUrl } from "./public-url"
 
+export type OzonRequestDump = {
+  method: "POST"
+  url: string
+  path: string
+  body: unknown
+}
+
 function ozonHttpError(status: number, text: string) {
   return new MedusaError(
     MedusaError.Types.UNEXPECTED_STATE,
     `Ozon HTTP ${status}: ${text.slice(0, 1500)}`
   )
+}
+
+export function dumpOzonRequest(
+  path: string,
+  body: unknown
+): OzonRequestDump {
+  return {
+    method: "POST",
+    url: `https://api-seller.ozon.ru${path}`,
+    path,
+    body,
+  }
+}
+
+export function ozonRequestsOf(error: unknown): OzonRequestDump[] {
+  if (!error || typeof error !== "object") return []
+  const value = (error as { ozonRequests?: unknown }).ozonRequests
+  return Array.isArray(value) ? (value as OzonRequestDump[]) : []
+}
+
+export function withOzonRequests<T>(error: T, requests: OzonRequestDump[]): T {
+  if (!error || typeof error !== "object") return error
+  const next: OzonRequestDump[] = []
+  const seen = new Set<string>()
+  for (const request of [...ozonRequestsOf(error), ...requests]) {
+    const key = `${request.path}:${JSON.stringify(request.body)}`
+    if (seen.has(key)) continue
+    seen.add(key)
+    next.push(request)
+  }
+  ;(error as T & { ozonRequests: OzonRequestDump[] }).ozonRequests = next
+  return error
 }
 
 export type OzonPoint = {
@@ -1393,7 +1432,9 @@ export async function sellerPost(
     json = { raw: text }
   }
   if (!raw.ok) {
-    throw ozonHttpError(raw.status, text)
+    throw withOzonRequests(ozonHttpError(raw.status, text), [
+      dumpOzonRequest(path, body),
+    ])
   }
   return json
 }
@@ -1968,17 +2009,21 @@ async function createSellerOrder(input: {
       }))
     ),
   }
+  const sent: OzonRequestDump[] = []
   const checkoutItems = checkoutBody.items as unknown[]
   if (!Array.isArray(checkoutItems) || !checkoutItems.length) {
     const labels = input.items
       .map((item) => item.article || item.name)
       .filter(Boolean)
       .join(", ")
-    throw new MedusaError(
-      MedusaError.Types.INVALID_DATA,
-      labels
-        ? `Ozon: нет sku/offer_id у позиций (${labels})`
-        : "Ozon: в заказе нет артикулов sku/offer_id"
+    throw withOzonRequests(
+      new MedusaError(
+        MedusaError.Types.INVALID_DATA,
+        labels
+          ? `Ozon: нет sku/offer_id у позиций (${labels})`
+          : "Ozon: в заказе нет артикулов sku/offer_id"
+      ),
+      [dumpOzonRequest("/v2/delivery/checkout", checkoutBody)]
     )
   }
   const fromPlaceId = Number(input.creds.fromPlaceId)
@@ -1990,11 +2035,17 @@ async function createSellerOrder(input: {
   let schema = "FBS"
   const errors: string[] = []
   for (const next of schemas) {
+    const checkoutRequest = {
+      ...checkoutBody,
+      delivery_schema: next,
+    }
+    sent.push(dumpOzonRequest("/v2/delivery/checkout", checkoutRequest))
     try {
-      const checkout = await sellerPost(input.creds, "/v2/delivery/checkout", {
-        ...checkoutBody,
-        delivery_schema: next,
-      })
+      const checkout = await sellerPost(
+        input.creds,
+        "/v2/delivery/checkout",
+        checkoutRequest
+      )
       splits = ozonOrderCreateSplits(checkout, {
         items: cartItems,
         fromPlaceId: input.creds.fromPlaceId,
@@ -2015,13 +2066,16 @@ async function createSellerOrder(input: {
     }
   }
   if (!splits) {
-    throw new MedusaError(
-      MedusaError.Types.UNEXPECTED_STATE,
-      errors.join("; ").slice(0, 400) ||
-        "Не удалось создать отправление Ozon. Попробуйте ещё раз."
+    throw withOzonRequests(
+      new MedusaError(
+        MedusaError.Types.UNEXPECTED_STATE,
+        errors.join("; ") ||
+          "Не удалось создать отправление Ozon. Попробуйте ещё раз."
+      ),
+      sent
     )
   }
-  return sellerPost(input.creds, "/v2/order/create", {
+  const createRequest = {
     buyer: contacts.buyer,
     recipient: contacts.recipient,
     delivery: {
@@ -2029,7 +2083,20 @@ async function createSellerOrder(input: {
     },
     delivery_schema: schema,
     splits,
-  })
+  }
+  sent.push(dumpOzonRequest("/v2/order/create", createRequest))
+  try {
+    const created = await sellerPost(
+      input.creds,
+      "/v2/order/create",
+      createRequest
+    )
+    return { json: created, requests: sent }
+  } catch (error) {
+    const wrapped =
+      error instanceof Error ? error : new Error(String(error))
+    throw withOzonRequests(wrapped, sent)
+  }
 }
 
 export async function createOzonDeliveryOrder(input: {
@@ -2040,9 +2107,9 @@ export async function createOzonDeliveryOrder(input: {
   amount: number
   items: Array<{ article: string; name: string; quantity: number; price: number }>
 }) {
-  const created = await createSellerOrder(input)
-  const ids = await completeOzonCreateIds(input.creds, created)
-  const rec = asRecord(created) || {}
+  const { json, requests } = await createSellerOrder(input)
+  const ids = await completeOzonCreateIds(input.creds, json)
+  const rec = asRecord(json) || {}
   return {
     ...rec,
     order_number: ids.orderNumber || rec.order_number,
@@ -2050,5 +2117,6 @@ export async function createOzonDeliveryOrder(input: {
     postings: ids.postingNumber
       ? [ids.postingNumber]
       : rec.postings,
+    ozon_requests: requests,
   }
 }
