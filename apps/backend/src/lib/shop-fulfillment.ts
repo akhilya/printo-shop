@@ -15,7 +15,7 @@ import {
 import { sendShopOrderMail } from "./order-mail"
 import { mailEventFromShopStatus } from "./order-mail-copy"
 import { ozonReturnMessage } from "./ozon-posting"
-import { orderLogContext, recordShopEvent } from "./shop-event"
+import { orderLogContext, recordShopEvent, shopEventJsonDetail } from "./shop-event"
 import {
   cancelShopOrder,
   parseShopOrderCancel,
@@ -240,6 +240,12 @@ export async function applyOzonStatusToFulfillment(
       message:
         ozonReturnMessage(kind) ||
         `Ozon: ${synced.previousRaw || "—"} → ${synced.posting.status || "—"}`,
+      detail: shopEventJsonDetail({
+        mapped: synced.mapped,
+        kind,
+        previousRaw: synced.previousRaw || null,
+        posting: synced.posting,
+      }),
       ...orderLogContext(synced.order),
       from_status: synced.previousRaw || null,
       to_status: synced.posting.status || synced.mapped,

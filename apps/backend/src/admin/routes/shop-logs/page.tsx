@@ -12,6 +12,7 @@ import {
 } from "@medusajs/ui"
 import { useQuery } from "@tanstack/react-query"
 import { useMemo, useState } from "react"
+import { useNavigate } from "react-router-dom"
 import { sdk } from "../../lib/sdk"
 
 type ShopLog = {
@@ -20,6 +21,7 @@ type ShopLog = {
   level: string
   title: string
   message: string
+  detail: string | null
   order_id: string | null
   shop_number: string | null
   posting_number: string | null
@@ -33,7 +35,7 @@ type LogsResponse = {
   count: number
 }
 
-const PAGE_SIZE = 20
+const PAGE_SIZE = 50
 const columnsHelper = createDataTableColumnHelper<ShopLog>()
 
 function levelBadge(level: string) {
@@ -61,8 +63,12 @@ const columns = [
       const value = getValue()
       if (!value) return "—"
       return new Intl.DateTimeFormat("ru-RU", {
-        dateStyle: "short",
-        timeStyle: "short",
+        day: "2-digit",
+        month: "2-digit",
+        year: "numeric",
+        hour: "2-digit",
+        minute: "2-digit",
+        second: "2-digit",
       }).format(new Date(value))
     },
   }),
@@ -74,18 +80,18 @@ const columns = [
     header: "Событие",
     cell: ({ getValue }) => KIND_LABEL[getValue()] || getValue(),
   }),
-  columnsHelper.accessor(
-    (row) => row.shop_number || row.order_id || "—",
-    { id: "order", header: "Заказ" }
-  ),
+  columnsHelper.accessor((row) => row.shop_number || row.order_id || "—", {
+    id: "order",
+    header: "Заказ",
+  }),
   columnsHelper.accessor("title", {
     header: "Что случилось",
   }),
   columnsHelper.accessor("message", {
-    header: "Подробности",
+    header: "Кратко",
     cell: ({ getValue }) => {
       const text = getValue()
-      return text.length > 90 ? `${text.slice(0, 90)}…` : text
+      return text.length > 80 ? `${text.slice(0, 80)}…` : text
     },
   }),
   columnsHelper.accessor(
@@ -101,6 +107,7 @@ const columns = [
 ]
 
 const ShopLogsPage = () => {
+  const navigate = useNavigate()
   const [search, setSearch] = useState("")
   const [pagination, setPagination] = useState<DataTablePaginationState>({
     pageSize: PAGE_SIZE,
@@ -137,18 +144,23 @@ const ShopLogsPage = () => {
       state: search,
       onSearchChange: setSearch,
     },
+    onRowClick: (_event, row) => {
+      const record = row as ShopLog & { original?: ShopLog }
+      const id = record.original?.id || record.id
+      if (id) navigate(`/shop-logs/${id}`)
+    },
   })
 
   return (
     <Container className="divide-y p-0">
       <DataTable instance={table}>
         <DataTable.Toolbar className="flex flex-col items-start gap-y-1 px-6 py-4">
-          <Heading>Логи доставки</Heading>
+          <Heading>Журнал</Heading>
           <Text size="small" className="text-ui-fg-subtle">
-            Создание отправления, сборка, невыкуп, отказ на ПВЗ и ошибки
-            синхронизации с Ozon.
+            Нажмите строку, чтобы открыть полный текст ошибки, ответ Ozon и все
+            идентификаторы.
           </Text>
-          <DataTable.Search placeholder="Номер заказа или текст" />
+          <DataTable.Search placeholder="Номер заказа, текст, id" />
         </DataTable.Toolbar>
         <DataTable.Table />
         <DataTable.Pagination />

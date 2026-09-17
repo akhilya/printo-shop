@@ -4,7 +4,7 @@ import { publicBackendUrl } from "./public-url"
 function ozonHttpError(status: number, text: string) {
   return new MedusaError(
     MedusaError.Types.UNEXPECTED_STATE,
-    `Ozon HTTP ${status}: ${text.slice(0, 240)}`
+    `Ozon HTTP ${status}: ${text.slice(0, 1500)}`
   )
 }
 
@@ -407,17 +407,39 @@ export function ozonPackErrorMessage(error: unknown) {
   ) {
     return "Не удалось создать отправление: проверьте телефон получателя."
   }
-  if (
-    /Splits|DeliveryMethod|timeslot|warehouse_id|map_point|OrderCreateRequestV2/i.test(
-      raw
-    )
-  ) {
+  return ozonAdminErrorMessage(error)
+}
+
+export function ozonAdminErrorMessage(error: unknown) {
+  const raw = error instanceof Error ? error.message : String(error || "")
+  const trimmed = raw.trim()
+  if (!trimmed) {
     return "Не удалось создать отправление Ozon. Попробуйте ещё раз."
   }
-  if (/[А-Яа-яЁё]/.test(raw) && !/Ozon HTTP|\bHTTP\s*\d+|[{"]/.test(raw)) {
-    return raw.slice(0, 280)
+  const status = trimmed.match(/Ozon HTTP (\d+)/i)?.[1]
+  let detail = ""
+  const jsonStart = trimmed.indexOf("{")
+  if (jsonStart >= 0) {
+    try {
+      const json = JSON.parse(trimmed.slice(jsonStart)) as Record<string, unknown>
+      detail = firstText(json.message, json.error, asRecord(json.error)?.message)
+    } catch {
+      const match = trimmed.match(/"message"\s*:\s*"((?:\\.|[^"\\])*)"/)
+      if (match?.[1]) {
+        detail = match[1].replace(/\\"/g, '"').replace(/\\n/g, " ")
+      }
+    }
   }
-  return "Не удалось создать отправление Ozon. Попробуйте ещё раз."
+  if (detail) {
+    return [status ? `Ozon ${status}` : null, detail].filter(Boolean).join(": ").slice(0, 1500)
+  }
+  if (/Ozon HTTP|\bHTTP\s*\d+|[{"]/.test(trimmed) && !/[А-Яа-яЁё]/.test(trimmed)) {
+    return [status ? `Ozon ${status}` : null, trimmed.replace(/^Ozon HTTP \d+:\s*/i, "")]
+      .filter(Boolean)
+      .join(": ")
+      .slice(0, 1500)
+  }
+  return trimmed.slice(0, 1500)
 }
 
 export function asRecord(value: unknown): Record<string, unknown> | null {
@@ -1458,7 +1480,12 @@ function ozonCreateTimeslot(method: Record<string, unknown>) {
   for (const row of rows) {
     const rec = asRecord(row)
     if (!rec) continue
-    const timeslotId = firstNumber(rec.timeslot_id, rec.timeslotId)
+    const timeslotId = firstNumber(
+      rec.timeslot_id,
+      rec.timeslotId,
+      rec.slot_id,
+      rec.id
+    )
     const range =
       asRecord(rec.logistic_date_range) ||
       asRecord(rec.logisticDateRange) ||
@@ -1493,8 +1520,16 @@ export function ozonOrderCreateSplits(
   const cartByOffer = new Map(
     input.items.map((item) => [String(item.article || "").trim(), item])
   )
+  const notes: string[] = []
+  if (!rawSplits.length) {
+    const keys = Object.keys(rec).join(", ") || "пусто"
+    throw new MedusaError(
+      MedusaError.Types.UNEXPECTED_STATE,
+      `Ozon checkout без отправлений (${keys})`
+    )
+  }
   const splits = rawSplits
-    .map((row) => {
+    .map((row, index) => {
       const split = asRecord(row)
       if (!split) return null
       const methods = Array.isArray(split.delivery_methods)
@@ -1506,8 +1541,11 @@ export function ozonOrderCreateSplits(
         const next = asRecord(candidate)
         if (!next) continue
         const reason = firstText(next.unavailable_reason, split.unavailable_reason)
-        if (reason && reason !== "UNSPECIFIED") continue
-        const found = ozonCreateTimeslot(next)
+        const found = ozonCreateTimeslot(next) || ozonCreateTimeslot(split)
+        if (reason && reason !== "UNSPECIFIED" && !found) {
+          notes.push(`сплит ${index + 1}: ${reason}`)
+          continue
+        }
         if (found) {
           method = next
           slot = found
@@ -1515,7 +1553,12 @@ export function ozonOrderCreateSplits(
         }
         if (!method) method = next
       }
-      if (!method || !slot) return null
+      if (!method || !slot) {
+        if (!notes.some((note) => note.startsWith(`сплит ${index + 1}:`))) {
+          notes.push(`сплит ${index + 1}: нет интервала доставки`)
+        }
+        return null
+      }
       const methodId = firstNumber(
         method.delivery_method_id,
         method.deliveryMethodId,
@@ -1526,7 +1569,12 @@ export function ozonOrderCreateSplits(
         split.warehouseId,
         input.fromPlaceId
       )
-      if (methodId == null || methodId <= 0 || warehouseId == null || warehouseId <= 0) {
+      if (methodId == null || methodId <= 0) {
+        notes.push(`сплит ${index + 1}: нет способа доставки`)
+        return null
+      }
+      if (warehouseId == null || warehouseId <= 0) {
+        notes.push(`сплит ${index + 1}: нет склада отправления`)
         return null
       }
       const splitItems = Array.isArray(split.items) ? split.items : []
@@ -1541,7 +1589,12 @@ export function ozonOrderCreateSplits(
           )
           const cart = cartByOffer.get(offer)
           const sku = firstNumber(recItem.sku, cart?.sku)
-          if (sku == null || sku <= 0) return null
+          if (sku == null || sku <= 0) {
+            notes.push(
+              `сплит ${index + 1}: нет SKU Ozon для ${offer || "товара"}`
+            )
+            return null
+          }
           const quantity = Math.max(
             1,
             Math.round(firstNumber(recItem.quantity, cart?.quantity) || 1)
@@ -1592,7 +1645,9 @@ export function ozonOrderCreateSplits(
   if (!splits.length) {
     throw new MedusaError(
       MedusaError.Types.UNEXPECTED_STATE,
-      "Не удалось создать отправление Ozon. Попробуйте ещё раз."
+      notes[0]
+        ? `Ozon checkout: ${notes.slice(0, 4).join("; ")}`
+        : "Ozon checkout не удалось разобрать"
     )
   }
   return splits
@@ -1615,7 +1670,7 @@ async function createSellerOrder(input: {
   if (!Number.isFinite(mapPointId) || mapPointId <= 0) {
     throw new MedusaError(
       MedusaError.Types.INVALID_DATA,
-      "Не удалось создать отправление Ozon. Попробуйте ещё раз."
+      `Некорректный пункт выдачи: ${input.point.id || "пусто"}`
     )
   }
   const skus = await sellerOfferSkus(

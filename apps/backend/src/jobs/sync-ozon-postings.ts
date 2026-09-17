@@ -1,6 +1,7 @@
 import { MedusaContainer } from "@medusajs/framework/types"
 import { ContainerRegistrationKeys } from "@medusajs/framework/utils"
-import { recordShopEvent } from "../lib/shop-event"
+import { ozonAdminErrorMessage } from "../lib/ozon-delivery"
+import { recordShopEvent, shopEventErrorDetail } from "../lib/shop-event"
 import { applyOzonStatusToFulfillment } from "../lib/shop-fulfillment"
 
 export default async function syncOzonPostingsJob(container: MedusaContainer) {
@@ -24,16 +25,17 @@ export default async function syncOzonPostingsJob(container: MedusaContainer) {
         await applyOzonStatusToFulfillment(container, String(order.id))
       } catch (error) {
         const logger = container.resolve(ContainerRegistrationKeys.LOGGER)
-        const message = error instanceof Error ? error.message : String(error)
-        logger.warn(`Ozon status sync failed for ${order.id}: ${message}`)
+        const message = ozonAdminErrorMessage(error)
+        logger.warn(
+          `Ozon status sync failed for ${order.id}: ${shopEventErrorDetail(error)}`
+        )
         const metadata = (order.metadata || {}) as Record<string, unknown>
         await recordShopEvent(container, {
           kind: "ozon_sync",
           level: "error",
           title: "Синхронизация Ozon не удалась",
-          message: /Ozon HTTP|\bHTTP\s*\d+|[{"]/.test(message)
-            ? "Не удалось обновить статус доставки Ozon."
-            : message.slice(0, 280),
+          message,
+          detail: shopEventErrorDetail(error),
           order_id: String(order.id),
           shop_number: metadata.shop_number
             ? String(metadata.shop_number)

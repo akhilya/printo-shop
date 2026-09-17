@@ -8,6 +8,7 @@ import {
   ozonOrderContacts,
   ozonOrderCreateSplits,
   ozonPackErrorMessage,
+  ozonAdminErrorMessage,
   ozonCreateDeliveryType,
   createOzonDeliveryOrder,
   ozonCredsFromRow,
@@ -354,12 +355,20 @@ describe("ozonPackErrorMessage", () => {
     ).toBe("Не удалось создать отправление: проверьте телефон получателя.")
   })
 
-  it("hides DeliveryMethod validation from the dashboard", () => {
+  it("keeps the Ozon DeliveryMethod text for the dashboard log", () => {
     expect(
       ozonPackErrorMessage(
         'Ozon HTTP 400: {"code":3, "message":"invalid OrderCreateRequestV2.Splits[0]: embedded message failed validation | caused by: invalid OrderCreateRequestV2_Split.DeliveryMethod"}'
       )
-    ).toBe("Не удалось создать отправление Ozon. Попробуйте ещё раз.")
+    ).toMatch(/Ozon 400.*DeliveryMethod/)
+  })
+
+  it("extracts the Ozon message from HTTP JSON", () => {
+    expect(
+      ozonAdminErrorMessage(
+        'Ozon HTTP 400: {"code":3, "message":"Request validation error: invalid split"}'
+      )
+    ).toBe("Ozon 400: Request validation error: invalid split")
   })
 })
 
@@ -466,7 +475,13 @@ describe("ozonOrderCreateSplits", () => {
         },
         { items: cart }
       )
-    ).toThrow(/отправление/)
+    ).toThrow(/интервала доставки/)
+  })
+
+  it("explains a checkout response without splits", () => {
+    expect(() => ozonOrderCreateSplits({ amount: 320 }, { items: cart })).toThrow(
+      /без отправлений/
+    )
   })
 })
 

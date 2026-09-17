@@ -12,7 +12,7 @@ import {
   withMailSent,
 } from "./order-mail-copy"
 import { customerOrderStatus } from "./shop-order-view"
-import { orderLogContext, recordShopEvent } from "./shop-event"
+import { orderLogContext, recordShopEvent, shopEventErrorDetail } from "./shop-event"
 import { shopFulfillmentOf } from "./shop-fulfillment-status"
 import { sendSmtpMail, type OutgoingMail } from "./smtp"
 import { ensureMedusaShopNumber } from "./shop-order-number"
@@ -176,6 +176,7 @@ async function dispatchMail(
       level: "error",
       title: "Письмо не ушло",
       message,
+      detail: shopEventErrorDetail(error),
       ...orderLogContext(input.order),
       to_status: input.event,
     })

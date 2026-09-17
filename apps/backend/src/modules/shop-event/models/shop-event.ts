@@ -11,6 +11,7 @@ const ShopEvent = model.define("shop_event", {
   posting_number: model.text().nullable(),
   from_status: model.text().nullable(),
   to_status: model.text().nullable(),
+  detail: model.text().nullable(),
 })
 
 export default ShopEvent

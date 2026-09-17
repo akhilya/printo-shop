@@ -19,7 +19,12 @@ import {
   shipOzonPosting,
   type OzonReturnKind,
 } from "./ozon-posting"
-import { orderLogContext, recordShopEvent } from "./shop-event"
+import {
+  orderLogContext,
+  recordShopEvent,
+  shopEventErrorDetail,
+  shopEventJsonDetail,
+} from "./shop-event"
 import { getShopSetting } from "./shop-setting"
 
 async function saveOrderMetadata(
@@ -205,6 +210,7 @@ export async function packOzonForOrder(
       level: "error",
       title: "Сборка в Ozon не удалась",
       message,
+      detail: shopEventErrorDetail(error),
       ...orderLogContext(order),
     })
     throw new MedusaError(MedusaError.Types.INVALID_DATA, message)
@@ -221,6 +227,11 @@ export async function packOzonForOrder(
       level: "error",
       title: "Сборка в Ozon не удалась",
       message: "Нет номера отправления Ozon",
+      detail: shopEventJsonDetail({
+        ozon_posting_number: metadata.ozon_posting_number || null,
+        ozon_order_number: metadata.ozon_order_number || null,
+        ozon_create_error: metadata.ozon_create_error || null,
+      }),
       ...orderLogContext(order),
     })
     throw new MedusaError(
@@ -248,6 +259,7 @@ export async function packOzonForOrder(
       level: "error",
       title: "Сборка в Ozon не удалась",
       message,
+      detail: shopEventErrorDetail(error),
       ...orderLogContext(order),
     })
     throw new MedusaError(MedusaError.Types.INVALID_DATA, message)
@@ -262,6 +274,7 @@ export async function packOzonForOrder(
       level: "error",
       title: "Не удалось получить этикетку Ozon",
       message,
+      detail: shopEventErrorDetail(error),
       ...orderLogContext(order),
       posting_number: number,
     })
@@ -294,6 +307,11 @@ export async function packOzonForOrder(
     message: labelUrl
       ? "Этикетка получена. Можно сдавать в ПВЗ."
       : "Сборка подтверждена, этикетка не сохранилась.",
+    detail: shopEventJsonDetail({
+      posting,
+      label: { fileName: label.fileName, contentType: label.contentType },
+      labelUrl,
+    }),
     ...orderLogContext({ ...order, metadata: next }),
     to_status: "awaiting_deliver",
   })

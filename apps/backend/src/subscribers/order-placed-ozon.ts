@@ -2,11 +2,15 @@ import type { SubscriberArgs, SubscriberConfig } from "@medusajs/framework"
 import { ContainerRegistrationKeys, Modules } from "@medusajs/framework/utils"
 import {
   createOzonDeliveryOrder,
-  ozonPackErrorMessage,
   extractOzonCreateIds,
+  ozonAdminErrorMessage,
   ozonCredsFromRow,
 } from "../lib/ozon-delivery"
-import { recordShopEvent } from "../lib/shop-event"
+import {
+  recordShopEvent,
+  shopEventErrorDetail,
+  shopEventJsonDetail,
+} from "../lib/shop-event"
 import { getShopSetting } from "../lib/shop-setting"
 
 function money(value: unknown) {
@@ -120,30 +124,37 @@ export default async function orderPlacedOzon({
       message: ids.postingNumber
         ? `Номер отправления ${ids.postingNumber}`
         : "Ozon принял заказ",
+      detail: shopEventJsonDetail({ ids, created }),
       order_id: orderId,
       shop_number: metadata.shop_number
         ? String(metadata.shop_number)
-        : null,
+        : order.display_id
+          ? String(order.display_id)
+          : null,
       posting_number: ids.postingNumber,
     })
   } catch (error) {
     const logger = container.resolve(ContainerRegistrationKeys.LOGGER)
-    const message = ozonPackErrorMessage(error)
-    logger.warn(`Ozon order create failed for ${orderId}: ${message}`)
+    const raw = error instanceof Error ? error.message : String(error)
+    const message = ozonAdminErrorMessage(error)
+    logger.warn(`Ozon order create failed for ${orderId}: ${raw}`)
     await recordShopEvent(container, {
       kind: "ozon_create",
       level: "error",
       title: "Не удалось создать отправление Ozon",
       message,
+      detail: shopEventErrorDetail(error),
       order_id: orderId,
       shop_number: metadata.shop_number
         ? String(metadata.shop_number)
-        : null,
+        : order.display_id
+          ? String(order.display_id)
+          : null,
     })
     try {
       await saveMeta({
         ...metadata,
-        ozon_create_error: message.slice(0, 500),
+        ozon_create_error: raw.slice(0, 1500),
       })
     } catch {
       // Metadata write is best-effort after a failed create.
