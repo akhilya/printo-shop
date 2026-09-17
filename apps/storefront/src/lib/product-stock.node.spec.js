@@ -3,6 +3,7 @@ import assert from "node:assert/strict"
 import {
   OUT_OF_STOCK_LABEL,
   productInStock,
+  sortInStockFirst,
   variantInStock,
 } from "./product-stock.js"
 
@@ -40,6 +41,18 @@ describe("productInStock", () => {
         variants: [{ inventory_quantity: 0 }, { inventory_quantity: 1 }],
       }),
       true
+    )
+  })
+})
+
+describe("sortInStockFirst", () => {
+  it("keeps in-stock cards before empty ones", () => {
+    const empty = { id: "a", variants: [{ inventory_quantity: 0 }] }
+    const stocked = { id: "b", variants: [{ inventory_quantity: 1 }] }
+    const alsoEmpty = { id: "c", variants: [{ inventory_quantity: 0 }] }
+    assert.deepEqual(
+      sortInStockFirst([empty, stocked, alsoEmpty]).map((item) => item.id),
+      ["b", "a", "c"]
     )
   })
 })

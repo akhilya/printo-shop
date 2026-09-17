@@ -1,8 +1,9 @@
 <script setup>
 import { ChevronLeft, ChevronRight } from "@lucide/vue"
-import { nextTick, onBeforeUnmount, onMounted, ref, watch } from "vue"
+import { computed, nextTick, onBeforeUnmount, onMounted, ref, watch } from "vue"
 import LinkArrow from "./LinkArrow.vue"
 import ProductCell from "./ProductCell.vue"
+import { sortInStockFirst } from "../lib/product-stock.js"
 
 const AUTO_MS = 4500
 
@@ -12,6 +13,7 @@ const props = defineProps({
   products: { type: Array, default: () => [] },
 })
 
+const listed = computed(() => sortInStockFirst(props.products))
 const track = ref(null)
 const paused = ref(false)
 const canPrev = ref(false)
@@ -120,15 +122,12 @@ onMounted(() => {
   startAuto()
 })
 
-watch(
-  () => props.products,
-  () => {
-    nextTick(() => {
-      measure()
-      startAuto()
-    })
-  }
-)
+watch(listed, () => {
+  nextTick(() => {
+    measure()
+    startAuto()
+  })
+})
 
 onBeforeUnmount(() => {
   stopAuto()
@@ -140,7 +139,7 @@ onBeforeUnmount(() => {
 
 <template>
   <section
-    v-if="products.length"
+    v-if="listed.length"
     class="section rail"
     @mouseenter="paused = true"
     @mouseleave="paused = false"
@@ -170,7 +169,7 @@ onBeforeUnmount(() => {
       </div>
     </div>
     <div ref="track" class="rail-track">
-      <ProductCell v-for="p in products" :key="p.id" :product="p" />
+      <ProductCell v-for="p in listed" :key="p.id" :product="p" />
     </div>
   </section>
 </template>

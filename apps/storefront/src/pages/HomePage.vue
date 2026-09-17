@@ -5,6 +5,7 @@ import GroupCard from "../components/GroupCard.vue"
 import ProductCell from "../components/ProductCell.vue"
 import LinkArrow from "../components/LinkArrow.vue"
 import SiteBanner from "../components/SiteBanner.vue"
+import { sortInStockFirst } from "../lib/product-stock.js"
 import {
   HOME_GROUPS,
   HOME_PRODUCTS,
@@ -73,7 +74,7 @@ onMounted(async () => {
         : []
     products.value =
       productsResult.status === "fulfilled"
-        ? productsResult.value.products || []
+        ? sortInStockFirst(productsResult.value.products || [])
         : []
     banners.value =
       bannersResult.status === "fulfilled" ? bannersResult.value : []

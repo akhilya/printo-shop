@@ -40,7 +40,17 @@ function nativeFulfillmentOf(order: Record<string, unknown>) {
   return "awaiting_deliver"
 }
 
+export function orderIsCanceled(order: Record<string, unknown>) {
+  const status = String(order.status || "").toLowerCase()
+  return (
+    status === "canceled" ||
+    status === "cancelled" ||
+    Boolean(order.canceled_at || order.cancelled_at)
+  )
+}
+
 export function shopFulfillmentOf(order: Record<string, unknown>) {
+  if (orderIsCanceled(order)) return null
   const metadata = (order.metadata || {}) as Record<string, unknown>
   const returnKind = String(metadata.ozon_return_kind || "").trim()
   const fromOzon = ["unclaimed", "refused", "returned"].includes(returnKind)
@@ -78,6 +88,8 @@ const PAID_PAYMENT_STATUSES = new Set([
 ])
 
 export function orderLooksPaid(order: Record<string, unknown>) {
+  const metadata = (order.metadata || {}) as Record<string, unknown>
+  if (metadata.ozon_order_number || metadata.ozon_posting_number) return true
   const paymentStatus = String(order.payment_status || "").toLowerCase()
   if (PAID_PAYMENT_STATUSES.has(paymentStatus)) return true
   const collections =
@@ -100,10 +112,10 @@ export function mapMedusaOrderStatus(
   fulfillment?: string | null,
   paid?: boolean
 ) {
+  const key = String(status || "").toLowerCase()
+  if (key === "canceled" || key === "cancelled") return "cancelled"
   if (fulfillment === "returned") return "returned"
-  switch (status) {
-    case "canceled":
-      return "cancelled"
+  switch (key) {
     case "archived":
       return "delivered"
     case "pending":
@@ -125,6 +137,7 @@ export function mapMedusaOrderStatus(
 }
 
 export function mapDelegatOrderStatus(order: Record<string, unknown>) {
+  if (orderIsCanceled(order)) return "cancelled"
   return mapMedusaOrderStatus(
     String(order.status || ""),
     shopFulfillmentOf(order),

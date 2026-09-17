@@ -6,6 +6,8 @@ describe("mapMedusaOrderStatus", () => {
     expect(mapMedusaOrderStatus("completed", "delivering")).toBe("delivering")
     expect(mapMedusaOrderStatus("completed", "delivered")).toBe("delivered")
     expect(mapMedusaOrderStatus("canceled")).toBe("cancelled")
+    expect(mapMedusaOrderStatus("cancelled", "delivered")).toBe("cancelled")
+    expect(mapMedusaOrderStatus("canceled", "delivered")).toBe("cancelled")
     expect(mapMedusaOrderStatus("pending")).toBe("unpaid")
     expect(mapMedusaOrderStatus("pending", null, true)).toBe("awaiting_pack")
     expect(mapMedusaOrderStatus("pending", "delivering", true)).toBe(
@@ -81,6 +83,19 @@ describe("presentDelegatOrder", () => {
     expect(presented.status).toBe("awaiting_pack")
   })
 
+  it("treats a pending order with an Ozon posting as packing", () => {
+    const presented = presentDelegatOrder({
+      id: "order_ozon_pending",
+      status: "pending",
+      metadata: {
+        shop_number: "1234567890",
+        ozon_posting_number: "123-456-1",
+      },
+      items: [],
+    })
+    expect(presented.status).toBe("awaiting_pack")
+  })
+
   it("maps packed orders as ready to ship", () => {
     const presented = presentDelegatOrder({
       id: "order_packed",
@@ -110,6 +125,31 @@ describe("presentDelegatOrder", () => {
       items: [],
     })
     expect(presented.status).toBe("delivering")
+  })
+
+  it("maps a Medusa-cancelled order as cancelled even after fulfillment", () => {
+    const presented = presentDelegatOrder({
+      id: "order_canceled",
+      status: "canceled",
+      metadata: { shop_number: "1234567890", shop_fulfillment: "delivered" },
+      fulfillments: [
+        { id: "ful_1", shipped_at: "2026-09-14T10:00:00Z", delivered_at: "2026-09-15T10:00:00Z" },
+      ],
+      items: [],
+    })
+    expect(presented.status).toBe("cancelled")
+    expect(presented.raw_status).toBe("canceled")
+  })
+
+  it("maps a Medusa-cancelled order as cancelled when only canceled_at is set", () => {
+    const presented = presentDelegatOrder({
+      id: "order_canceled_at",
+      status: "completed",
+      canceled_at: "2026-09-16T10:00:00Z",
+      fulfillments: [{ id: "ful_1", delivered_at: "2026-09-15T10:00:00Z" }],
+      items: [],
+    })
+    expect(presented.status).toBe("cancelled")
   })
 
   it("maps an Ozon return onto returned", () => {

@@ -12,3 +12,11 @@ export function productInStock(product) {
   if (!variants.length) return false
   return variants.some(variantInStock)
 }
+
+export function sortInStockFirst(products) {
+  return [...(products || [])].sort((a, b) => {
+    const aIn = productInStock(a) ? 1 : 0
+    const bIn = productInStock(b) ? 1 : 0
+    return bIn - aIn
+  })
+}

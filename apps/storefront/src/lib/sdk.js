@@ -64,9 +64,9 @@ export async function loadShopConfig() {
   }
 }
 
-export const PAGE_SIZE = 12
+export const PAGE_SIZE = 20
 export const HOME_GROUPS = 8
-export const HOME_PRODUCTS = 8
+export const HOME_PRODUCTS = 16
 
 export function visiblePages(current, total) {
   if (total <= 1) return []
@@ -105,13 +105,25 @@ export function realVariants(product) {
   return variants
 }
 
+export function moneyAmount(value) {
+  if (value == null || value === "") return null
+  if (typeof value === "number") return Number.isFinite(value) ? value : null
+  if (typeof value === "object") {
+    return moneyAmount(value.numeric ?? value.value ?? value.amount)
+  }
+  const numeric = Number(value)
+  return Number.isFinite(numeric) ? numeric : null
+}
+
 export function formatPrice(amount, currency = "RUB") {
-  if (amount == null || Number.isNaN(Number(amount))) return ""
+  const value = moneyAmount(amount)
+  if (value == null) return ""
+  const code = String(currency || "RUB").toUpperCase()
   return new Intl.NumberFormat("ru-RU", {
     style: "currency",
-    currency,
+    currency: /^[A-Z]{3}$/.test(code) ? code : "RUB",
     maximumFractionDigits: 0,
-  }).format(Number(amount))
+  }).format(value)
 }
 
 export function priceParts(calc) {

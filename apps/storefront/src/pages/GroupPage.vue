@@ -4,6 +4,7 @@ import { useRoute } from "vue-router"
 import CatalogNav from "../components/CatalogNav.vue"
 import Pager from "../components/Pager.vue"
 import ProductCell from "../components/ProductCell.vue"
+import { sortInStockFirst } from "../lib/product-stock.js"
 import {
   PAGE_SIZE,
   productFields,
@@ -57,7 +58,7 @@ async function load() {
       }),
       sdk.store.category.list({ limit: 20, include_descendants_tree: false }),
     ])
-    products.value = productRes.products || []
+    products.value = sortInStockFirst(productRes.products || [])
     count.value = productRes.count || 0
     categories.value = catRes.product_categories || []
     window.scrollTo(0, 0)

@@ -3,6 +3,7 @@ import { ContainerRegistrationKeys } from "@medusajs/framework/utils"
 import {
   mapDelegatOrderStatus,
   mapMedusaOrderStatus,
+  orderIsCanceled,
   shopFulfillmentOf,
 } from "../shop-fulfillment-status"
 
@@ -16,7 +17,10 @@ const ORDER_FIELDS = [
   "currency_code",
   "created_at",
   "updated_at",
+  "canceled_at",
   "summary.*",
+  "payment_status",
+  "total",
   "items.id",
   "items.title",
   "items.thumbnail",
@@ -110,13 +114,15 @@ export function presentDelegatOrder(order: Record<string, unknown>) {
         ? String(order.display_id)
         : null,
     status: fulfillment,
-    raw_status: [
-      String(order.status || ""),
-      shopFulfillmentOf(order),
-      metadata.ozon_posting_status,
-    ]
-      .filter(Boolean)
-      .join(":"),
+    raw_status: orderIsCanceled(order)
+      ? "canceled"
+      : [
+          String(order.status || ""),
+          shopFulfillmentOf(order),
+          metadata.ozon_posting_status,
+        ]
+          .filter(Boolean)
+          .join(":"),
     channel: "shop",
     has_label: hasLabel,
     ozon_posting_number: metadata.ozon_posting_number
@@ -128,7 +134,9 @@ export function presentDelegatOrder(order: Record<string, unknown>) {
     created_at: order.created_at || null,
     updated_at: order.updated_at || null,
     currency: String(order.currency_code || "rub").toUpperCase(),
-    total: money(summary.current_order_total ?? summary.original_order_total),
+    total: money(
+      summary.current_order_total ?? summary.original_order_total ?? order.total
+    ),
     customer_email: order.email ? String(order.email) : null,
     customer_name: name || null,
     customer_phone: address.phone ? String(address.phone) : null,
@@ -160,7 +168,11 @@ export async function listDelegatOrders(
     entity: "order",
     fields: ORDER_FIELDS,
     filters: Object.keys(filters).length ? filters : undefined,
-    pagination: { skip: (page - 1) * pageSize, take: pageSize },
+    pagination: {
+      skip: (page - 1) * pageSize,
+      take: pageSize,
+      order: { created_at: "DESC" },
+    },
   })
   let items = ((data ?? []) as Array<Record<string, unknown>>).map(presentDelegatOrder)
   if (
