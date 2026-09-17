@@ -20,6 +20,19 @@ describe("shopError", () => {
     )
   })
 
+  it("hides a completed-cart payload from the shopper", () => {
+    assert.equal(
+      shopError(
+        {
+          type: "invalid_data",
+          message: "Cart cart_01M2QRWF9HJFYNWAR64K0HZ5NY is already completed.",
+        },
+        "Не удалось оформить заказ"
+      ),
+      "Не удалось оформить заказ"
+    )
+  })
+
   it("hides admin cabinet instructions from the shopper", () => {
     assert.equal(
       shopError(

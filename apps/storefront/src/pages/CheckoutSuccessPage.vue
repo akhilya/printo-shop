@@ -2,7 +2,11 @@
 import { computed, onMounted, ref } from "vue"
 import { useRoute } from "vue-router"
 import ProductPhoto from "../components/ProductPhoto.vue"
-import { cartState, clearCartId, loadCart } from "../lib/cart.js"
+import { cartState, clearCartId, currentCartId, loadCart } from "../lib/cart.js"
+import {
+  isCartAlreadyCompletedError,
+  isCompletedCart,
+} from "../lib/checkout-success.js"
 import { persistObject } from "../lib/persist.js"
 import { BACKEND_URL, formatPrice, sdk, storeHeaders } from "../lib/sdk.js"
 
@@ -132,6 +136,28 @@ async function pollCustom() {
   return false
 }
 
+async function loadPaidByCart(cartId) {
+  if (!cartId) return null
+  const res = await fetch(
+    `${BACKEND_URL}/store/checkout-order?cart_id=${encodeURIComponent(cartId)}`,
+    { headers: storeHeaders() }
+  )
+  if (!res.ok) return null
+  return res.json()
+}
+
+async function showPaid(next) {
+  const id = next?.order_id || next?.id
+  if (!id && !next?.shop_number) return false
+  if (id) rememberOrder(id, next.email || "")
+  clearCartId()
+  order.value = next
+  heading.value = "Заказ оплачен"
+  message.value = ""
+  if (id) await pollTracking(id, next.email || "")
+  return true
+}
+
 onMounted(async () => {
   if (token.value) {
     if (await pollCustom()) return
@@ -140,22 +166,35 @@ onMounted(async () => {
       "Если вы уже заплатили, подождите минуту и обновите страницу."
     return
   }
+  const storedId = currentCartId()
   await loadCart()
-  const id = cartState.cart?.id
+  const id = cartState.cart?.id || storedId
   if (id) {
+    const paidNow = await loadPaidByCart(id)
+    if (paidNow && (await showPaid(paidNow))) return
+    if (!isCompletedCart(cartState.cart)) {
+      for (let attempt = 0; attempt < 4; attempt++) {
+        try {
+          const result = await sdk.store.cart.complete(id)
+          if (result.type === "order") {
+            const next = fromComplete(result)
+            if (await showPaid(next)) return
+          }
+          if (isCartAlreadyCompletedError(result.error || result)) break
+        } catch (error) {
+          if (isCartAlreadyCompletedError(error)) break
+        }
+        const paid = await loadPaidByCart(id)
+        if (paid && (await showPaid(paid))) return
+        await new Promise((resolve) => setTimeout(resolve, 1500))
+      }
+    }
     for (let attempt = 0; attempt < 4; attempt++) {
       try {
-        const result = await sdk.store.cart.complete(id)
-        if (result.type === "order") {
-          clearCartId()
-          order.value = fromComplete(result)
-          heading.value = "Заказ оплачен"
-          message.value = ""
-          await pollTracking(result.order.id, result.order.email || "")
-          return
-        }
+        const paid = await loadPaidByCart(id)
+        if (paid && (await showPaid(paid))) return
       } catch {
-        // T-Bank may still be confirming.
+        // Webhook may still be writing the order.
       }
       await new Promise((resolve) => setTimeout(resolve, 1500))
     }

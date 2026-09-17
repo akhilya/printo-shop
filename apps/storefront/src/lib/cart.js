@@ -10,7 +10,7 @@ export const cartState = reactive({
   error: "",
 })
 
-function readCartId() {
+export function currentCartId() {
   try {
     return localStorage.getItem(KEY) || sessionStorage.getItem(KEY) || ""
   } catch {
@@ -59,7 +59,7 @@ export function closeCart() {
 }
 
 export async function loadCart() {
-  const id = readCartId()
+  const id = currentCartId()
   if (!id) {
     cartState.cart = null
     return
@@ -78,7 +78,7 @@ export async function loadCart() {
 
 async function ensureCart() {
   if (cartState.cart?.id) return cartState.cart
-  const existing = readCartId()
+  const existing = currentCartId()
   if (existing) {
     try {
       const cart = await retrieveCart(existing)
