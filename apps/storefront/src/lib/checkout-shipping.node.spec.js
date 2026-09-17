@@ -35,4 +35,16 @@ describe("visibleCheckoutShipping", () => {
       350
     )
   })
+
+  it("uses the shop fixed amount immediately when the cart has no shipping yet", () => {
+    assert.equal(
+      visibleCheckoutShipping({
+        quoteMode: "fixed",
+        quoted: null,
+        cartShipping: 0,
+        shopFixedAmount: 350,
+      }),
+      350
+    )
+  })
 })

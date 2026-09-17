@@ -19,6 +19,7 @@ import {
   sellerAuthHeadersFor,
   fetchOzonAppToken,
   resetOzonAppTokenCache,
+  setOzonTokenPersist,
   ozonAuthorizeUrl,
   ozonOAuthRedirectUri,
   exchangeOzonAuthCode,
@@ -107,6 +108,7 @@ describe("fetchOzonAppToken", () => {
   afterEach(() => {
     global.fetch = fetchFn
     resetOzonAppTokenCache()
+    setOzonTokenPersist(null)
   })
 
   it("refreshes a seller-issued token, not a client_credentials token", async () => {
@@ -144,6 +146,54 @@ describe("fetchOzonAppToken", () => {
       fetchOzonAppToken({ clientId: "app-uuid", clientSecret: "app-secret" })
     ).rejects.toThrow(/кабинет/)
     expect(global.fetch).not.toHaveBeenCalled()
+  })
+
+  it("persists a rotated refresh token from Ozon", async () => {
+    const persist = jest.fn(async () => undefined)
+    setOzonTokenPersist(persist)
+    global.fetch = jest.fn(async () => ({
+      ok: true,
+      status: 200,
+      text: async () =>
+        JSON.stringify({
+          access_token: "aaa.bbb.ccc",
+          refresh_token: "refresh-2",
+          expires_in: 3600,
+        }),
+    })) as typeof fetch
+    await expect(
+      fetchOzonAppToken({
+        clientId: "app-uuid",
+        clientSecret: "app-secret",
+        refreshToken: "refresh-1",
+      })
+    ).resolves.toBe("aaa.bbb.ccc")
+    expect(persist).toHaveBeenCalledWith({
+      accessToken: "aaa.bbb.ccc",
+      refreshToken: "refresh-2",
+    })
+  })
+
+  it("clears the stored refresh token when Ozon rejects it", async () => {
+    const persist = jest.fn(async () => undefined)
+    setOzonTokenPersist(persist)
+    global.fetch = jest.fn(async () => ({
+      ok: false,
+      status: 400,
+      text: async () =>
+        JSON.stringify({ code: 3, message: "invalid_refresh_token", details: [] }),
+    })) as typeof fetch
+    await expect(
+      fetchOzonAppToken({
+        clientId: "app-uuid",
+        clientSecret: "app-secret",
+        refreshToken: "refresh-1",
+      })
+    ).rejects.toThrow(/invalid_refresh_token/)
+    expect(persist).toHaveBeenCalledWith({
+      accessToken: "",
+      refreshToken: "",
+    })
   })
 
   it("reuses a cached token", async () => {
@@ -653,6 +703,16 @@ describe("ozonQuoteErrorMessage", () => {
         new Error('Ozon HTTP 403: {"code":7,"message":"no access for this service"}')
       )
     ).toMatch(/Ozon Доставка/)
+  })
+
+  it("explains an invalid refresh token without Ozon jargon", () => {
+    const message = ozonQuoteErrorMessage(
+      new Error(
+        'Ozon HTTP 400: {"code":3, "message":"invalid_refresh_token", "details":[]}'
+      )
+    )
+    expect(message).toMatch(/Подключите кабинет/)
+    expect(message).not.toMatch(/invalid_refresh_token|HTTP 400/i)
   })
 })
 

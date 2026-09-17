@@ -1,5 +1,5 @@
 <script setup>
-import { computed, onMounted, ref, watch } from "vue"
+import { computed, onBeforeUnmount, onMounted, ref, watch } from "vue"
 import { useRoute } from "vue-router"
 import ProductPhoto from "../components/ProductPhoto.vue"
 import PromoField from "../components/PromoField.vue"
@@ -39,6 +39,7 @@ const consentPages = computed(() =>
 const quotedShipping = ref(null)
 const shippingQuoteFailed = ref(false)
 let quoteTimer = 0
+let statusTimer = 0
 const custom = ref(null)
 const customLoading = ref(false)
 const form = persistObject("shop_checkout", {
@@ -96,6 +97,7 @@ const totals = computed(() => {
     quoteMode: shopState.ozonQuoteMode,
     quoted: quotedShipping.value,
     cartShipping: base.shipping,
+    shopFixedAmount: shopState.ozonFixedAmount,
   })
   const total = Math.max(0, base.items - base.discount + shipping)
   return { ...base, shipping, total }
@@ -142,6 +144,11 @@ const details = computed(() => {
 
 onMounted(async () => {
   await loadShopStatus()
+  statusTimer = window.setInterval(() => {
+    loadShopStatus()
+  }, 2500)
+  window.addEventListener("visibilitychange", loadShopStatus)
+  window.addEventListener("focus", loadShopStatus)
   if (!token.value) {
     await loadCart()
     if (form.ozon_point_id) await quoteShipping()
@@ -173,6 +180,22 @@ onMounted(async () => {
     customLoading.value = false
   }
 })
+
+onBeforeUnmount(() => {
+  clearInterval(statusTimer)
+  window.removeEventListener("visibilitychange", loadShopStatus)
+  window.removeEventListener("focus", loadShopStatus)
+})
+
+watch(
+  () => [shopState.ozonQuoteMode, shopState.ozonFixedAmount],
+  () => {
+    if (shopState.ozonQuoteMode === "fixed") {
+      shippingQuoteFailed.value = false
+    }
+    if (form.ozon_point_id) quoteShipping()
+  }
+)
 
 function pointCity(address) {
   const text = String(address || "")
@@ -212,12 +235,19 @@ async function quoteShipping(point = {
     if (res.ok && amount > 0) {
       quotedShipping.value = amount
       shippingQuoteFailed.value = false
+    } else if (shopState.ozonQuoteMode === "fixed") {
+      quotedShipping.value = shopState.ozonFixedAmount || null
+      shippingQuoteFailed.value = false
     } else {
       quotedShipping.value = null
       shippingQuoteFailed.value = true
     }
     if (res.ok) await loadCart()
   } catch {
+    if (shopState.ozonQuoteMode === "fixed") {
+      shippingQuoteFailed.value = false
+      return
+    }
     quotedShipping.value = null
     shippingQuoteFailed.value = true
   }

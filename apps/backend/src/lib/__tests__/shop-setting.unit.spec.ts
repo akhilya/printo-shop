@@ -102,12 +102,13 @@ describe("presentShopSetting", () => {
     })
     expect(publicView.ozon_configured).toBe(false)
     expect(publicView.ozon_quote_mode).toBe("ozon")
+    expect(publicView.ozon_fixed_amount).toBe(0)
     expect(
       presentShopSetting({
         ozon_quote_mode: "fixed",
         ozon_fixed_amount: 350,
-      }).ozon_quote_mode
-    ).toBe("fixed")
+      })
+    ).toMatchObject({ ozon_quote_mode: "fixed", ozon_fixed_amount: 350 })
     expect(
       presentShopSetting({
         ozon_client_id: "app-uuid",

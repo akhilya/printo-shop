@@ -8,6 +8,7 @@ export const shopState = reactive({
   ordersMessage: "Заказы временно недоступны.",
   ozonConfigured: false,
   ozonQuoteMode: "ozon",
+  ozonFixedAmount: 0,
 })
 
 export async function loadShopStatus() {
@@ -25,4 +26,7 @@ export async function loadShopStatus() {
   shopState.ozonConfigured = data.shop?.ozon_configured === true
   shopState.ozonQuoteMode =
     data.shop?.ozon_quote_mode === "fixed" ? "fixed" : "ozon"
+  const fixed = Number(data.shop?.ozon_fixed_amount)
+  shopState.ozonFixedAmount =
+    Number.isFinite(fixed) && fixed > 0 ? Math.round(fixed) : 0
 }

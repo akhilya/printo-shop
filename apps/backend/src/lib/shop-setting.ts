@@ -2,7 +2,7 @@ import { MedusaContainer } from "@medusajs/framework"
 import { SHOP_SETTING_MODULE } from "../modules/shop-setting"
 import type ShopSettingModuleService from "../modules/shop-setting/service"
 import { publicBackendUrl } from "./public-url"
-import { isOzonAccessToken, ozonOAuthRedirectUri } from "./ozon-delivery"
+import { isOzonAccessToken, ozonOAuthRedirectUri, setOzonTokenPersist } from "./ozon-delivery"
 
 export const SHOP_SETTING_KEY = "storefront"
 export const DEFAULT_CLOSED_MESSAGE = "Магазин в разработке."
@@ -138,6 +138,7 @@ export type ShopSettingPublic = {
   ozon_configured: boolean
   ozon_from_place_id: string
   ozon_quote_mode: OzonQuoteMode
+  ozon_fixed_amount: number
 }
 
 export type ShopSettingAdmin = ShopSettingPublic & {
@@ -182,6 +183,7 @@ export function presentShopSetting(
     ),
     ozon_from_place_id: text(row, "ozon_from_place_id"),
     ozon_quote_mode: parseOzonQuoteMode(row.ozon_quote_mode),
+    ozon_fixed_amount: parseOzonFixedAmount(row.ozon_fixed_amount) || 0,
   }
   if (!opts.admin) return base
   const urls = defaultTbankUrls()
@@ -286,6 +288,22 @@ export function parseShopSettingUpdate(
 
 export async function getShopSetting(container: MedusaContainer) {
   const service: ShopSettingModuleService = container.resolve(SHOP_SETTING_MODULE)
+  setOzonTokenPersist(async ({ refreshToken }) => {
+    const current = peekShopSetting()
+    if (!current?.id) return
+    const nextToken = String(refreshToken || "").trim() || null
+    if (String(current.ozon_refresh_token || "").trim() === String(nextToken || "")) {
+      return
+    }
+    await service.updateShopSettings({
+      id: String(current.id),
+      ozon_refresh_token: nextToken,
+    })
+    cacheShopSetting({
+      ...current,
+      ozon_refresh_token: nextToken,
+    })
+  })
   const existing = await service.listShopSettings(
     { key: SHOP_SETTING_KEY },
     { take: 1 }

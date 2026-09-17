@@ -107,13 +107,17 @@ export async function applyOzonShippingToCart(
         items,
       })
     } catch (error) {
-      const logger = container.resolve(ContainerRegistrationKeys.LOGGER)
-      logger.warn(
-        `Ozon quote failed (${items
-          .map((item) => item.article)
-          .filter(Boolean)
-          .join(", ") || "no offer_id"}): ${error instanceof Error ? error.message : String(error)}`
-      )
+      try {
+        const logger = container.resolve(ContainerRegistrationKeys.LOGGER)
+        logger.warn(
+          `Ozon quote failed (${items
+            .map((item) => item.article)
+            .filter(Boolean)
+            .join(", ") || "no offer_id"}): ${error instanceof Error ? error.message : String(error)}`
+        )
+      } catch {
+        // Quote must still finish even if logging is unavailable.
+      }
       amount = null
     }
   }

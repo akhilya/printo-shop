@@ -91,31 +91,33 @@ const ShopSettingsPage = () => {
   }, [data])
 
   const save = useMutation({
-    mutationFn: () =>
-      sdk.client.fetch("/admin/shop-settings", {
+    mutationFn: (row?: typeof form) => {
+      const src = row || form
+      return sdk.client.fetch("/admin/shop-settings", {
         method: "POST",
         body: {
-          closed: form.closed,
-          message: form.message,
-          orders_closed: form.orders_closed,
-          orders_message: form.orders_message,
-          tbank_terminal_key: form.tbank_terminal_key,
-          tbank_password: form.tbank_password,
-          tbank_api_url: form.tbank_api_url,
-          tbank_success_url: form.tbank_success_url,
-          tbank_fail_url: form.tbank_fail_url,
-          tbank_notification_url: form.tbank_notification_url,
-          tbank_pay_type: form.tbank_pay_type,
-          tbank_receipt: form.tbank_receipt,
-          tbank_taxation: form.tbank_taxation,
-          tbank_vat: form.tbank_vat,
-          ozon_client_id: form.ozon_client_id,
-          ozon_oauth_token: form.ozon_oauth_token,
-          ozon_from_place_id: form.ozon_from_place_id,
-          ozon_quote_mode: form.ozon_quote_mode,
-          ozon_fixed_amount: form.ozon_fixed_amount,
+          closed: src.closed,
+          message: src.message,
+          orders_closed: src.orders_closed,
+          orders_message: src.orders_message,
+          tbank_terminal_key: src.tbank_terminal_key,
+          tbank_password: src.tbank_password,
+          tbank_api_url: src.tbank_api_url,
+          tbank_success_url: src.tbank_success_url,
+          tbank_fail_url: src.tbank_fail_url,
+          tbank_notification_url: src.tbank_notification_url,
+          tbank_pay_type: src.tbank_pay_type,
+          tbank_receipt: src.tbank_receipt,
+          tbank_taxation: src.tbank_taxation,
+          tbank_vat: src.tbank_vat,
+          ozon_client_id: src.ozon_client_id,
+          ozon_oauth_token: src.ozon_oauth_token,
+          ozon_from_place_id: src.ozon_from_place_id,
+          ozon_quote_mode: src.ozon_quote_mode,
+          ozon_fixed_amount: src.ozon_fixed_amount,
         },
-      }),
+      })
+    },
     onSuccess: () => {
       toast.success("Настройки сохранены")
       queryClient.invalidateQueries({ queryKey: ["admin-shop-settings"] })
@@ -463,16 +465,21 @@ const ShopSettingsPage = () => {
               <Label>Цена доставки</Label>
               <Select
                 value={form.ozon_quote_mode}
-                onValueChange={(value) =>
-                  setForm((current) => ({
-                    ...current,
-                    ozon_quote_mode: value === "fixed" ? "fixed" : "ozon",
-                    ozon_fixed_amount:
-                      value === "fixed" && !current.ozon_fixed_amount
-                        ? 350
-                        : current.ozon_fixed_amount,
-                  }))
-                }
+                onValueChange={(value) => {
+                  const ozon_quote_mode = value === "fixed" ? "fixed" : "ozon"
+                  setForm((current) => {
+                    const next = {
+                      ...current,
+                      ozon_quote_mode,
+                      ozon_fixed_amount:
+                        value === "fixed" && !current.ozon_fixed_amount
+                          ? 350
+                          : current.ozon_fixed_amount,
+                    }
+                    save.mutate(next)
+                    return next
+                  })
+                }}
               >
                 <Select.Trigger>
                   <Select.Value />
@@ -483,8 +490,8 @@ const ShopSettingsPage = () => {
                 </Select.Content>
               </Select>
               <Text size="small" className="text-ui-fg-subtle">
-                Ozon сейчас не отдаёт тариф. Пока стоит фиксированная сумма — её
-                можно сменить в любой момент.
+                Фиксированная сумма сразу видна на оформлении. «Считать в Ozon»
+                нужен подключённый кабинет.
               </Text>
             </div>
             {form.ozon_quote_mode === "fixed" ? (

@@ -96,8 +96,27 @@ type OzonAppTokenCache = {
 
 let ozonAppTokenCache: OzonAppTokenCache | null = null
 
+type OzonTokenPersist = (tokens: {
+  accessToken: string
+  refreshToken: string
+}) => void | Promise<void>
+
+let ozonTokenPersist: OzonTokenPersist | null = null
+
 export function resetOzonAppTokenCache() {
   ozonAppTokenCache = null
+}
+
+export function setOzonTokenPersist(fn: OzonTokenPersist | null) {
+  ozonTokenPersist = fn
+}
+
+async function persistOzonTokens(tokens: {
+  accessToken: string
+  refreshToken: string
+}) {
+  if (!ozonTokenPersist) return
+  await ozonTokenPersist(tokens)
 }
 
 function tokenExpiryMs(expiresIn: unknown) {
@@ -235,11 +254,29 @@ export async function fetchOzonAppToken(input: {
     client_id: clientId,
     client_secret: clientSecret,
     refresh_token: refreshToken,
+  }).catch(async (error) => {
+    const raw = error instanceof Error ? error.message : String(error || "")
+    if (/invalid_refresh_token/i.test(raw)) {
+      resetOzonAppTokenCache()
+      await persistOzonTokens({ accessToken: "", refreshToken: "" })
+    }
+    throw error
   })
+  const nextRefresh = tokens.refreshToken || refreshToken
   ozonAppTokenCache = {
-    key,
+    key: `${clientId}:${clientSecret}:${nextRefresh}`,
     token: tokens.accessToken,
     expiresAt: tokens.expiresAt,
+  }
+  if (tokens.refreshToken && tokens.refreshToken !== refreshToken) {
+    try {
+      await persistOzonTokens({
+        accessToken: tokens.accessToken,
+        refreshToken: tokens.refreshToken,
+      })
+    } catch {
+      // Keep the live access token even if the new refresh token was not saved.
+    }
   }
   return tokens.accessToken
 }
@@ -622,6 +659,9 @@ export function ozonQuoteErrorMessage(error: unknown, fromPlaceId = "") {
   }
   if (/invalid number of segments|failed to parse access token/i.test(raw)) {
     return "Ozon не принял доступ приложения. Подключите кабинет продавца заново."
+  }
+  if (/invalid_refresh_token/i.test(raw)) {
+    return "Подключите кабинет продавца Ozon в настройках магазина."
   }
   if (/HTTP 401|unauthorized|access_token|invalid_client/i.test(raw)) {
     return "Ozon не принял доступ кабинета. Подключите приложение заново."
@@ -1107,8 +1147,7 @@ export async function loadOzonPoints(
       points: [] as OzonPoint[],
       clusters: [] as OzonMapCluster[],
       center,
-      message:
-        error instanceof Error ? error.message : "Не удалось загрузить ПВЗ Ozon.",
+      message: ozonQuoteErrorMessage(error),
     }
   }
 }

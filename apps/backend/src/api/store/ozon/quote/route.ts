@@ -1,4 +1,5 @@
 import type { MedusaRequest, MedusaResponse } from "@medusajs/framework/http"
+import { ozonQuoteErrorMessage } from "../../../../lib/ozon-delivery"
 import { applyOzonShippingToCart } from "../../../../lib/ozon-shipping"
 
 export async function POST(req: MedusaRequest, res: MedusaResponse) {
@@ -16,13 +17,20 @@ export async function POST(req: MedusaRequest, res: MedusaResponse) {
     res.status(400).json({ message: "cart_id and point_id required" })
     return
   }
-  const result = await applyOzonShippingToCart(req.scope, {
-    cartId,
-    pointId,
-    pointAddress: String(body.point_address || "").trim() || undefined,
-    lat: Number.isFinite(Number(body.lat)) ? Number(body.lat) : undefined,
-    lon: Number.isFinite(Number(body.lon)) ? Number(body.lon) : undefined,
-    phone: String(body.phone || "").trim() || undefined,
-  })
-  res.json(result)
+  try {
+    const result = await applyOzonShippingToCart(req.scope, {
+      cartId,
+      pointId,
+      pointAddress: String(body.point_address || "").trim() || undefined,
+      lat: Number.isFinite(Number(body.lat)) ? Number(body.lat) : undefined,
+      lon: Number.isFinite(Number(body.lon)) ? Number(body.lon) : undefined,
+      phone: String(body.phone || "").trim() || undefined,
+    })
+    res.json(result)
+  } catch (error) {
+    res.json({
+      amount: 0,
+      message: ozonQuoteErrorMessage(error),
+    })
+  }
 }
