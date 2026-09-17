@@ -4,7 +4,7 @@ export function shopError(error, fallback) {
   ).trim()
   if (!raw) return fallback
   if (
-    /medusa|localhost|publishable|stack|t-?bank|ключ|HTTP\s*\d+|unknown_error|invalid_|oauth|token|[{}"]/i.test(
+    /medusa|localhost|publishable|stack|t-?bank|ключ|HTTP\s*\d+|unknown_error|invalid_|oauth|token|[{}"]|подключите|кабинет|настройках магазина/i.test(
       raw
     )
   ) {

@@ -3,6 +3,7 @@ import { ContainerRegistrationKeys, Modules } from "@medusajs/framework/utils"
 import {
   ozonCartArticle,
   ozonCredsFromRow,
+  ozonSellerReady,
   quoteOzonDelivery,
 } from "./ozon-delivery"
 import { getShopSetting, parseOzonFixedAmount, parseOzonQuoteMode } from "./shop-setting"
@@ -89,7 +90,7 @@ export async function applyOzonShippingToCart(
   const quoteMode = parseOzonQuoteMode(settings.ozon_quote_mode)
   if (quoteMode === "fixed") {
     amount = parseOzonFixedAmount(settings.ozon_fixed_amount)
-  } else if (!creds) {
+  } else if (!ozonSellerReady(creds)) {
     return { amount: 0 }
   } else {
     try {

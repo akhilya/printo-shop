@@ -6,11 +6,18 @@ import {
   nearestOzonPoints,
   normalizeOzonPhone,
   ozonOrderContacts,
+  ozonOrderCreateSplits,
   ozonPackErrorMessage,
+  ozonCreateDeliveryType,
+  createOzonDeliveryOrder,
   ozonCredsFromRow,
+  ozonSellerReady,
   ozonTrackingUrl,
   parseOzonClusters,
+  parseOzonMapPointIds,
   parseOzonPoints,
+  parseOzonPostingNumbers,
+  ozonMapViewport,
   pointsInBounds,
   quoteOzonDelivery,
   ozonQuoteErrorMessage,
@@ -61,6 +68,29 @@ describe("ozonCredsFromRow", () => {
       fromPlaceId: "",
       accessToken: "aaa.bbb.ccc",
     })
+  })
+
+  it("is not ready for seller calls until the cabinet is connected", () => {
+    expect(
+      ozonSellerReady(
+        ozonCredsFromRow({
+          ozon_client_id: "app-uuid",
+          ozon_oauth_token: "app-secret",
+        })
+      )
+    ).toBe(false)
+    expect(
+      ozonSellerReady(
+        ozonCredsFromRow({
+          ozon_client_id: "app-uuid",
+          ozon_oauth_token: "app-secret",
+          ozon_refresh_token: "refresh-1",
+        })
+      )
+    ).toBe(true)
+    expect(
+      ozonSellerReady(ozonCredsFromRow({ ozon_oauth_token: "aaa.bbb.ccc" }))
+    ).toBe(true)
   })
 })
 
@@ -323,6 +353,121 @@ describe("ozonPackErrorMessage", () => {
       )
     ).toBe("Не удалось создать отправление: проверьте телефон получателя.")
   })
+
+  it("hides DeliveryMethod validation from the dashboard", () => {
+    expect(
+      ozonPackErrorMessage(
+        'Ozon HTTP 400: {"code":3, "message":"invalid OrderCreateRequestV2.Splits[0]: embedded message failed validation | caused by: invalid OrderCreateRequestV2_Split.DeliveryMethod"}'
+      )
+    ).toBe("Не удалось создать отправление Ozon. Попробуйте ещё раз.")
+  })
+})
+
+describe("ozonOrderCreateSplits", () => {
+  const cart = [
+    { article: "WA150", quantity: 1, price: 1500, sku: 987 },
+  ]
+
+  it("maps checkout timeslots onto the order create delivery method", () => {
+    expect(
+      ozonOrderCreateSplits(
+        {
+          splits: [
+            {
+              warehouse_id: 555,
+              delivery_schema: "FBS",
+              delivery_method: {
+                id: 42,
+                delivery_type: "PVZ",
+                timeslots: [
+                  {
+                    timeslot_id: 9,
+                    logistic_date_range: {
+                      from: "2026-09-18T08:00:00Z",
+                      to: "2026-09-18T16:00:00Z",
+                    },
+                  },
+                ],
+              },
+              items: [{ offer_id: "WA150", sku: 987, quantity: 1 }],
+            },
+          ],
+        },
+        { items: cart, fromPlaceId: "555" }
+      )
+    ).toEqual([
+      {
+        warehouse_id: 555,
+        delivery_method: {
+          delivery_method_id: 42,
+          delivery_type: "PVZ",
+          timeslot_id: 9,
+          logistic_date_range: {
+            from: "2026-09-18T08:00:00Z",
+            to: "2026-09-18T16:00:00Z",
+          },
+        },
+        items: [
+          {
+            offer_id: "WA150",
+            sku: 987,
+            quantity: 1,
+            price: { currency_code: "RUB", units: 1500 },
+          },
+        ],
+      },
+    ])
+  })
+
+  it("maps a postamat and cart prices when checkout items omit them", () => {
+    expect(ozonCreateDeliveryType("POSTAMAT")).toBe("POSTAMAT")
+    expect(
+      ozonOrderCreateSplits(
+        {
+          splits: [
+            {
+              warehouse_id: 1,
+              delivery_method: {
+                delivery_method_id: 7,
+                delivery_type: "POSTAMAT",
+                timeslot_id: 3,
+                logistic_date_range: {
+                  from: "2026-09-18T08:00:00Z",
+                  to: "2026-09-18T12:00:00Z",
+                },
+              },
+            },
+          ],
+        },
+        { items: cart }
+      )
+    ).toMatchObject([
+      {
+        delivery_method: {
+          delivery_method_id: 7,
+          delivery_type: "POSTAMAT",
+          timeslot_id: 3,
+        },
+        items: [{ sku: 987, price: { units: 1500 } }],
+      },
+    ])
+  })
+
+  it("rejects a checkout split without a timeslot", () => {
+    expect(() =>
+      ozonOrderCreateSplits(
+        {
+          splits: [
+            {
+              warehouse_id: 555,
+              delivery_method: { id: 42, delivery_type: "PVZ", timeslots: [] },
+            },
+          ],
+        },
+        { items: cart }
+      )
+    ).toThrow(/отправление/)
+  })
 })
 
 describe("parseOzonPoints", () => {
@@ -357,6 +502,22 @@ describe("parseOzonPoints", () => {
           {
             points_count: 40,
             coordinate: { latitude: 55.7, longitude: 37.6 },
+          },
+        ],
+      })
+    ).toEqual([])
+  })
+
+  it("skips disabled pickup points", () => {
+    expect(
+      parseOzonPoints({
+        points: [
+          {
+            enabled: false,
+            delivery_method: {
+              map_point_id: 1,
+              coordinates: { lat: 55, long: 37 },
+            },
           },
         ],
       })
@@ -410,6 +571,20 @@ describe("parseOzonClusters", () => {
         east: 37.8,
       },
     ])
+  })
+
+  it("collects map_point_ids from single-point clusters", () => {
+    expect(
+      parseOzonMapPointIds({
+        clusters: [
+          {
+            points_count: 1,
+            map_point_ids: ["77", "88"],
+            coordinate: { lat: 55.7, long: 37.6 },
+          },
+        ],
+      })
+    ).toEqual(["77", "88"])
   })
 
   it("does not treat a single pickup as a cluster", () => {
@@ -709,6 +884,82 @@ describe("quoteOzonDelivery", () => {
     })
     await expect(quoteOzonDelivery(sellerInput)).resolves.toBe(410)
   })
+
+  it("creates an order with a mapped pickup timeslot", async () => {
+    mockOzon((path) => {
+      if (path.includes("/product/info/list")) {
+        return jsonResponse({ items: [{ offer_id: "WA150", sku: 987 }] })
+      }
+      if (path.includes("/v2/delivery/checkout")) {
+        return jsonResponse({
+          splits: [
+            {
+              warehouse_id: 555,
+              delivery_schema: "FBS",
+              delivery_method: {
+                id: 42,
+                delivery_type: "PVZ",
+                timeslots: [
+                  {
+                    timeslot_id: 9,
+                    logistic_date_range: {
+                      from: "2026-09-18T08:00:00Z",
+                      to: "2026-09-18T16:00:00Z",
+                    },
+                  },
+                ],
+              },
+              items: [{ offer_id: "WA150", sku: 987, quantity: 1 }],
+            },
+          ],
+        })
+      }
+      if (path.includes("/v2/order/create")) {
+        return jsonResponse({ order_number: "123-456", posting_number: ["123-456-1"] })
+      }
+      return jsonResponse({ message: path }, 404)
+    })
+    await expect(
+      createOzonDeliveryOrder({
+        creds: sellerInput.creds,
+        orderNumber: "shop-1",
+        buyer: { name: "Иван Петров", phone: sellerInput.phone },
+        point: { id: "77", address: "Тверская 1" },
+        amount: 1500,
+        items: [{ article: "WA150", name: "Фигурка", quantity: 1, price: 1500 }],
+      })
+    ).resolves.toMatchObject({ order_number: "123-456" })
+    const create = (global.fetch as jest.Mock).mock.calls.find((call) =>
+      String(call[0]).includes("/v2/order/create")
+    )
+    expect(JSON.parse(String(create[1].body))).toMatchObject({
+      delivery_schema: "FBS",
+      delivery: { pick_up: { map_point_id: 77 } },
+      recipient: { recipient_phone: "79991234567" },
+      splits: [
+        {
+          warehouse_id: 555,
+          delivery_method: {
+            delivery_method_id: 42,
+            delivery_type: "PVZ",
+            timeslot_id: 9,
+            logistic_date_range: {
+              from: "2026-09-18T08:00:00Z",
+              to: "2026-09-18T16:00:00Z",
+            },
+          },
+          items: [
+            {
+              offer_id: "WA150",
+              sku: 987,
+              quantity: 1,
+              price: { currency_code: "RUB", units: 1500 },
+            },
+          ],
+        },
+      ],
+    })
+  })
 })
 
 describe("ozonQuoteErrorMessage", () => {
@@ -755,6 +1006,14 @@ describe("ozonQuoteErrorMessage", () => {
     expect(message).toMatch(/[А-Яа-яЁё]/)
     expect(message).not.toMatch(/HTTP \d+|unexpected_blob|\{|"code"/i)
   })
+
+  it("never tells the shopper to connect the seller cabinet", () => {
+    const message = ozonQuoteErrorMessage(
+      new Error("Подключите кабинет продавца Ozon в настройках магазина.")
+    )
+    expect(message).toMatch(/пункты выдачи|доставку/)
+    expect(message).not.toMatch(/кабинет|настройках/i)
+  })
 })
 
 describe("extractOzonCreateIds", () => {
@@ -771,6 +1030,18 @@ describe("extractOzonCreateIds", () => {
     })
   })
 
+  it("reads postings array from order create", () => {
+    expect(
+      extractOzonCreateIds({
+        order_number: "123-456",
+        postings: ["123-456-1"],
+      })
+    ).toMatchObject({
+      orderNumber: "123-456",
+      postingNumber: "123-456-1",
+    })
+  })
+
   it("reads nested seller result.posting_number", () => {
     expect(
       extractOzonCreateIds({
@@ -780,6 +1051,16 @@ describe("extractOzonCreateIds", () => {
       orderNumber: "99-1",
       postingNumber: "99-1-1",
     })
+  })
+})
+
+describe("parseOzonPostingNumbers", () => {
+  it("reads v4 posting list numbers", () => {
+    expect(
+      parseOzonPostingNumbers({
+        postings: [{ posting_number: "123-456-1" }, { posting_number: "123-456-2" }],
+      })
+    ).toEqual(["123-456-1", "123-456-2"])
   })
 })
 
@@ -822,6 +1103,76 @@ describe("loadOzonPoints", () => {
     expect(result.points).toEqual([])
     expect(result.clusters?.[0]?.count).toBe(40)
     expect(result.message).toMatch(/цифру/)
+    const body = JSON.parse(String((global.fetch as jest.Mock).mock.calls[0][1].body))
+    expect(body.viewport).toEqual(
+      ozonMapViewport({ south: 50, west: 20, north: 70, east: 50 })
+    )
+    expect(body.viewport.left_bottom.lat).toBe(50)
+    expect(body.viewport.left_bottom.long).toBe(20)
+  })
+
+  it("loads pins from map_point_ids when zoomed in", async () => {
+    global.fetch = jest.fn(async (url: string | URL) => {
+      const path = String(url)
+      const payload = path.includes("/delivery/point/info")
+        ? {
+            points: [
+              {
+                enabled: true,
+                delivery_method: {
+                  map_point_id: 77,
+                  name: "ПВЗ Тверская",
+                  address: "Тверская 1",
+                  coordinates: { lat: 55.76, long: 37.61 },
+                },
+              },
+            ],
+          }
+        : {
+            clusters: [
+              {
+                points_count: 1,
+                map_point_ids: ["77"],
+                coordinate: { lat: 55.76, long: 37.61 },
+              },
+            ],
+          }
+      return {
+        ok: true,
+        headers: { get: () => "application/json" },
+        arrayBuffer: async () => Buffer.from(JSON.stringify(payload)),
+      }
+    }) as typeof fetch
+    const result = await loadOzonPoints(
+      { ozon_client_id: "app-uuid", ozon_oauth_token: "aaa.bbb.ccc" },
+      { zoom: 16, south: 55.7, west: 37.5, north: 55.8, east: 37.7 }
+    )
+    expect(result.points).toEqual([
+      expect.objectContaining({
+        id: "77",
+        name: "ПВЗ Тверская",
+        address: "Тверская 1",
+        lat: 55.76,
+        lon: 37.61,
+      }),
+    ])
+    const info = (global.fetch as jest.Mock).mock.calls.find((call) =>
+      String(call[0]).includes("/delivery/point/info")
+    )
+    expect(JSON.parse(String(info[1].body))).toEqual({ map_point_ids: ["77"] })
+  })
+
+  it("does not call Ozon when the cabinet is not connected", async () => {
+    global.fetch = jest.fn()
+    const result = await loadOzonPoints(
+      { ozon_client_id: "app-uuid", ozon_oauth_token: "app-secret" },
+      { zoom: 12, south: 50, west: 20, north: 70, east: 50 }
+    )
+    expect(global.fetch).not.toHaveBeenCalled()
+    expect(result.configured).toBe(false)
+    expect(result.points).toEqual([])
+    expect(result.message).toBe("Не удалось загрузить пункты выдачи.")
+    expect(result.message).not.toMatch(/кабинет|настройках/i)
   })
 
   it("geocodes the city even without keys so the map can center", async () => {

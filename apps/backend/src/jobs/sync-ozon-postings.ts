@@ -31,7 +31,9 @@ export default async function syncOzonPostingsJob(container: MedusaContainer) {
           kind: "ozon_sync",
           level: "error",
           title: "Синхронизация Ozon не удалась",
-          message,
+          message: /Ozon HTTP|\bHTTP\s*\d+|[{"]/.test(message)
+            ? "Не удалось обновить статус доставки Ozon."
+            : message.slice(0, 280),
           order_id: String(order.id),
           shop_number: metadata.shop_number
             ? String(metadata.shop_number)

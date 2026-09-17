@@ -209,10 +209,9 @@ export async function packOzonForOrder(
     })
     throw new MedusaError(MedusaError.Types.INVALID_DATA, message)
   }
-  const postingNumber = text(
-    metadata.ozon_posting_number || metadata.ozon_order_number
-  )
-  if (!postingNumber) {
+  const postingNumber = text(metadata.ozon_posting_number)
+  const orderNumber = text(metadata.ozon_order_number)
+  if (!postingNumber && !orderNumber) {
     await saveOrderMetadata(container, orderId, {
       ...metadata,
       ozon_pack_error: "Нет номера отправления Ozon",
@@ -232,7 +231,7 @@ export async function packOzonForOrder(
   let posting
   let number = postingNumber
   try {
-    posting = await getOzonPosting(creds, postingNumber)
+    posting = await getOzonPosting(creds, postingNumber, orderNumber)
     number = posting.postingNumber || postingNumber
     try {
       await shipOzonPosting(creds, { ...posting, postingNumber: number })
@@ -312,16 +311,24 @@ export async function handOverOzonForOrder(
   const order = await loadShopOrder(container, orderId)
   if (!order) return null
   const metadata = (order.metadata || {}) as Record<string, unknown>
-  const postingNumber = text(
-    metadata.ozon_posting_number || metadata.ozon_order_number
-  )
-  if (!postingNumber) return metadata
+  const postingNumber = text(metadata.ozon_posting_number)
+  const orderNumber = text(metadata.ozon_order_number)
+  if (!postingNumber && !orderNumber) return metadata
+  let number = postingNumber
+  if (!number) {
+    const posting = await getOzonPosting(creds, postingNumber, orderNumber)
+    number = posting.postingNumber || ""
+  }
+  if (!number) return metadata
   try {
-    await handOverOzonPosting(creds, postingNumber)
+    await handOverOzonPosting(creds, number)
   } catch (error) {
-    const message = error instanceof Error ? error.message : String(error)
-    if (!/already|delivering|handed/i.test(message)) {
-      throw error
+    const raw = error instanceof Error ? error.message : String(error)
+    if (!/already|delivering|handed/i.test(raw)) {
+      throw new MedusaError(
+        MedusaError.Types.INVALID_DATA,
+        ozonPackErrorMessage(error)
+      )
     }
   }
   const next = {
@@ -341,12 +348,11 @@ export async function cancelOzonForOrder(
   const order = await loadShopOrder(container, orderId)
   if (!order) return
   const metadata = (order.metadata || {}) as Record<string, unknown>
-  const postingNumber = text(
-    metadata.ozon_posting_number || metadata.ozon_order_number
-  )
-  if (!postingNumber) return
+  const postingNumber = text(metadata.ozon_posting_number)
+  const orderNumber = text(metadata.ozon_order_number)
+  if (!postingNumber && !orderNumber) return
   try {
-    await cancelOzonPosting(creds, postingNumber)
+    await cancelOzonPosting(creds, postingNumber, orderNumber)
     await saveOrderMetadata(container, orderId, {
       ...metadata,
       ozon_posting_status: "cancelled",
@@ -365,11 +371,10 @@ export async function syncOzonPostingForOrder(
   const order = await loadShopOrder(container, orderId)
   if (!order) return null
   const metadata = (order.metadata || {}) as Record<string, unknown>
-  const postingNumber = text(
-    metadata.ozon_posting_number || metadata.ozon_order_number
-  )
-  if (!postingNumber) return null
-  const posting = await getOzonPosting(creds, postingNumber)
+  const postingNumber = text(metadata.ozon_posting_number)
+  const orderNumber = text(metadata.ozon_order_number)
+  if (!postingNumber && !orderNumber) return null
+  const posting = await getOzonPosting(creds, postingNumber, orderNumber)
   const previousRaw = text(metadata.ozon_posting_status) || null
   const mapped = mapOzonPostingStatus(posting.status, previousRaw)
   const storedKind = text(metadata.ozon_return_kind)
@@ -419,9 +424,8 @@ export async function getStoredOzonLabel(
   if (!order) return null
   const metadata = (order.metadata || {}) as Record<string, unknown>
   const storedUrl = text(metadata.ozon_label_url)
-  const postingNumber = text(
-    metadata.ozon_posting_number || metadata.ozon_order_number
-  )
+  let postingNumber = text(metadata.ozon_posting_number)
+  const orderNumber = text(metadata.ozon_order_number)
   if (storedUrl) {
     try {
       const response = await fetch(storedUrl)
@@ -441,7 +445,12 @@ export async function getStoredOzonLabel(
     }
   }
   const creds = await ozonCreds(container)
-  if (!creds || !postingNumber) return null
+  if (!creds) return null
+  if (!postingNumber && orderNumber) {
+    const posting = await getOzonPosting(creds, postingNumber, orderNumber)
+    postingNumber = posting.postingNumber || ""
+  }
+  if (!postingNumber) return null
   const label = await getOzonPackageLabel(creds, postingNumber)
   const labelUrl = await storeOzonLabel(
     container,

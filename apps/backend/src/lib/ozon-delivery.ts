@@ -55,6 +55,13 @@ export function ozonCredsFromRow(
   }
 }
 
+export function ozonSellerReady(
+  creds: OzonCreds | null | undefined
+): creds is OzonCreds {
+  if (!creds) return false
+  return Boolean(creds.refreshToken) || isOzonAccessToken(creds.accessToken)
+}
+
 export function isOzonAccessToken(value: string) {
   return /^[A-Za-z0-9_-]+\.[A-Za-z0-9_-]+\.[A-Za-z0-9_-]+$/.test(
     String(value || "").trim()
@@ -400,6 +407,13 @@ export function ozonPackErrorMessage(error: unknown) {
   ) {
     return "Не удалось создать отправление: проверьте телефон получателя."
   }
+  if (
+    /Splits|DeliveryMethod|timeslot|warehouse_id|map_point|OrderCreateRequestV2/i.test(
+      raw
+    )
+  ) {
+    return "Не удалось создать отправление Ozon. Попробуйте ещё раз."
+  }
   if (/[А-Яа-яЁё]/.test(raw) && !/Ozon HTTP|\bHTTP\s*\d+|[{"]/.test(raw)) {
     return raw.slice(0, 280)
   }
@@ -523,6 +537,34 @@ export function parseOzonClusters(raw: unknown): OzonMapCluster[] {
   return out
 }
 
+export function parseOzonMapPointIds(raw: unknown): string[] {
+  const ids: string[] = []
+  const stack: unknown[] = [raw]
+  while (stack.length) {
+    const cur = stack.pop()
+    if (!cur) continue
+    if (Array.isArray(cur)) {
+      for (const item of cur) stack.push(item)
+      continue
+    }
+    const rec = asRecord(cur)
+    if (!rec) continue
+    const list = Array.isArray(rec.map_point_ids)
+      ? rec.map_point_ids
+      : rec.map_point_id != null
+        ? [rec.map_point_id]
+        : []
+    for (const value of list) {
+      const id = String(value ?? "").trim()
+      if (id) ids.push(id)
+    }
+    for (const value of Object.values(rec)) {
+      if (value && typeof value === "object") stack.push(value)
+    }
+  }
+  return [...new Set(ids)]
+}
+
 export const PVZ_PIN_ZOOM = 15
 
 export function resolveOzonMapLayers(
@@ -624,6 +666,7 @@ export function parseOzonPoints(raw: unknown): OzonPoint[] {
       rec.description,
       address
     )
+    if (rec.enabled === false) continue
     if (id != null && lat != null && lon != null) {
       out.push({
         id: String(id),
@@ -757,7 +800,7 @@ export function ozonTrackingUrl(orderNumber?: string | null) {
 export function ozonQuoteErrorMessage(error: unknown, fromPlaceId = "") {
   const raw = error instanceof Error ? error.message : String(error || "")
   if (
-    /no access for this service|logistic is disabled|oauth-client|issued for seller|method is not allowed|invalid number of segments|failed to parse access token|invalid_refresh_token|HTTP 401|unauthorized|access_token|invalid_client/i.test(
+    /no access for this service|logistic is disabled|oauth-client|issued for seller|method is not allowed|invalid number of segments|failed to parse access token|invalid_refresh_token|HTTP 401|unauthorized|access_token|invalid_client|подключите|кабинет продавца|настройках магазина/i.test(
       raw
     )
   ) {
@@ -851,7 +894,7 @@ async function sellerOfferSkus(creds: OzonCreds, articles: string[]) {
   const ids = [...new Set(articles.map((row) => String(row || "").trim()).filter(Boolean))]
   if (!ids.length) return new Map<string, number>()
   const attempts: Array<{ path: string; body: Record<string, unknown> }> = [
-    { path: "/v3/product/info/list", body: { offer_id: ids, product_id: [], sku: [] } },
+    { path: "/v3/product/info/list", body: { offer_id: ids } },
     { path: "/v2/product/info/list", body: { offer_id: ids } },
   ]
   for (const attempt of attempts) {
@@ -933,7 +976,6 @@ async function quoteSellerDelivery(input: {
   }
   if (phone) {
     body.buyer_phone = phone
-    body.client_phone = phone
   }
   const errors: string[] = []
   const schemas = ["FBS", "FBO"]
@@ -963,7 +1005,7 @@ async function quoteSellerDelivery(input: {
   if (errors.length) {
     throw new MedusaError(
       MedusaError.Types.UNEXPECTED_STATE,
-      errors.join("; ").slice(0, 400)
+      ozonQuoteErrorMessage(errors.join("; "), "fromPlace")
     )
   }
   return null
@@ -1009,6 +1051,71 @@ export function extractOzonCreateIds(raw: unknown) {
     postingNumber: posting || null,
     trackingUrl: ozonTrackingUrl(orderNumber),
   }
+}
+
+function ozonUtc(date: Date) {
+  return date.toISOString().replace(/\.\d{3}Z$/, "Z")
+}
+
+export function parseOzonPostingNumbers(raw: unknown): string[] {
+  const rec = asRecord(raw) || {}
+  const result = asRecord(rec.result) || rec
+  const rows = Array.isArray(result.postings)
+    ? result.postings
+    : Array.isArray(rec.postings)
+      ? rec.postings
+      : []
+  const numbers: string[] = []
+  for (const row of rows) {
+    const posting = asRecord(row)
+    const number = firstText(
+      posting?.posting_number,
+      posting?.postingNumber,
+      typeof row === "string" ? row : ""
+    )
+    if (number) numbers.push(number)
+  }
+  return [...new Set(numbers)]
+}
+
+export async function listOzonPostingsByOrder(
+  creds: OzonCreds,
+  orderNumber: string
+) {
+  const id = String(orderNumber || "").trim()
+  if (!id) return [] as string[]
+  const to = new Date()
+  const since = new Date(to.getTime() - 14 * 24 * 60 * 60 * 1000)
+  const raw = await sellerPost(creds, "/v4/posting/fbs/list", {
+    filter: {
+      order_numbers: [id],
+      since: ozonUtc(since),
+      to: ozonUtc(to),
+    },
+    limit: 50,
+  })
+  return parseOzonPostingNumbers(raw)
+}
+
+export async function completeOzonCreateIds(
+  creds: OzonCreds,
+  created: unknown
+) {
+  const ids = extractOzonCreateIds(created)
+  if (ids.postingNumber || !ids.orderNumber) return ids
+  try {
+    const listed = await listOzonPostingsByOrder(creds, ids.orderNumber)
+    if (listed[0]) {
+      return {
+        ...ids,
+        postingNumber: listed[0],
+        trackingUrl: ids.trackingUrl || ozonTrackingUrl(ids.orderNumber),
+      }
+    }
+  } catch {
+    // Pack can resolve the posting number later.
+  }
+  return ids
 }
 
 export async function readJson(response: Response) {
@@ -1079,8 +1186,7 @@ async function enrichSellerPoints(creds: OzonCreds, points: OzonPoint[]) {
   if (!ids.length) return points
   try {
     const raw = await sellerPost(creds, "/v1/delivery/point/info", {
-      map_point_ids: ids.map((id) => Number(id) || id),
-      ids,
+      map_point_ids: ids.map((id) => String(id)),
     })
     const details = parseOzonPoints(raw)
     if (!details.length) return points
@@ -1103,47 +1209,60 @@ async function enrichSellerPoints(creds: OzonCreds, points: OzonPoint[]) {
   }
 }
 
+export function ozonMapViewport(bounds: OzonBounds) {
+  return {
+    left_bottom: { lat: bounds.south, long: bounds.west },
+    right_top: { lat: bounds.north, long: bounds.east },
+  }
+}
+
 async function loadSellerPoints(
   creds: OzonCreds,
   bounds: OzonBounds,
-  center: { lat: number; lon: number },
+  _center: { lat: number; lon: number },
   zoom: number
 ): Promise<{ points: OzonPoint[]; clusters: OzonMapCluster[] }> {
   try {
     const raw = await sellerPost(creds, "/v1/delivery/map", {
       zoom: Math.round(Math.min(19, Math.max(0, zoom))),
-      viewport: {
-        left_bottom: {
-          latitude: bounds.south,
-          longitude: bounds.west,
-        },
-        right_top: {
-          latitude: bounds.north,
-          longitude: bounds.east,
-        },
-      },
+      viewport: ozonMapViewport(bounds),
     })
-    const points = pointsInBounds(parseOzonPoints(raw), bounds)
     const clusters = clustersInBounds(parseOzonClusters(raw), bounds)
-    if (zoom >= PVZ_PIN_ZOOM && points.length) {
-      return {
-        points: await enrichSellerPoints(creds, points),
-        clusters: [],
+    const mapIds = parseOzonMapPointIds(raw)
+    const fromMap = pointsInBounds(parseOzonPoints(raw), bounds)
+    if (zoom >= PVZ_PIN_ZOOM) {
+      const stubs =
+        mapIds.length > 0
+          ? mapIds.slice(0, 100).map((id) => ({
+              id,
+              name: `Пункт ${id}`,
+              address: "",
+              lat: 0,
+              lon: 0,
+            }))
+          : fromMap
+      const detailed = await enrichSellerPoints(creds, stubs)
+      const located = detailed.filter(
+        (point) =>
+          Number.isFinite(point.lat) &&
+          Number.isFinite(point.lon) &&
+          (point.lat !== 0 || point.lon !== 0)
+      )
+      const inView = pointsInBounds(located, bounds)
+      if (inView.length) {
+        return { points: inView, clusters: [] }
       }
     }
-    if (zoom < PVZ_PIN_ZOOM && (points.length || clusters.length)) {
+    if (zoom < PVZ_PIN_ZOOM && (fromMap.length || clusters.length)) {
       return {
-        points: await enrichSellerPoints(creds, points),
+        points: await enrichSellerPoints(creds, fromMap),
         clusters,
       }
     }
   } catch {
     // Fall through to the full list, then clip to the viewport.
   }
-  const raw = await sellerPost(creds, "/v1/delivery/point/list", {
-    latitude: center.lat,
-    longitude: center.lon,
-  })
+  const raw = await sellerPost(creds, "/v1/delivery/point/list", {})
   return {
     points: await enrichSellerPoints(
       creds,
@@ -1200,7 +1319,7 @@ export async function loadOzonPoints(
     bounds = boundsFromCenter(center)
   }
   const zoom = Number(input.zoom)
-  if (!creds) {
+  if (!ozonSellerReady(creds)) {
     return {
       configured: false,
       points: [] as OzonPoint[],
@@ -1219,7 +1338,6 @@ export async function loadOzonPoints(
         try {
           await sellerPost(creds, "/v1/delivery/check", {
             client_phone: phone,
-            phone,
           })
         } catch {
           // Availability check is best-effort until the cabinet is enabled.
@@ -1294,6 +1412,192 @@ function splitName(name: string) {
   }
 }
 
+export function ozonCreateDeliveryType(
+  raw: unknown
+): "PVZ" | "POSTAMAT" | "COURIER" {
+  const text = String(raw || "").trim().toUpperCase()
+  if (text === "POSTAMAT" || text === "PICKPOINT") return "POSTAMAT"
+  if (text === "COURIER") return "COURIER"
+  return "PVZ"
+}
+
+function ozonCreateSchema(raw: unknown, fallback = "FBS") {
+  const text = String(raw || "").trim().toUpperCase()
+  if (text === "FBO" || text === "FBS" || text === "MIX") return text
+  return fallback
+}
+
+function ozonCreateMoney(value: unknown) {
+  const rec = asRecord(value)
+  if (rec) {
+    const units = firstNumber(rec.units)
+    if (units != null && units >= 0) {
+      const money: { currency_code: string; units: number; nanos?: number } = {
+        currency_code: firstText(rec.currency_code, rec.currencyCode) || "RUB",
+        units: Math.round(units),
+      }
+      const nanos = firstNumber(rec.nanos)
+      if (nanos) money.nanos = nanos
+      return money
+    }
+  }
+  const units = firstNumber(value)
+  return {
+    currency_code: "RUB",
+    units: Math.max(0, Math.round(units || 0)),
+  }
+}
+
+function ozonCreateTimeslot(method: Record<string, unknown>) {
+  const nested = Array.isArray(method.timeslots)
+    ? method.timeslots
+    : Array.isArray(method.time_slots)
+      ? method.time_slots
+      : []
+  const rows = [...nested, method]
+  for (const row of rows) {
+    const rec = asRecord(row)
+    if (!rec) continue
+    const timeslotId = firstNumber(rec.timeslot_id, rec.timeslotId)
+    const range =
+      asRecord(rec.logistic_date_range) ||
+      asRecord(rec.logisticDateRange) ||
+      asRecord(rec.client_date_range) ||
+      asRecord(rec.clientDateRange)
+    const from = firstText(range?.from, range?.start)
+    const to = firstText(range?.to, range?.end)
+    if (timeslotId != null && timeslotId > 0 && from && to) {
+      return {
+        timeslot_id: timeslotId,
+        logistic_date_range: { from, to },
+      }
+    }
+  }
+  return null
+}
+
+export function ozonOrderCreateSplits(
+  checkout: unknown,
+  input: {
+    items: Array<{
+      article: string
+      quantity: number
+      price: number
+      sku?: number | null
+    }>
+    fromPlaceId?: string
+  }
+) {
+  const rec = asRecord(checkout) || {}
+  const rawSplits = Array.isArray(rec.splits) ? rec.splits : []
+  const cartByOffer = new Map(
+    input.items.map((item) => [String(item.article || "").trim(), item])
+  )
+  const splits = rawSplits
+    .map((row) => {
+      const split = asRecord(row)
+      if (!split) return null
+      const methods = Array.isArray(split.delivery_methods)
+        ? split.delivery_methods
+        : [split.delivery_method || split.deliveryMethod]
+      let method: Record<string, unknown> | null = null
+      let slot: ReturnType<typeof ozonCreateTimeslot> = null
+      for (const candidate of methods) {
+        const next = asRecord(candidate)
+        if (!next) continue
+        const reason = firstText(next.unavailable_reason, split.unavailable_reason)
+        if (reason && reason !== "UNSPECIFIED") continue
+        const found = ozonCreateTimeslot(next)
+        if (found) {
+          method = next
+          slot = found
+          break
+        }
+        if (!method) method = next
+      }
+      if (!method || !slot) return null
+      const methodId = firstNumber(
+        method.delivery_method_id,
+        method.deliveryMethodId,
+        method.id
+      )
+      const warehouseId = firstNumber(
+        split.warehouse_id,
+        split.warehouseId,
+        input.fromPlaceId
+      )
+      if (methodId == null || methodId <= 0 || warehouseId == null || warehouseId <= 0) {
+        return null
+      }
+      const splitItems = Array.isArray(split.items) ? split.items : []
+      const source = splitItems.length ? splitItems : input.items
+      const items = source
+        .map((item) => {
+          const recItem = asRecord(item) || (item as unknown as Record<string, unknown>)
+          const offer = firstText(
+            recItem.offer_id,
+            recItem.offerId,
+            recItem.article
+          )
+          const cart = cartByOffer.get(offer)
+          const sku = firstNumber(recItem.sku, cart?.sku)
+          if (sku == null || sku <= 0) return null
+          const quantity = Math.max(
+            1,
+            Math.round(firstNumber(recItem.quantity, cart?.quantity) || 1)
+          )
+          const rowItem: {
+            sku: number
+            quantity: number
+            price: { currency_code: string; units: number; nanos?: number }
+            offer_id?: string
+          } = {
+            sku,
+            quantity,
+            price: ozonCreateMoney(recItem.price ?? cart?.price),
+          }
+          if (offer) rowItem.offer_id = offer
+          return rowItem
+        })
+        .filter(
+          (
+            item
+          ): item is {
+            sku: number
+            quantity: number
+            price: { currency_code: string; units: number; nanos?: number }
+            offer_id?: string
+          } => Boolean(item)
+        )
+      if (!items.length) return null
+      const deliveryMethod: Record<string, unknown> = {
+        delivery_method_id: methodId,
+        delivery_type: ozonCreateDeliveryType(
+          method.delivery_type ?? method.deliveryType
+        ),
+        timeslot_id: slot.timeslot_id,
+        logistic_date_range: slot.logistic_date_range,
+      }
+      const price = asRecord(method.price)
+      if (price && (firstNumber(price.units) || 0) > 0) {
+        deliveryMethod.price = ozonCreateMoney(price)
+      }
+      return {
+        warehouse_id: warehouseId,
+        delivery_method: deliveryMethod,
+        items,
+      }
+    })
+    .filter(Boolean)
+  if (!splits.length) {
+    throw new MedusaError(
+      MedusaError.Types.UNEXPECTED_STATE,
+      "Не удалось создать отправление Ozon. Попробуйте ещё раз."
+    )
+  }
+  return splits
+}
+
 async function createSellerOrder(input: {
   creds: OzonCreds
   buyer: { name: string; phone: string; email?: string }
@@ -1307,27 +1611,80 @@ async function createSellerOrder(input: {
       "Не удалось создать отправление: проверьте телефон получателя."
     )
   }
-  const mapPointId = Number(input.point.id) || input.point.id
-  const checkout = (await sellerPost(input.creds, "/v2/delivery/checkout", {
+  const mapPointId = Number(input.point.id)
+  if (!Number.isFinite(mapPointId) || mapPointId <= 0) {
+    throw new MedusaError(
+      MedusaError.Types.INVALID_DATA,
+      "Не удалось создать отправление Ozon. Попробуйте ещё раз."
+    )
+  }
+  const skus = await sellerOfferSkus(
+    input.creds,
+    input.items.map((item) => item.article)
+  )
+  const cartItems = input.items.map((item) => ({
+    article: item.article,
+    quantity: item.quantity,
+    price: item.price,
+    sku:
+      skus.get(item.article) ??
+      (Number.isFinite(Number(item.article)) && Number(item.article) > 0
+        ? Number(item.article)
+        : null),
+  }))
+  const checkoutBody: Record<string, unknown> = {
     buyer_phone: contacts.phone,
-    delivery_schema: "FBS",
-    from_place_id: Number(input.creds.fromPlaceId) || input.creds.fromPlaceId,
     delivery_type: {
       pick_up: { map_point_id: mapPointId },
     },
     items: ozonCheckoutItems(
-      input.items.map((item) => ({
+      cartItems.map((item) => ({
         article: item.article,
         quantity: item.quantity,
+        sku: item.sku,
       }))
     ),
-  })) as Record<string, unknown>
-  const splits = Array.isArray(checkout.splits) ? checkout.splits : []
-  const schema =
-    firstText(
-      asRecord(splits[0])?.delivery_schema,
-      checkout.delivery_schema
-    ) || "FBS"
+  }
+  const fromPlaceId = Number(input.creds.fromPlaceId)
+  if (Number.isFinite(fromPlaceId) && fromPlaceId > 0) {
+    checkoutBody.from_place_id = fromPlaceId
+  }
+  const schemas = ["FBS", "FBO"]
+  let splits: ReturnType<typeof ozonOrderCreateSplits> | null = null
+  let schema = "FBS"
+  const errors: string[] = []
+  for (const next of schemas) {
+    try {
+      const checkout = await sellerPost(input.creds, "/v2/delivery/checkout", {
+        ...checkoutBody,
+        delivery_schema: next,
+      })
+      splits = ozonOrderCreateSplits(checkout, {
+        items: cartItems,
+        fromPlaceId: input.creds.fromPlaceId,
+      })
+      const checkoutRec = asRecord(checkout)
+      const firstSplit = Array.isArray(checkoutRec?.splits)
+        ? asRecord(checkoutRec.splits[0])
+        : null
+      schema = ozonCreateSchema(
+        firstText(firstSplit?.delivery_schema, checkoutRec?.delivery_schema),
+        next
+      )
+      break
+    } catch (error) {
+      errors.push(
+        `${next}: ${error instanceof Error ? error.message : String(error)}`
+      )
+    }
+  }
+  if (!splits) {
+    throw new MedusaError(
+      MedusaError.Types.UNEXPECTED_STATE,
+      errors.join("; ").slice(0, 400) ||
+        "Не удалось создать отправление Ozon. Попробуйте ещё раз."
+    )
+  }
   return sellerPost(input.creds, "/v2/order/create", {
     buyer: contacts.buyer,
     recipient: contacts.recipient,
@@ -1347,5 +1704,15 @@ export async function createOzonDeliveryOrder(input: {
   amount: number
   items: Array<{ article: string; name: string; quantity: number; price: number }>
 }) {
-  return createSellerOrder(input)
+  const created = await createSellerOrder(input)
+  const ids = await completeOzonCreateIds(input.creds, created)
+  const rec = asRecord(created) || {}
+  return {
+    ...rec,
+    order_number: ids.orderNumber || rec.order_number,
+    posting_number: ids.postingNumber || rec.posting_number,
+    postings: ids.postingNumber
+      ? [ids.postingNumber]
+      : rec.postings,
+  }
 }

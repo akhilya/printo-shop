@@ -19,4 +19,14 @@ describe("shopError", () => {
       "Не нашли это место."
     )
   })
+
+  it("hides admin cabinet instructions from the shopper", () => {
+    assert.equal(
+      shopError(
+        "Подключите кабинет продавца Ozon в настройках магазина.",
+        "Не удалось загрузить пункты выдачи."
+      ),
+      "Не удалось загрузить пункты выдачи."
+    )
+  })
 })

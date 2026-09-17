@@ -2,6 +2,7 @@ import { MedusaError } from "@medusajs/framework/utils"
 import {
   asRecord,
   firstText,
+  listOzonPostingsByOrder,
   ozonTrackingUrl,
   sellerPost,
   sellerRequest,
@@ -218,13 +219,56 @@ function labelFromRaw(
 
 export async function getOzonPosting(
   creds: OzonCreds,
-  postingNumber: string
+  postingNumber: string,
+  orderNumber?: string
 ): Promise<OzonPostingInfo> {
+  const number = String(postingNumber || "").trim()
+  if (number) {
+    try {
+      const raw = await sellerPost(creds, "/v3/posting/fbs/get", {
+        posting_number: number,
+        with: { analytics_data: true },
+      })
+      return parseOzonPosting(raw)
+    } catch (error) {
+      if (!orderNumber) throw error
+    }
+  }
+  const order = String(orderNumber || "").trim()
+  if (!order) {
+    throw new MedusaError(
+      MedusaError.Types.INVALID_DATA,
+      "Нет номера отправления Ozon"
+    )
+  }
+  const listed = await listOzonPostingsByOrder(creds, order)
+  const found = listed[0]
+  if (!found) {
+    throw new MedusaError(
+      MedusaError.Types.NOT_FOUND,
+      "Нет номера отправления Ozon"
+    )
+  }
   const raw = await sellerPost(creds, "/v3/posting/fbs/get", {
-    posting_number: postingNumber,
+    posting_number: found,
     with: { analytics_data: true },
   })
   return parseOzonPosting(raw)
+}
+
+export function ozonOrderCancelBody(orderNumber: string) {
+  return {
+    order_number: orderNumber,
+    reason_id: 508,
+  }
+}
+
+export function ozonFbsCancelBody(postingNumber: string) {
+  return {
+    posting_number: postingNumber,
+    cancel_reason_id: 402,
+    cancel_reason_message: "Отмена заказа магазином",
+  }
 }
 
 export async function shipOzonPosting(
@@ -268,11 +312,21 @@ export async function handOverOzonPosting(creds: OzonCreds, postingNumber: strin
   })
 }
 
-export async function cancelOzonPosting(creds: OzonCreds, postingNumber: string) {
-  await sellerPost(creds, "/v2/posting/fbs/cancel", {
-    posting_number: postingNumber,
-    cancel_reason_id: 352,
-  })
+export async function cancelOzonPosting(
+  creds: OzonCreds,
+  postingNumber: string,
+  orderNumber?: string
+) {
+  const order = String(orderNumber || "").trim()
+  if (order) {
+    try {
+      await sellerPost(creds, "/v1/order/cancel", ozonOrderCancelBody(order))
+      return
+    } catch {
+      // Own-site cancel may already be done; try the FBS posting cancel.
+    }
+  }
+  await sellerPost(creds, "/v2/posting/fbs/cancel", ozonFbsCancelBody(postingNumber))
 }
 
 export async function getOzonPackageLabel(

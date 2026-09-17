@@ -1,6 +1,8 @@
 import {
   extractOzonPostingStatus,
   mapOzonPostingStatus,
+  ozonFbsCancelBody,
+  ozonOrderCancelBody,
   ozonReturnKind,
   ozonReturnMessage,
   parseOzonPosting,
@@ -64,5 +66,22 @@ describe("extractOzonPostingStatus", () => {
     expect(
       extractOzonPostingStatus({ tracking: { status: "In_Transit" } })
     ).toBe("In_Transit")
+  })
+})
+
+describe("ozon cancel payloads", () => {
+  it("cancels an own-site order by order number", () => {
+    expect(ozonOrderCancelBody("123-456")).toEqual({
+      order_number: "123-456",
+      reason_id: 508,
+    })
+  })
+
+  it("cancels an FBS posting with a documented reason", () => {
+    expect(ozonFbsCancelBody("123-456-1")).toEqual({
+      posting_number: "123-456-1",
+      cancel_reason_id: 402,
+      cancel_reason_message: "Отмена заказа магазином",
+    })
   })
 })

@@ -2,6 +2,7 @@ import type { SubscriberArgs, SubscriberConfig } from "@medusajs/framework"
 import { ContainerRegistrationKeys, Modules } from "@medusajs/framework/utils"
 import {
   createOzonDeliveryOrder,
+  ozonPackErrorMessage,
   extractOzonCreateIds,
   ozonCredsFromRow,
 } from "../lib/ozon-delivery"
@@ -127,7 +128,7 @@ export default async function orderPlacedOzon({
     })
   } catch (error) {
     const logger = container.resolve(ContainerRegistrationKeys.LOGGER)
-    const message = error instanceof Error ? error.message : String(error)
+    const message = ozonPackErrorMessage(error)
     logger.warn(`Ozon order create failed for ${orderId}: ${message}`)
     await recordShopEvent(container, {
       kind: "ozon_create",
