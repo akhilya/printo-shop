@@ -1192,7 +1192,7 @@ export function ozonCheckoutItems(
         quantity: Math.max(1, Math.round(Number(item.quantity) || 1)),
       }
       if (offerId) row.offer_id = offerId
-      if (Number.isFinite(sku) && sku > 0) row.sku = sku
+      else if (Number.isFinite(sku) && sku > 0) row.sku = sku
       if (!row.offer_id && row.sku == null) return null
       return row
     })
@@ -1221,7 +1221,6 @@ async function quoteSellerDelivery(input: {
     input.creds,
     quotedItems.map((item) => item.article)
   )
-  const fromPlaceId = Number(input.creds.fromPlaceId)
   const checkoutItems = ozonCheckoutItems(
     quotedItems.map((item) => ({
       article: item.article,
@@ -1240,9 +1239,6 @@ async function quoteSellerDelivery(input: {
       pick_up: { map_point_id: mapPointId },
     },
     items: checkoutItems,
-  }
-  if (Number.isFinite(fromPlaceId) && fromPlaceId > 0) {
-    body.from_place_id = fromPlaceId
   }
   if (phone) {
     body.buyer_phone = phone
@@ -1885,13 +1881,16 @@ export function ozonOrderCreateSplits(
       const items = source
         .map((item) => {
           const recItem = asRecord(item) || (item as unknown as Record<string, unknown>)
+          const recId = asRecord(recItem.id) || {}
           const offer = firstText(
             recItem.offer_id,
             recItem.offerId,
+            recId.offer_id,
+            recId.offerId,
             recItem.article
           )
           const cart = cartByOffer.get(offer)
-          const sku = firstNumber(recItem.sku, cart?.sku)
+          const sku = firstNumber(recItem.sku, recId.sku, cart?.sku)
           if (sku == null || sku <= 0) {
             notes.push(
               `сплит ${index + 1}: нет SKU Ozon для ${offer || "товара"}`
@@ -2025,10 +2024,6 @@ async function createSellerOrder(input: {
       ),
       [dumpOzonRequest("/v2/delivery/checkout", checkoutBody)]
     )
-  }
-  const fromPlaceId = Number(input.creds.fromPlaceId)
-  if (Number.isFinite(fromPlaceId) && fromPlaceId > 0) {
-    checkoutBody.from_place_id = fromPlaceId
   }
   const schemas = ["FBS", "FBO"]
   let splits: ReturnType<typeof ozonOrderCreateSplits> | null = null

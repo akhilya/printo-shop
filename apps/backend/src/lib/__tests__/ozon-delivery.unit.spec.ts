@@ -882,7 +882,7 @@ describe("hydrateOzonLineItems", () => {
 })
 
 describe("ozonCheckoutItems", () => {
-  it("sends offer_id on the item, not under id", () => {
+  it("sends offer_id and quantity on the item", () => {
     expect(
       ozonCheckoutItems([{ article: "GE57", quantity: 2 }])
     ).toEqual([
@@ -891,17 +891,24 @@ describe("ozonCheckoutItems", () => {
         quantity: 2,
       },
     ])
-    expect(ozonCheckoutItems([{ article: "GE57", quantity: 2 }])[0]).not.toHaveProperty(
-      "id"
-    )
   })
 
-  it("adds a catalog sku next to offer_id", () => {
+  it("sends either offer_id or sku, not both", () => {
     expect(
-      ozonCheckoutItems([{ article: "GE57", quantity: 1, sku: 987 }])
+      ozonCheckoutItems([{ article: "FI3", quantity: 1, sku: 2453677444 }])
     ).toEqual([
       {
-        offer_id: "GE57",
+        offer_id: "FI3",
+        quantity: 1,
+      },
+    ])
+  })
+
+  it("sends sku when there is no offer_id", () => {
+    expect(
+      ozonCheckoutItems([{ quantity: 1, sku: 987 }])
+    ).toEqual([
+      {
         sku: 987,
         quantity: 1,
       },
@@ -1004,7 +1011,7 @@ describe("quoteOzonDelivery", () => {
         quantity: 1,
       },
     ])
-    expect(JSON.parse(String(checkout[1].body)).from_place_id).toBe(555)
+    expect(JSON.parse(String(checkout[1].body)).from_place_id).toBeUndefined()
   })
 
   it("puts a catalog sku into checkout item id", async () => {
@@ -1023,7 +1030,6 @@ describe("quoteOzonDelivery", () => {
     )
     expect(JSON.parse(String(checkout[1].body)).items[0]).toEqual({
       offer_id: "WA150",
-      sku: 987,
       quantity: 1,
     })
   })
@@ -1163,6 +1169,8 @@ describe("quoteOzonDelivery", () => {
       delivery_type: { pick_up: { map_point_id: 77 } },
       items: [{ offer_id: "WA150", quantity: 1 }],
     })
+    expect(requests[0]?.body).not.toHaveProperty("from_place_id")
+    expect(requests[0]?.body.items[0]).not.toHaveProperty("sku")
     expect(requests[1]?.body).toMatchObject({ delivery_schema: "FBO" })
     expect(JSON.stringify(error.ozonRequests || requests, null, 2)).toContain(
       "offer_id"
