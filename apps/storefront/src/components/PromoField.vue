@@ -23,7 +23,13 @@ const codes = computed(() => {
 })
 
 async function onApply(event) {
-  event.preventDefault()
+  event?.preventDefault?.()
+  const promo = code.value.trim()
+  if (!promo) {
+    localError.value = "Введите промокод"
+    return
+  }
+  localError.value = ""
   if (props.token) {
     localBusy.value = true
     localError.value = ""
@@ -36,7 +42,7 @@ async function onApply(event) {
             "Content-Type": "application/json",
             ...storeHeaders(),
           },
-          body: JSON.stringify({ code: code.value }),
+          body: JSON.stringify({ code: promo }),
         }
       )
       const data = await res.json().catch(() => ({}))
@@ -50,7 +56,7 @@ async function onApply(event) {
     }
     return
   }
-  await applyPromo(code.value)
+  await applyPromo(promo)
   if (!cartState.error) code.value = ""
 }
 
@@ -82,7 +88,7 @@ async function onRemove(value) {
 
 <template>
   <div class="promo-block">
-    <form class="promo" @submit="onApply">
+    <div class="promo">
       <label>
         Промокод
         <input
@@ -91,16 +97,18 @@ async function onRemove(value) {
           maxlength="40"
           autocomplete="off"
           :disabled="cartState.busy || localBusy"
+          @keydown.enter.prevent="onApply"
         />
       </label>
       <button
         class="btn"
-        type="submit"
+        type="button"
         :disabled="cartState.busy || localBusy || !code.trim()"
+        @click="onApply"
       >
         Применить
       </button>
-    </form>
+    </div>
     <ul v-if="codes.length" class="promo-list">
       <li v-for="promo in codes" :key="promo.id || promo.code">
         <span>{{ promo.code }}</span>

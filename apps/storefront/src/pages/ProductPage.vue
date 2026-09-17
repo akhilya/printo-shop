@@ -9,6 +9,7 @@ import SelectField from "../components/SelectField.vue"
 import SiteBanner from "../components/SiteBanner.vue"
 import { addToCart, cartState, setQty } from "../lib/cart.js"
 import { cartLineForVariant } from "../lib/cart-line.js"
+import { reportForm } from "../lib/form-valid.js"
 import {
   descriptionParagraphs,
   productFields,
@@ -195,10 +196,7 @@ function fileToBase64(file) {
 async function submitReview(event) {
   event.preventDefault()
   reviewError.value = ""
-  if (!reviewForm.value.author.trim() || !reviewForm.value.body.trim()) {
-    reviewError.value = "Введите имя и текст отзыва"
-    return
-  }
+  if (!reportForm(event.currentTarget)) return
   if (!reviewForm.value.rating) {
     reviewError.value = "Поставьте оценку от 1 до 5"
     return
@@ -447,7 +445,7 @@ watch(() => route.params.handle, load, { immediate: true })
           </fieldset>
           <label>
             Отзыв
-            <textarea v-model="reviewForm.body" rows="4" required />
+            <textarea v-model="reviewForm.body" rows="4" required minlength="10" />
           </label>
           <label class="file">
             Фото

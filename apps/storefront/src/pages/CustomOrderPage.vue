@@ -4,6 +4,7 @@ import { useRoute } from "vue-router"
 import SelectField from "../components/SelectField.vue"
 import ConfirmDialog from "../components/ConfirmDialog.vue"
 import { customOrderConfirmFields } from "../lib/checkout-confirm.js"
+import { reportForm } from "../lib/form-valid.js"
 import { persistObject } from "../lib/persist.js"
 import { BACKEND_URL, productFields, REGION_ID, sdk, shopError, storeHeaders } from "../lib/sdk.js"
 import { shopState } from "../lib/shop.js"
@@ -154,6 +155,7 @@ function fileToBase64(file) {
 async function submit(event) {
   event.preventDefault()
   error.value = ""
+  if (!reportForm(event.currentTarget)) return
   if (shopState.ordersClosed) {
     error.value = shopState.ordersMessage
     return
@@ -271,6 +273,7 @@ async function confirmSend() {
             v-model="form.message"
             rows="6"
             required
+            minlength="10"
             :maxlength="MAX_MESSAGE"
             placeholder="Масштаб, персонаж, материал, срок, референсы"
           />

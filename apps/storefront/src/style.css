@@ -1664,6 +1664,8 @@ a.btn:active {
 
 .pvz-map-wrap {
   position: relative;
+  isolation: isolate;
+  z-index: 0;
 }
 
 .pvz-map {
@@ -2035,7 +2037,7 @@ a.btn:active {
 .lightbox {
   position: fixed;
   inset: 0;
-  z-index: 50;
+  z-index: 2100;
   background: var(--paper);
   display: grid;
   grid-template-columns: minmax(0, 1fr);
@@ -2129,7 +2131,7 @@ a.btn:active {
 .confirm {
   position: fixed;
   inset: 0;
-  z-index: 50;
+  z-index: 2000;
   display: grid;
   place-items: center;
   padding: var(--gutter);

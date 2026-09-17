@@ -3,6 +3,7 @@ import { computed, onMounted, ref, watch } from "vue"
 import { useRoute, useRouter } from "vue-router"
 import ProductPhoto from "../components/ProductPhoto.vue"
 import { BACKEND_URL, formatPrice, storeHeaders } from "../lib/sdk.js"
+import { reportForm } from "../lib/form-valid.js"
 
 const route = useRoute()
 const router = useRouter()
@@ -54,6 +55,7 @@ async function load(number) {
 async function onWrite(event) {
   event.preventDefault()
   if (!order.value?.number || writeBusy.value) return
+  if (!reportForm(event.currentTarget)) return
   writeBusy.value = true
   writeError.value = ""
   try {
@@ -84,6 +86,7 @@ async function onWrite(event) {
 
 function onLookup(event) {
   event.preventDefault()
+  if (!reportForm(event.currentTarget)) return
   const value = query.value.replace(/\D/g, "")
   if (value === numberParam.value) {
     load(value)
@@ -111,6 +114,8 @@ watch(numberParam, (value) => {
           maxlength="10"
           placeholder="10 цифр"
           autocomplete="off"
+          required
+          data-validate="shop-number"
         />
       </label>
       <button class="btn" type="submit">Найти</button>

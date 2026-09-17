@@ -25,6 +25,7 @@ import {
 import { legalPages, LEGAL_FALLBACK } from "../lib/legal.js"
 import { shopState, loadShopStatus } from "../lib/shop.js"
 import { visibleCheckoutShipping } from "../lib/checkout-shipping.js"
+import { reportForm } from "../lib/form-valid.js"
 
 const route = useRoute()
 const token = computed(() => String(route.params.token || ""))
@@ -400,6 +401,7 @@ async function payCustom() {
 
 async function submit(event) {
   event.preventDefault()
+  if (!reportForm(event.currentTarget)) return
   if (shopState.ordersClosed) {
     error.value = shopState.ordersMessage
     return
@@ -551,10 +553,10 @@ const empty = computed(() => {
         </div>
       </div>
       <div class="form checkout-fields">
-        <label>Email <input v-model="form.email" type="email" required /></label>
-        <label>Имя <input v-model="form.first_name" required /></label>
-        <label>Фамилия <input v-model="form.last_name" required /></label>
-        <label>Телефон <input v-model="form.phone" type="tel" required /></label>
+        <label>Email <input v-model="form.email" type="email" required autocomplete="email" /></label>
+        <label>Имя <input v-model="form.first_name" required autocomplete="given-name" /></label>
+        <label>Фамилия <input v-model="form.last_name" required autocomplete="family-name" /></label>
+        <label>Телефон <input v-model="form.phone" type="tel" required autocomplete="tel" /></label>
       </div>
       <div class="checkout-pvz">
         <PvzPicker
