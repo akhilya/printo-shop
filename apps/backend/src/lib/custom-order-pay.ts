@@ -6,6 +6,7 @@ import {
 import { tbankPublicError } from "../modules/tbank/ca"
 import { TbankClient, isPublicHttpUrl } from "../modules/tbank/client"
 import { customReceiptLine, orderDescription } from "../modules/tbank/receipt-lines"
+import { promotionDiscountAmount } from "./shop-promotion"
 import { toKopecks } from "../modules/tbank/status"
 import { verifyTbankToken } from "../modules/tbank/token"
 import {
@@ -218,6 +219,7 @@ export async function applyCustomOrderPromo(
       "status",
       "application_method.type",
       "application_method.value",
+      "application_method.target_type",
     ],
     filters: { code: promoCode },
   })
@@ -232,15 +234,8 @@ export async function applyCustomOrderPromo(
     )
   }
   const method = (promo.application_method || {}) as Record<string, unknown>
-  const value = Number(method.value)
   const base = customBaseAmounts(order)
-  let promoDiscount = 0
-  if (String(method.type || "").toLowerCase().includes("percent")) {
-    promoDiscount = Math.round((base.items * value) / 100)
-  } else if (Number.isFinite(value) && value > 0) {
-    promoDiscount = Math.round(value)
-  }
-  promoDiscount = Math.min(Math.max(promoDiscount, 0), base.items)
+  const promoDiscount = promotionDiscountAmount(method, base)
   const total = customQuoteTotal({ ...base, promo: promoDiscount })
   if (total < 1) {
     throw new MedusaError(

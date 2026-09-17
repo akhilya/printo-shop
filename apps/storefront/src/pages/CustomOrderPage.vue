@@ -2,6 +2,8 @@
 import { computed, onMounted, ref, toRef } from "vue"
 import { useRoute } from "vue-router"
 import SelectField from "../components/SelectField.vue"
+import ConfirmDialog from "../components/ConfirmDialog.vue"
+import { customOrderConfirmFields } from "../lib/checkout-confirm.js"
 import { persistObject } from "../lib/persist.js"
 import { BACKEND_URL, productFields, REGION_ID, sdk, shopError, storeHeaders } from "../lib/sdk.js"
 import { shopState } from "../lib/shop.js"
@@ -16,6 +18,7 @@ const product = ref(null)
 const sent = ref(false)
 const busy = ref(false)
 const error = ref("")
+const confirmOpen = ref(false)
 const form = persistObject("shop_custom_order", {
   name: "",
   email: "",
@@ -75,6 +78,15 @@ if (!CHANNELS.some((item) => item.id === form.channel)) {
 const channel = toRef(form, "channel")
 const channelMeta = computed(
   () => CHANNELS.find((item) => item.id === channel.value) || CHANNELS[0]
+)
+const confirmFields = computed(() =>
+  customOrderConfirmFields({
+    product: product.value?.title || "",
+    name: form.name,
+    channelLabel: channelMeta.value.label,
+    contact: form[channelMeta.value.field],
+    message: form.message,
+  })
 )
 
 onMounted(async () => {
@@ -152,7 +164,15 @@ async function submit(event) {
     error.value = "Укажите контакт"
     return
   }
+  confirmOpen.value = true
+}
+
+async function confirmSend() {
+  if (busy.value) return
+  const field = channelMeta.value.field
+  const contact = String(form[field] || "").trim()
   busy.value = true
+  error.value = ""
   try {
     const payload = {
       name: form.name.trim(),
@@ -182,12 +202,15 @@ async function submit(event) {
     if (!res.ok) {
       const data = await res.json().catch(() => ({}))
       error.value = shopError(data.message, "Не удалось отправить заявку")
+      confirmOpen.value = false
       return
     }
     sent.value = true
+    confirmOpen.value = false
     clearPhotos()
   } catch {
     error.value = "Не удалось отправить заявку"
+    confirmOpen.value = false
   } finally {
     busy.value = false
   }
@@ -282,9 +305,34 @@ async function submit(event) {
         <p v-if="shopState.ordersClosed" class="muted">{{ shopState.ordersMessage }}</p>
         <p v-if="error" class="err">{{ error }}</p>
         <button class="btn" type="submit" :disabled="busy || shopState.ordersClosed">
-          {{ busy ? "Отправка" : "Отправить заявку" }}
+          Отправить заявку
         </button>
       </form>
+      <ConfirmDialog
+        v-if="confirmOpen"
+        title="Проверьте заявку"
+        confirm-label="Отправить заявку"
+        busy-label="Отправка"
+        :busy="busy"
+        @close="confirmOpen = false"
+        @confirm="confirmSend"
+      >
+        <dl class="confirm-rows">
+          <div
+            v-for="field in confirmFields"
+            :key="field.label"
+            class="confirm-row"
+          >
+            <dt>{{ field.label }}</dt>
+            <dd>{{ field.value }}</dd>
+          </div>
+        </dl>
+        <div v-if="photos.length" class="confirm-photos">
+          <div v-for="item in photos" :key="item.preview" class="matte">
+            <img :src="item.preview" alt="" />
+          </div>
+        </div>
+      </ConfirmDialog>
     </template>
   </article>
 </template>

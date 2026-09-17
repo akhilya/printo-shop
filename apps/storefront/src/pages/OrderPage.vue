@@ -16,6 +16,7 @@ const writeMessage = ref("")
 const writeBusy = ref(false)
 const writeError = ref("")
 const writeDone = ref(false)
+const canWrite = computed(() => order.value?.can_message !== false)
 
 async function load(number) {
   const value = String(number || "").replace(/\D/g, "")
@@ -118,6 +119,10 @@ watch(numberParam, (value) => {
     <p v-else-if="error" class="err">{{ error }}</p>
     <template v-else-if="order">
       <p class="checkout-done-id">{{ order.status?.label }}</p>
+      <p v-if="order.cancel_reason" class="muted">{{ order.cancel_reason }}</p>
+      <p v-if="order.cancel_note" class="muted" style="white-space: pre-wrap">
+        {{ order.cancel_note }}
+      </p>
       <p v-if="order.email" class="muted">{{ order.email }}</p>
       <section v-if="order.items?.length" class="checkout-done-block">
         <h2>Состав</h2>
@@ -168,7 +173,7 @@ watch(numberParam, (value) => {
           </a>
         </p>
       </section>
-      <section class="checkout-done-block">
+      <section v-if="canWrite" class="checkout-done-block">
         <h2>Написать о заказе</h2>
         <p class="muted">
           Вернуть товар одной кнопкой нельзя.

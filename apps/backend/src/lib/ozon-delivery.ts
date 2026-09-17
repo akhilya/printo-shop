@@ -357,12 +357,53 @@ export async function resolveSellerAccessToken(creds: OzonCreds) {
   })
 }
 
-export function normalizeOzonPhone(phone: string) {
+export function normalizeOzonPhone(phone: unknown) {
+  if (phone && typeof phone === "object") {
+    const rec = phone as Record<string, unknown>
+    return normalizeOzonPhone(rec.number ?? rec.phone ?? rec.value)
+  }
   const digits = String(phone || "").replace(/\D/g, "")
   if (!digits) return ""
-  if (digits.length === 11 && digits.startsWith("8")) return `7${digits.slice(1)}`
-  if (digits.length === 10) return `7${digits}`
-  return digits
+  let normalized = digits
+  if (digits.length === 11 && digits.startsWith("8")) {
+    normalized = `7${digits.slice(1)}`
+  } else if (digits.length === 10) {
+    normalized = `7${digits}`
+  }
+  return /^\d{10,15}$/.test(normalized) ? normalized : ""
+}
+
+export function ozonOrderContacts(buyer: { name: string; phone?: unknown }) {
+  const names = splitName(String(buyer.name || ""))
+  const phone = normalizeOzonPhone(buyer.phone)
+  return {
+    buyer: {
+      first_name: names.first,
+      last_name: names.last,
+      phone,
+    },
+    recipient: {
+      recipient_first_name: names.first,
+      recipient_last_name: names.last,
+      recipient_phone: phone,
+    },
+    phone,
+  }
+}
+
+export function ozonPackErrorMessage(error: unknown) {
+  const raw = error instanceof Error ? error.message : String(error || "")
+  if (
+    /RecipientPhone|recipient_phone|does not match regex|проверьте телефон/i.test(
+      raw
+    )
+  ) {
+    return "Не удалось создать отправление: проверьте телефон получателя."
+  }
+  if (/[А-Яа-яЁё]/.test(raw) && !/Ozon HTTP|\bHTTP\s*\d+|[{"]/.test(raw)) {
+    return raw.slice(0, 280)
+  }
+  return "Не удалось создать отправление Ozon. Попробуйте ещё раз."
 }
 
 export function asRecord(value: unknown): Record<string, unknown> | null {
@@ -1259,11 +1300,16 @@ async function createSellerOrder(input: {
   point: { id: string; address: string }
   items: Array<{ article: string; name: string; quantity: number; price: number }>
 }) {
-  const names = splitName(input.buyer.name)
-  const phone = normalizeOzonPhone(input.buyer.phone)
+  const contacts = ozonOrderContacts(input.buyer)
+  if (!contacts.phone) {
+    throw new MedusaError(
+      MedusaError.Types.INVALID_DATA,
+      "Не удалось создать отправление: проверьте телефон получателя."
+    )
+  }
   const mapPointId = Number(input.point.id) || input.point.id
   const checkout = (await sellerPost(input.creds, "/v2/delivery/checkout", {
-    buyer_phone: phone,
+    buyer_phone: contacts.phone,
     delivery_schema: "FBS",
     from_place_id: Number(input.creds.fromPlaceId) || input.creds.fromPlaceId,
     delivery_type: {
@@ -1283,16 +1329,8 @@ async function createSellerOrder(input: {
       checkout.delivery_schema
     ) || "FBS"
   return sellerPost(input.creds, "/v2/order/create", {
-    buyer: {
-      first_name: names.first,
-      last_name: names.last,
-      phone,
-    },
-    recipient: {
-      recipient_first_name: names.first,
-      recipient_last_name: names.last,
-      phone,
-    },
+    buyer: contacts.buyer,
+    recipient: contacts.recipient,
     delivery: {
       pick_up: { map_point_id: mapPointId },
     },

@@ -4,6 +4,7 @@ import L from "leaflet"
 import "leaflet/dist/leaflet.css"
 import {
   mergeNearbyClusters,
+  pvzMapStartView,
   showPvzClusters,
 } from "../lib/pvz-cluster.js"
 import { BACKEND_URL, shopError, storeHeaders } from "../lib/sdk.js"
@@ -11,6 +12,8 @@ import { BACKEND_URL, shopError, storeHeaders } from "../lib/sdk.js"
 const props = defineProps({
   phone: { type: String, default: "" },
   selectedId: { type: String, default: "" },
+  selectedLat: { type: [String, Number], default: "" },
+  selectedLon: { type: [String, Number], default: "" },
 })
 
 const emit = defineEmits(["select"])
@@ -207,10 +210,14 @@ async function goToQuery() {
 
 onMounted(async () => {
   if (!mapEl.value) return
+  const start = pvzMapStartView({
+    lat: props.selectedLat,
+    lon: props.selectedLon,
+  })
   map = L.map(mapEl.value, {
     attributionControl: false,
     zoomControl: true,
-  }).setView([55.751244, 37.618423], 11)
+  }).setView([start.lat, start.lon], start.zoom)
   L.tileLayer("https://{s}.tile.openstreetmap.org/{z}/{x}/{y}.png", {
     maxZoom: 18,
   }).addTo(map)

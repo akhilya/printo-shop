@@ -4,6 +4,7 @@ export const ORDER_MAIL_EVENTS = [
   "delivering",
   "delivered",
   "returned",
+  "canceled",
 ] as const
 
 export type OrderMailEvent = (typeof ORDER_MAIL_EVENTS)[number]
@@ -61,6 +62,12 @@ export function orderMailCopy(
         "Заказ забрали в пункте выдачи. Спасибо. Если брак или ошибка — напишите нам с страницы заказа. Вернуть товар одной кнопкой нельзя.",
     }
   }
+  if (event === "canceled") {
+    return {
+      subject: `${order} отменён`,
+      intro: "Заказ отменён. Причина — ниже.",
+    }
+  }
   if (returnKind === "refused") {
     return {
       subject: `${order}: отказ на пункте выдачи`,
@@ -110,4 +117,19 @@ export function withMailSent(
       [event]: new Date().toISOString(),
     },
   }
+}
+
+export function cancelMailDetails(input: {
+  reason_label?: string
+  note?: string
+  refund?: boolean
+}) {
+  const parts = [
+    String(input.reason_label || "").trim(),
+    String(input.note || "").trim(),
+    input.refund === false
+      ? "Если уже была оплата — напишите нам со страницы заказа."
+      : "Если оплата прошла, деньги вернутся на карту.",
+  ]
+  return parts.filter(Boolean).join("\n\n")
 }

@@ -1343,6 +1343,9 @@ a.btn:active {
 }
 
 .checkout-total {
+  display: flex;
+  justify-content: space-between;
+  gap: var(--space-4);
   font-size: var(--fs-body);
   font-weight: var(--fw-medium);
   line-height: var(--lh-card);
@@ -2122,3 +2125,92 @@ a.btn:active {
     transform: none;
   }
 }
+
+.confirm {
+  position: fixed;
+  inset: 0;
+  z-index: 50;
+  display: grid;
+  place-items: center;
+  padding: var(--gutter);
+  background: var(--scrim);
+}
+
+.confirm-panel {
+  width: min(100%, 32rem);
+  max-height: min(90dvh, 40rem);
+  background: var(--paper);
+  border: 1px solid var(--ink);
+  display: flex;
+  flex-direction: column;
+}
+
+.confirm-head {
+  margin: 0;
+  padding: var(--space-4);
+  border-bottom: 1px solid var(--hairline);
+  font-size: var(--fs-ui);
+  font-weight: var(--fw-medium);
+  line-height: var(--lh-ui);
+}
+
+.confirm-body {
+  overflow: auto;
+  padding: var(--space-4);
+  display: flex;
+  flex-direction: column;
+  gap: var(--space-4);
+}
+
+.confirm-foot {
+  padding: var(--space-4);
+  border-top: 1px solid var(--hairline);
+  display: flex;
+  flex-direction: column;
+  gap: var(--space-3);
+}
+
+.confirm-rows {
+  display: flex;
+  flex-direction: column;
+  gap: var(--space-3);
+  margin: 0;
+}
+
+.confirm-row {
+  display: grid;
+  grid-template-columns: 7.5rem minmax(0, 1fr);
+  gap: var(--space-3);
+  font-size: var(--fs-ui);
+  font-weight: var(--fw-medium);
+  line-height: var(--lh-ui);
+}
+
+.confirm-row dt {
+  color: var(--ink-45);
+}
+
+.confirm-row dd {
+  margin: 0;
+  overflow-wrap: anywhere;
+  white-space: pre-wrap;
+}
+
+.confirm-photos {
+  display: flex;
+  flex-wrap: wrap;
+  gap: var(--space-2);
+}
+
+.confirm-photos .matte {
+  width: 54px;
+}
+
+.confirm-photos .matte img {
+  position: absolute;
+  inset: 0;
+  width: 100%;
+  height: 100%;
+  object-fit: contain;
+}
+

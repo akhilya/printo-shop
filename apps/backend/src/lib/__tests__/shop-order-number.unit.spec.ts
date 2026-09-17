@@ -1,12 +1,23 @@
-import { isShopNumber, randomShopNumber } from "../shop-order-number"
-import { customerOrderStatus } from "../shop-order-view"
-import { shopOrderUrl, shopReturnsUrl } from "../custom-order"
+import { isShopNumber, pickShopNumber, randomShopNumber } from "../shop-order-number"
+import {
+  customerOrderStatus,
+  presentShopOrderFromMedusa,
+  shopOrderCanMessage,
+} from "../shop-order-view"
+import { shopLogoUrl, shopOrderUrl, shopReturnsUrl } from "../custom-order"
 
 describe("randomShopNumber", () => {
   it("returns ten digits that do not start with zero", () => {
     const number = randomShopNumber()
     expect(isShopNumber(number)).toBe(true)
     expect(number.startsWith("0")).toBe(false)
+  })
+})
+
+describe("pickShopNumber", () => {
+  it("keeps the cart number instead of allocating another", () => {
+    expect(pickShopNumber("", "4347820595", "8150052298")).toBe("4347820595")
+    expect(pickShopNumber("12", "order_01H")).toBeNull()
   })
 })
 
@@ -18,6 +29,9 @@ describe("shopOrderUrl", () => {
     expect(shopOrderUrl("12")).toBeNull()
     expect(shopReturnsUrl({ STORE_CORS: "https://printo.studio" })).toBe(
       "https://printo.studio/returns"
+    )
+    expect(shopLogoUrl({ STORE_CORS: "https://printo.studio" })).toBe(
+      "https://printo.studio/logo-wide.webp"
     )
   })
 })
@@ -68,5 +82,27 @@ describe("customerOrderStatus", () => {
         fulfillment: "returned",
       })
     ).toEqual({ code: "returned", label: "Возврат" })
+  })
+
+  it("hides the order message form after cancel", () => {
+    expect(shopOrderCanMessage("canceled")).toBe(false)
+    expect(shopOrderCanMessage("closed")).toBe(false)
+    expect(shopOrderCanMessage("packing")).toBe(true)
+    expect(
+      presentShopOrderFromMedusa(
+        {
+          status: "canceled",
+          metadata: {
+            cancel_reason: "Товара нет в наличии",
+            cancel_note: "Вернём деньги.",
+          },
+        },
+        "4347820595"
+      )
+    ).toMatchObject({
+      can_message: false,
+      cancel_reason: "Товара нет в наличии",
+      cancel_note: "Вернём деньги.",
+    })
   })
 })

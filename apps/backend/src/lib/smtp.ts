@@ -14,11 +14,6 @@ export type SmtpConfig = {
   requireTls: boolean
 }
 
-function flag(value: string | undefined, fallback: boolean) {
-  if (value == null || value === "") return fallback
-  return !/^(0|false|no|off)$/i.test(value.trim())
-}
-
 export function parseSmtpEnv(env: NodeJS.ProcessEnv = process.env): SmtpConfig | null {
   const host = String(env.SMTP_HOST || "").trim()
   const user = String(env.SMTP_USER || "").trim()
@@ -27,15 +22,27 @@ export function parseSmtpEnv(env: NodeJS.ProcessEnv = process.env): SmtpConfig |
   if (!host || !user || !password || !from) return null
   const port = Number(env.SMTP_PORT)
   const resolvedPort = Number.isFinite(port) && port > 0 ? port : 587
-  const startTls = flag(env.SMTP_STARTTLS, resolvedPort !== 465)
+  const implicitTls = resolvedPort === 465
   return {
     host,
     port: resolvedPort,
     user,
     password,
     from,
-    secure: resolvedPort === 465,
-    requireTls: resolvedPort !== 465 && startTls,
+    secure: implicitTls,
+    requireTls: !implicitTls,
+  }
+}
+
+export function smtpTransportOptions(smtp: SmtpConfig) {
+  return {
+    host: smtp.host,
+    port: smtp.port,
+    secure: smtp.secure,
+    requireTLS: smtp.requireTls,
+    ignoreTLS: false,
+    tls: { minVersion: "TLSv1.2" as const },
+    auth: { user: smtp.user, pass: smtp.password },
   }
 }
 
@@ -54,13 +61,7 @@ export async function sendSmtpMail(
   const smtp = parseSmtpEnv(env)
   if (!smtp) return { skipped: true as const }
   const nodemailer = await import("nodemailer")
-  const transport = nodemailer.createTransport({
-    host: smtp.host,
-    port: smtp.port,
-    secure: smtp.secure,
-    requireTLS: smtp.requireTls,
-    auth: { user: smtp.user, pass: smtp.password },
-  })
+  const transport = nodemailer.createTransport(smtpTransportOptions(smtp))
   await transport.sendMail({
     from: smtp.from,
     to: mail.to,

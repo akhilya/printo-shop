@@ -26,6 +26,7 @@ export type OrderMailPayload = {
   return_kind?: string | null
   details?: string | null
   returns_url?: string | null
+  logo_url?: string | null
 }
 
 export function formatShopMoney(
@@ -120,11 +121,14 @@ export function orderMailHtml(payload: OrderMailPayload) {
   const track = payload.ozon_tracking
     ? `<p style="margin:8px 0 0;font-size:14px;"><a href="${escapeHtml(payload.ozon_tracking)}" style="color:#000;">Отследить на Ozon</a></p>`
     : ""
+  const logo = payload.logo_url
+    ? `<p style="margin:0 0 24px;"><img src="${escapeHtml(payload.logo_url)}" alt="PrintO.studio" width="180" style="display:block;border:0;height:auto;max-width:180px;" /></p>`
+    : `<p style="margin:0 0 24px;font-size:12px;letter-spacing:0.08em;">PrintO.studio</p>`
   return `<!doctype html>
 <html lang="ru">
 <body style="margin:0;padding:0;background:#fff;color:#000;font-family:Arial,Helvetica,sans-serif;">
   <div style="max-width:560px;margin:0 auto;padding:32px 24px;">
-    <p style="margin:0 0 24px;font-size:12px;letter-spacing:0.08em;">PRINTO.STUDIO</p>
+    ${logo}
     <h1 style="margin:0 0 12px;font-size:28px;font-weight:600;letter-spacing:-0.03em;">${escapeHtml(copy.subject)}</h1>
     <p style="margin:0 0 24px;font-size:16px;line-height:1.5;">${escapeHtml(copy.intro)}</p>
     <p style="margin:0 0 4px;font-size:14px;">Статус: ${escapeHtml(payload.status_label)}</p>

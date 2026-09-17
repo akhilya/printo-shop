@@ -2,6 +2,7 @@ import { MedusaContainer } from "@medusajs/framework"
 import { shopOrderUrl } from "./custom-order"
 import { orderLogContext, recordShopEvent } from "./shop-event"
 import { loadShopOrderByNumber } from "./shop-order-lookup"
+import { shopOrderCanMessage } from "./shop-order-view"
 import { parseSmtpEnv, sendSmtpMail, smtpFromAddress } from "./smtp"
 
 export const MAX_ORDER_MESSAGE = 4000
@@ -37,6 +38,12 @@ export async function submitOrderMessage(
   const presented = await loadShopOrderByNumber(container, number)
   if (!presented) {
     return { error: "Заказ не найден", status: 404 as const }
+  }
+  if (!shopOrderCanMessage(presented.status?.code)) {
+    return {
+      error: "Заказ отменён. Письмо по нему больше не принимаем.",
+      status: 400 as const,
+    }
   }
   if (!emailsMatch(presented.email, input.email)) {
     return {

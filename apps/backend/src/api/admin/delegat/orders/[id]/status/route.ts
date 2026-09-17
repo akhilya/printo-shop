@@ -5,7 +5,7 @@ import type {
 import { MedusaError } from "@medusajs/framework/utils"
 import { getDelegatOrder } from "../../../../../../lib/delegat-bridge/orders"
 import { applyShopOrderAction } from "../../../../../../lib/shop-fulfillment"
-import { errorText } from "../../../../../../lib/shop-order"
+import { errorText, parseShopOrderCancel } from "../../../../../../lib/shop-order"
 
 export async function POST(
   req: AuthenticatedMedusaRequest,
@@ -15,7 +15,16 @@ export async function POST(
     (req.body as { action?: string } | undefined)?.action || ""
   )
   try {
-    await applyShopOrderAction(req.scope, req.params.id, action)
+    if (action === "cancel") {
+      const parsed = parseShopOrderCancel(req.body)
+      if ("error" in parsed) {
+        res.status(400).json({ success: false, error: parsed.error })
+        return
+      }
+      await applyShopOrderAction(req.scope, req.params.id, action, parsed)
+    } else {
+      await applyShopOrderAction(req.scope, req.params.id, action)
+    }
     const order = await getDelegatOrder(req.scope, req.params.id)
     res.json({ success: true, order })
   } catch (error) {

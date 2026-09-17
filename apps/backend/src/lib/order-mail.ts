@@ -1,10 +1,11 @@
 import { MedusaContainer } from "@medusajs/framework"
 import { Modules } from "@medusajs/framework/utils"
-import { shopOrderUrl, shopReturnsUrl } from "./custom-order"
+import { shopLogoUrl, shopOrderUrl, shopReturnsUrl } from "./custom-order"
 import { ozonTrackingUrl } from "./ozon-delivery"
 import { loadShopOrder } from "./ozon-fulfill"
 import { buildOrderMail, type OrderMailPayload } from "./order-mail-html"
 import {
+  cancelMailDetails,
   mailAlreadySent,
   mailEventFromShopStatus,
   type OrderMailEvent,
@@ -84,8 +85,16 @@ export function orderMailPayloadFromMedusa(
       text(metadata.ozon_tracking) || ozonTrackingUrl(ozonNumber),
     ozon_posting_number: text(metadata.ozon_posting_number) || null,
     return_kind: text(metadata.ozon_return_kind) || null,
-    details: null,
+    details:
+      event === "canceled"
+        ? cancelMailDetails({
+            reason_label: text(metadata.cancel_reason),
+            note: text(metadata.cancel_note),
+            refund: metadata.cancel_refund !== false,
+          })
+        : null,
     returns_url: shopReturnsUrl(),
+    logo_url: shopLogoUrl(),
   }
 }
 
@@ -128,6 +137,7 @@ export function orderMailPayloadFromCustom(
     ozon_posting_number: text(order.ozon_posting_number) || null,
     details: text(order.quote_note || order.message) || null,
     returns_url: shopReturnsUrl(),
+    logo_url: shopLogoUrl(),
   }
 }
 

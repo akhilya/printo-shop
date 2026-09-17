@@ -113,6 +113,10 @@ export function shopReturnsUrl(env: NodeJS.ProcessEnv = process.env) {
   return `${storefrontOrigin(env)}/returns`
 }
 
+export function shopLogoUrl(env: NodeJS.ProcessEnv = process.env) {
+  return `${storefrontOrigin(env)}/logo-wide.webp`
+}
+
 export function shopOrderUrl(
   number?: string | null,
   env: NodeJS.ProcessEnv = process.env

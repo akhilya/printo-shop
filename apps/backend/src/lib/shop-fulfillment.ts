@@ -16,7 +16,11 @@ import { sendShopOrderMail } from "./order-mail"
 import { mailEventFromShopStatus } from "./order-mail-copy"
 import { ozonReturnMessage } from "./ozon-posting"
 import { orderLogContext, recordShopEvent } from "./shop-event"
-import { cancelShopOrder } from "./shop-order"
+import {
+  cancelShopOrder,
+  parseShopOrderCancel,
+  type ShopOrderCancelInput,
+} from "./shop-order"
 import {
   type ShopFulfillment,
   orderLooksPaid,
@@ -267,7 +271,8 @@ export async function applyOzonStatusToFulfillment(
 export async function applyShopOrderAction(
   container: MedusaContainer,
   orderId: string,
-  action: string
+  action: string,
+  extra?: ShopOrderCancelInput | Record<string, unknown>
 ) {
   const next = fulfillmentFromAction(action)
   if (!next) {
@@ -277,7 +282,14 @@ export async function applyShopOrderAction(
     )
   }
   if (next === "cancel") {
-    return cancelShopOrder(container, orderId, true)
+    const parsed =
+      extra && "reason_label" in extra
+        ? (extra as ShopOrderCancelInput)
+        : parseShopOrderCancel(extra || { refund: true })
+    if ("error" in parsed) {
+      throw new MedusaError(MedusaError.Types.INVALID_DATA, parsed.error)
+    }
+    return cancelShopOrder(container, orderId, parsed)
   }
   const order = await loadShopOrder(container, orderId)
   if (!order) {

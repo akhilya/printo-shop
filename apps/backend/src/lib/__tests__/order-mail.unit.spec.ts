@@ -26,6 +26,19 @@ describe("parseSmtpEnv", () => {
     })
   })
 
+  it("keeps STARTTLS on 587 even if SMTP_STARTTLS is off", () => {
+    expect(
+      parseSmtpEnv({
+        SMTP_HOST: "postbox.cloud.yandex.net",
+        SMTP_PORT: "587",
+        SMTP_STARTTLS: "Off",
+        SMTP_USER: "key",
+        SMTP_PASSWORD: "secret",
+        SMTP_FROM: "shop@printo.studio",
+      })
+    ).toMatchObject({ port: 587, requireTls: true, secure: false })
+  })
+
   it("uses SMTPS on 465", () => {
     expect(
       parseSmtpEnv({
@@ -60,6 +73,9 @@ describe("orderMailCopy", () => {
     )
     expect(orderMailCopy("returned", "1234567890", "refused").subject).toMatch(
       /отказ/i
+    )
+    expect(orderMailCopy("canceled", "1234567890").subject).toBe(
+      "Заказ 1234567890 отменён"
     )
   })
 })
@@ -103,9 +119,12 @@ describe("buildOrderMail", () => {
       ozon_tracking: "https://www.ozon.ru/my/orderdetails/?order=1",
       ozon_posting_number: "1-1",
       returns_url: "https://printo.studio/returns",
+      logo_url: "https://printo.studio/logo-wide.webp",
     })
     expect(mail.to).toBe("a@test.ru")
     expect(mail.subject).toBe("Заказ 1234567890 принят")
+    expect(mail.html).toMatch(/logo-wide\.webp/)
+    expect(mail.html).not.toMatch(/PRINTO\.STUDIO/)
     expect(mail.text).toMatch(/Temple Assassins · WA150/)
     expect(mail.text).toMatch(/ПВЗ Тверская/)
     expect(mail.text).toMatch(/printo.studio\/order\/1234567890/)
@@ -153,5 +172,6 @@ describe("orderMailPayloadFromMedusa", () => {
     expect(payload?.items[0].title).toBe("Temple Assassins")
     expect(payload?.shipping).toBe(350)
     expect(payload?.ozon_point_name).toBe("ПВЗ Тверская")
+    expect(payload?.logo_url).toMatch(/logo-wide\.webp/)
   })
 })

@@ -4,6 +4,8 @@ import { useRoute } from "vue-router"
 import ProductPhoto from "../components/ProductPhoto.vue"
 import PromoField from "../components/PromoField.vue"
 import PvzPicker from "../components/PvzPicker.vue"
+import ConfirmDialog from "../components/ConfirmDialog.vue"
+import { checkoutConfirmFields } from "../lib/checkout-confirm.js"
 import {
   cartState,
   cartTotals,
@@ -42,6 +44,7 @@ let quoteTimer = 0
 let statusTimer = 0
 const custom = ref(null)
 const customLoading = ref(false)
+const confirmOpen = ref(false)
 const form = persistObject("shop_checkout", {
   email: "",
   first_name: "",
@@ -131,6 +134,17 @@ const extraPhotos = computed(() => {
     custom.value.product_thumbnail || custom.value.image_urls?.[0] || ""
   return (custom.value.image_urls || []).filter((url) => url && url !== main)
 })
+
+const confirmFields = computed(() =>
+  checkoutConfirmFields({
+    first_name: form.first_name,
+    last_name: form.last_name,
+    email: form.email,
+    phone: form.phone,
+    ozon_point_name: showPvz.value ? form.ozon_point_name : "",
+    ozon_point_address: showPvz.value ? form.ozon_point_address : "",
+  })
+)
 
 const details = computed(() => {
   if (!custom.value) return []
@@ -414,6 +428,12 @@ async function submit(event) {
     error.value = "Корзина пуста"
     return
   }
+  error.value = ""
+  confirmOpen.value = true
+}
+
+async function confirmPay() {
+  if (busy.value) return
   busy.value = true
   error.value = ""
   try {
@@ -421,6 +441,7 @@ async function submit(event) {
     else await payCart()
   } catch (e) {
     error.value = shopError(e, "Не удалось оформить заказ")
+    confirmOpen.value = false
   } finally {
     busy.value = false
   }
@@ -540,6 +561,8 @@ const empty = computed(() => {
           v-if="showPvz"
           :phone="form.phone"
           :selected-id="form.ozon_point_id"
+          :selected-lat="form.ozon_point_lat"
+          :selected-lon="form.ozon_point_lon"
           @select="onPvz"
         />
         <p v-if="showPvz && form.ozon_point_id" class="muted">
@@ -571,5 +594,55 @@ const empty = computed(() => {
         </button>
       </div>
     </form>
+    <ConfirmDialog
+      v-if="confirmOpen"
+      title="Проверьте заказ"
+      confirm-label="Оплатить"
+      busy-label="Оплата"
+      :busy="busy"
+      @close="confirmOpen = false"
+      @confirm="confirmPay"
+    >
+      <div v-for="item in items" :key="item.id" class="line">
+        <div class="matte">
+          <ProductPhoto :src="item.thumbnail || ''" :alt="item.title" />
+        </div>
+        <div>
+          <div class="card-title">{{ item.title }}</div>
+          <p class="muted">{{ item.quantity }} шт.</p>
+          <div class="card-meta">
+            {{ formatPrice(linePrices(item).current, currency) }}
+          </div>
+        </div>
+      </div>
+      <dl class="confirm-rows">
+        <div v-for="field in confirmFields" :key="field.label" class="confirm-row">
+          <dt>{{ field.label }}</dt>
+          <dd>{{ field.value }}</dd>
+        </div>
+      </dl>
+      <div class="totals">
+        <div>
+          <span>Товары</span>
+          <span>{{ formatPrice(totals.items, currency) }}</span>
+        </div>
+        <div v-if="totals.discount">
+          <span>Скидка</span>
+          <span>−{{ formatPrice(totals.discount, currency) }}</span>
+        </div>
+        <div v-if="showPvz || totals.shipping">
+          <span>Доставка</span>
+          <span>{{ shippingLabel }}</span>
+        </div>
+        <div v-if="totals.other">
+          <span>Ещё</span>
+          <span>{{ formatPrice(totals.other, currency) }}</span>
+        </div>
+        <div class="checkout-total">
+          <span>Итого</span>
+          <span>{{ formatPrice(totals.total, currency) }}</span>
+        </div>
+      </div>
+    </ConfirmDialog>
   </div>
 </template>

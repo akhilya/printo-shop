@@ -1,5 +1,20 @@
 export const PVZ_PIN_ZOOM = 15
 export const PVZ_CLUSTER_RADIUS_PX = 64
+export const DEFAULT_PVZ_VIEW = {
+  lat: 55.751244,
+  lon: 37.618423,
+  zoom: 11,
+}
+
+export function pvzMapStartView(selected) {
+  const lat = Number(selected?.lat)
+  const lon = Number(selected?.lon)
+  if (!Number.isFinite(lat) || !Number.isFinite(lon)) {
+    return DEFAULT_PVZ_VIEW
+  }
+  if (lat === 0 && lon === 0) return DEFAULT_PVZ_VIEW
+  return { lat, lon, zoom: PVZ_PIN_ZOOM }
+}
 
 export function showPvzClusters(zoom, pointCount = 0) {
   if (Number.isFinite(zoom) && zoom >= PVZ_PIN_ZOOM && pointCount > 0) {

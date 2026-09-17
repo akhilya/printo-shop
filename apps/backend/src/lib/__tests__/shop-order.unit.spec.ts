@@ -1,4 +1,8 @@
-import { errorText } from "../shop-order"
+import {
+  errorText,
+  parseShopOrderCancel,
+} from "../shop-order"
+import { cancelMailDetails } from "../order-mail-copy"
 
 describe("errorText", () => {
   it("reads Error messages", () => {
@@ -20,5 +24,38 @@ describe("errorText", () => {
     expect(errorText(null)).toBe("cancel_failed")
     expect(errorText({})).toBe("cancel_failed")
     expect(errorText(null, "status_failed")).toBe("status_failed")
+  })
+})
+
+describe("parseShopOrderCancel", () => {
+  it("keeps a buyer-facing reason and extra text", () => {
+    expect(
+      parseShopOrderCancel({
+        reason: "out_of_stock",
+        note: "Осталась одна деталь",
+      })
+    ).toMatchObject({
+      reason: "out_of_stock",
+      reason_label: "Товара нет в наличии",
+      note: "Осталась одна деталь",
+      refund: true,
+    })
+  })
+
+  it("asks for text when the reason is other", () => {
+    expect(parseShopOrderCancel({ reason: "other" })).toEqual({
+      error: "Напишите причину отмены",
+    })
+  })
+})
+
+describe("cancelMailDetails", () => {
+  it("puts the reason into the letter", () => {
+    expect(
+      cancelMailDetails({
+        reason_label: "Товара нет в наличии",
+        note: "Ждём поставку",
+      })
+    ).toMatch(/Товара нет в наличии/)
   })
 })

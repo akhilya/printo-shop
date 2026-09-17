@@ -5,6 +5,8 @@ import {
   loadOzonPoints,
   nearestOzonPoints,
   normalizeOzonPhone,
+  ozonOrderContacts,
+  ozonPackErrorMessage,
   ozonCredsFromRow,
   ozonTrackingUrl,
   parseOzonClusters,
@@ -290,6 +292,36 @@ describe("normalizeOzonPhone", () => {
     expect(normalizeOzonPhone("+7 (999) 123-45-67")).toBe("79991234567")
     expect(normalizeOzonPhone("8 999 123-45-67")).toBe("79991234567")
     expect(normalizeOzonPhone("9991234567")).toBe("79991234567")
+  })
+
+  it("drops numbers that Ozon would reject", () => {
+    expect(normalizeOzonPhone("12345")).toBe("")
+    expect(normalizeOzonPhone("+7")).toBe("")
+  })
+})
+
+describe("ozonOrderContacts", () => {
+  it("sends recipient_phone as 10-15 digits", () => {
+    const contacts = ozonOrderContacts({
+      name: "Иван Петров",
+      phone: "+7 (999) 123-45-67",
+    })
+    expect(contacts.recipient).toEqual({
+      recipient_first_name: "Иван",
+      recipient_last_name: "Петров",
+      recipient_phone: "79991234567",
+    })
+    expect(contacts.buyer.phone).toBe("79991234567")
+  })
+})
+
+describe("ozonPackErrorMessage", () => {
+  it("hides Ozon phone validation from the dashboard", () => {
+    expect(
+      ozonPackErrorMessage(
+        'Ozon HTTP 400: {"code":3, "message":"invalid OrderCreateRequestV2_Recipient.RecipientPhone: value does not match regex pattern"}'
+      )
+    ).toBe("Не удалось создать отправление: проверьте телефон получателя.")
   })
 })
 

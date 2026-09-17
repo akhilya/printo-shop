@@ -2,15 +2,19 @@ import type {
   AuthenticatedMedusaRequest,
   MedusaResponse,
 } from "@medusajs/framework/http"
-import { cancelShopOrder, errorText } from "../../../../../lib/shop-order"
+import { cancelShopOrder, errorText, parseShopOrderCancel } from "../../../../../lib/shop-order"
 
 export async function POST(
   req: AuthenticatedMedusaRequest,
   res: MedusaResponse
 ) {
-  const refund = (req.body as { refund?: boolean } | undefined)?.refund !== false
+  const parsed = parseShopOrderCancel(req.body)
+  if ("error" in parsed) {
+    res.status(400).json({ success: false, message: parsed.error })
+    return
+  }
   try {
-    const result = await cancelShopOrder(req.scope, req.params.id, refund)
+    const result = await cancelShopOrder(req.scope, req.params.id, parsed)
     res.json({ success: true, ...result })
   } catch (error) {
     res.status(400).json({

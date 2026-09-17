@@ -3,7 +3,9 @@ import { ContainerRegistrationKeys, MedusaError, Modules } from "@medusajs/frame
 import {
   createOzonDeliveryOrder,
   extractOzonCreateIds,
+  firstText,
   ozonCredsFromRow,
+  ozonPackErrorMessage,
   ozonTrackingUrl,
   type OzonCreds,
 } from "./ozon-delivery"
@@ -81,6 +83,7 @@ export async function loadShopOrder(
       "shipping_address.first_name",
       "shipping_address.last_name",
       "shipping_address.phone",
+      "billing_address.phone",
       "shipping_address.address_1",
       "shipping_address.address_2",
       "shipping_address.company",
@@ -134,6 +137,7 @@ async function ensureOzonIds(
     return metadata
   }
   const address = (order.shipping_address || {}) as Record<string, unknown>
+  const billing = (order.billing_address || {}) as Record<string, unknown>
   const pointId = text(metadata.ozon_point_id || address.company)
   if (!pointId) return metadata
   const name =
@@ -156,7 +160,7 @@ async function ensureOzonIds(
     orderNumber: String(metadata.shop_number || order.display_id || order.id),
     buyer: {
       name,
-      phone: String(address.phone || ""),
+      phone: firstText(address.phone, billing.phone, metadata.phone),
       email: order.email ? String(order.email) : undefined,
     },
     point: {
@@ -188,7 +192,23 @@ export async function packOzonForOrder(
   if (metadata.ozon_packed_at && metadata.ozon_label_url) {
     return metadata
   }
-  metadata = await ensureOzonIds(container, { ...order, metadata }, creds)
+  try {
+    metadata = await ensureOzonIds(container, { ...order, metadata }, creds)
+  } catch (error) {
+    const message = ozonPackErrorMessage(error)
+    await saveOrderMetadata(container, orderId, {
+      ...metadata,
+      ozon_pack_error: message,
+    })
+    await recordShopEvent(container, {
+      kind: "ozon_pack",
+      level: "error",
+      title: "Сборка в Ozon не удалась",
+      message,
+      ...orderLogContext(order),
+    })
+    throw new MedusaError(MedusaError.Types.INVALID_DATA, message)
+  }
   const postingNumber = text(
     metadata.ozon_posting_number || metadata.ozon_order_number
   )
@@ -223,7 +243,7 @@ export async function packOzonForOrder(
       }
     }
   } catch (error) {
-    const message = error instanceof Error ? error.message : String(error)
+    const message = ozonPackErrorMessage(error)
     await recordShopEvent(container, {
       kind: "ozon_pack",
       level: "error",
@@ -231,13 +251,13 @@ export async function packOzonForOrder(
       message,
       ...orderLogContext(order),
     })
-    throw error
+    throw new MedusaError(MedusaError.Types.INVALID_DATA, message)
   }
   let label
   try {
     label = await getOzonPackageLabel(creds, number)
   } catch (error) {
-    const message = error instanceof Error ? error.message : String(error)
+    const message = ozonPackErrorMessage(error)
     await recordShopEvent(container, {
       kind: "ozon_pack",
       level: "error",
@@ -246,7 +266,7 @@ export async function packOzonForOrder(
       ...orderLogContext(order),
       posting_number: number,
     })
-    throw error
+    throw new MedusaError(MedusaError.Types.INVALID_DATA, message)
   }
   const labelUrl = await storeOzonLabel(
     container,

@@ -2,6 +2,7 @@ import { describe, it } from "node:test"
 import assert from "node:assert/strict"
 import {
   mergeNearbyClusters,
+  pvzMapStartView,
   showPvzClusters,
 } from "./pvz-cluster.js"
 
@@ -10,6 +11,22 @@ describe("showPvzClusters", () => {
     assert.equal(showPvzClusters(12, 0), true)
     assert.equal(showPvzClusters(15, 8), false)
     assert.equal(showPvzClusters(16, 0), true)
+  })
+})
+
+describe("pvzMapStartView", () => {
+  it("starts over Moscow when nothing is saved", () => {
+    const view = pvzMapStartView({})
+    assert.equal(view.lat, 55.751244)
+    assert.equal(view.lon, 37.618423)
+    assert.equal(view.zoom, 11)
+  })
+
+  it("zooms to a saved pickup point", () => {
+    const view = pvzMapStartView({ lat: "56.838", lon: "60.597" })
+    assert.equal(view.lat, 56.838)
+    assert.equal(view.lon, 60.597)
+    assert.equal(view.zoom, 15)
   })
 })
 

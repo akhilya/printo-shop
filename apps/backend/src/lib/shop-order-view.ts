@@ -62,6 +62,11 @@ export function customerOrderStatus(input: {
   return { code: "awaiting_payment", label: "Ожидает оплату" }
 }
 
+export function shopOrderCanMessage(statusCode: unknown) {
+  const code = String(statusCode || "")
+  return code !== "canceled" && code !== "closed"
+}
+
 export function presentShopOrderFromMedusa(
   order: Record<string, unknown>,
   number: string
@@ -77,11 +82,16 @@ export function presentShopOrderFromMedusa(
     paid: orderLooksPaid(order),
     fulfillment: shopFulfillmentOf(order),
   })
+  const cancelReason = String(metadata.cancel_reason || "").trim()
+  const cancelNote = String(metadata.cancel_note || "").trim()
   return {
     number,
     url: shopOrderUrl(number),
     source: "order" as const,
     status,
+    can_message: shopOrderCanMessage(status.code),
+    cancel_reason: status.code === "canceled" && cancelReason ? cancelReason : null,
+    cancel_note: status.code === "canceled" && cancelNote ? cancelNote : null,
     paid:
       status.code === "packing" ||
       status.code === "ready_to_ship" ||
@@ -145,15 +155,19 @@ export function presentShopOrderFromCustom(
       )
     : []
   const note = String(order.quote_note || order.message || "").trim() || null
+  const status = customerOrderStatus({
+    source: "custom",
+    status: String(order.status || ""),
+    paid,
+  })
   return {
     number,
     url: shopOrderUrl(number),
     source: "custom" as const,
-    status: customerOrderStatus({
-      source: "custom",
-      status: String(order.status || ""),
-      paid,
-    }),
+    status,
+    can_message: shopOrderCanMessage(status.code),
+    cancel_reason: null as string | null,
+    cancel_note: null as string | null,
     paid,
     email: order.email ? String(order.email) : null,
     total:
