@@ -24,11 +24,9 @@ export async function POST(
   const existing = (await promotion.retrievePromotion(req.params.id, {
     relations: ["application_method"],
   })) as unknown as Record<string, unknown>
-  const method = (existing.application_method || {}) as Record<string, unknown>
   const updated = await promotion.updatePromotions({
     id: req.params.id,
     application_method: {
-      id: String(method.id || ""),
       target_type: parsed.application_method.target_type,
     },
   })
