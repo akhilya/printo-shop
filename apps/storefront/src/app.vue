@@ -1,7 +1,13 @@
 <script setup>
 import { onMounted, ref } from "vue"
+import ConfirmDialog from "./components/ConfirmDialog.vue"
 import SiteHeader from "./components/SiteHeader.vue"
 import CartDrawer from "./components/CartDrawer.vue"
+import {
+  acceptAdult,
+  adultPrompt,
+  declineAdult,
+} from "./lib/adult-gate.js"
 import { loadCart } from "./lib/cart.js"
 import {
   legalDocumentPages,
@@ -72,5 +78,14 @@ onMounted(async () => {
       </div>
     </footer>
     <CartDrawer />
+    <ConfirmDialog
+      v-if="adultPrompt"
+      title="18+"
+      confirm-label="Мне есть 18"
+      @confirm="acceptAdult"
+      @close="declineAdult"
+    >
+      <p>Товар для взрослых. Подтвердите, что вам есть 18 лет.</p>
+    </ConfirmDialog>
   </div>
 </template>

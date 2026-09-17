@@ -1,7 +1,7 @@
 <script setup>
 import { computed, watch } from "vue"
 import { useRouter } from "vue-router"
-import ProductPhoto from "./ProductPhoto.vue"
+import LineProduct from "./LineProduct.vue"
 import PromoField from "./PromoField.vue"
 import {
   cartState,
@@ -12,6 +12,7 @@ import {
   removeLine,
   setQty,
 } from "../lib/cart.js"
+import { productHref } from "../lib/product-href.js"
 import { formatPrice } from "../lib/sdk.js"
 import { shopState } from "../lib/shop.js"
 
@@ -37,6 +38,10 @@ function goCheckout() {
   closeCart()
   router.push("/checkout")
 }
+
+function onLineClick(item) {
+  if (productHref(item)) closeCart()
+}
 </script>
 
 <template>
@@ -59,22 +64,21 @@ function goCheckout() {
       <div class="drawer-body">
         <p v-if="!itemCount()" class="empty">Корзина пуста</p>
         <div v-for="item in cartState.cart?.items || []" :key="item.id" class="line">
-          <div class="matte">
-            <ProductPhoto :src="item.thumbnail || ''" :alt="item.title" />
-          </div>
-          <div>
-            <div class="card-title">{{ item.title }}</div>
-            <div class="card-meta">
-              <span v-if="money(item).onSale" class="price-was">{{ money(item).original }}</span>
-              {{ money(item).current }}
+          <LineProduct :item="item" @click="onLineClick(item)">
+            <div>
+              <div class="card-title">{{ item.title }}</div>
+              <div class="card-meta">
+                <span v-if="money(item).onSale" class="price-was">{{ money(item).original }}</span>
+                {{ money(item).current }}
+              </div>
             </div>
-            <div class="qty">
+          </LineProduct>
+          <div class="qty">
               <button type="button" @click="setQty(item.id, item.quantity - 1)">−</button>
               <span>{{ item.quantity }}</span>
               <button type="button" @click="setQty(item.id, item.quantity + 1)">+</button>
               <button type="button" @click="removeLine(item.id)">Удалить</button>
             </div>
-          </div>
         </div>
         <p v-if="cartState.error" class="err">{{ cartState.error }}</p>
         <PromoField v-if="itemCount()" />

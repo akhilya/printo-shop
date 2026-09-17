@@ -42,10 +42,13 @@ export default async function orderPlacedOzon({
       "display_id",
       "email",
       "total",
+      "shipping_total",
       "metadata",
       "items.title",
       "items.quantity",
       "items.unit_price",
+      "items.total",
+      "items.subtotal",
       "items.variant_sku",
       "items.sku",
       "items.variant_id",
@@ -148,6 +151,8 @@ export default async function orderPlacedOzon({
         ),
       },
       amount: money(order.total),
+      shippingTotal:
+        order.shipping_total == null ? undefined : money(order.shipping_total),
       items,
     })
     const ids = extractOzonCreateIds(created)

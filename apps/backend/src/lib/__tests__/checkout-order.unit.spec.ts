@@ -23,8 +23,9 @@ describe("presentPaidStoreOrder", () => {
         items: [
           {
             title: "Фигурка",
-            quantity: 1,
-            unit_price: 6400,
+            quantity: 2,
+            unit_price: 4000,
+            total: 6400,
             thumbnail: "https://img/x.jpg",
             variant: { sku: "SKU-1" },
           },
@@ -36,7 +37,15 @@ describe("presentPaidStoreOrder", () => {
       email: "anna@test.ru",
       total: 6400,
       ozon_point_name: "ПВЗ Тверская",
-      items: [{ title: "Фигурка", sku: "SKU-1", quantity: 1 }],
+      items: [
+        {
+          title: "Фигурка",
+          sku: "SKU-1",
+          quantity: 2,
+          unit_price: 3200,
+          total: 6400,
+        },
+      ],
     })
   })
 })

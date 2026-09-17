@@ -40,8 +40,15 @@ export async function submitOrderMessage(
     return { error: "Заказ не найден", status: 404 as const }
   }
   if (!shopOrderCanMessage(presented.status?.code)) {
+    const code = String(presented.status?.code || "")
+    if (code === "canceled" || code === "closed") {
+      return {
+        error: "Заказ отменён. Письмо по нему больше не принимаем.",
+        status: 400 as const,
+      }
+    }
     return {
-      error: "Заказ отменён. Письмо по нему больше не принимаем.",
+      error: "Написать можно после доставки — если нужно вернуть товар.",
       status: 400 as const,
     }
   }

@@ -1,6 +1,10 @@
 import { shopOrderUrl } from "./custom-order"
 import { ozonTrackingUrl } from "./ozon-delivery"
-import { orderLooksPaid, shopFulfillmentOf } from "./shop-fulfillment-status"
+import {
+  orderIsCanceled,
+  orderLooksPaid,
+  shopFulfillmentOf,
+} from "./shop-fulfillment-status"
 
 function money(value: unknown) {
   if (typeof value === "number" && Number.isFinite(value)) return value
@@ -41,11 +45,12 @@ export function customerOrderStatus(input: {
     }
     return { code: "new", label: "Заявка" }
   }
+  const orderStatus = String(input.status || "").toLowerCase()
+  if (orderStatus === "canceled" || orderStatus === "cancelled") {
+    return { code: "canceled", label: "Отменён" }
+  }
   if (input.fulfillment === "returned") {
     return { code: "returned", label: "Возврат" }
-  }
-  if (input.status === "canceled") {
-    return { code: "canceled", label: "Отменён" }
   }
   if (input.status === "archived" || input.fulfillment === "delivered") {
     return { code: "delivered", label: "Доставлен" }
@@ -62,9 +67,39 @@ export function customerOrderStatus(input: {
   return { code: "awaiting_payment", label: "Ожидает оплату" }
 }
 
+export function shopLineHandle(item: Record<string, unknown>) {
+  const variant = (item.variant || {}) as Record<string, unknown>
+  const product = (variant.product || item.product || {}) as Record<string, unknown>
+  const handle = String(item.product_handle || item.handle || product.handle || "").trim()
+  return handle || null
+}
+
+export function shopLineAmounts(item: Record<string, unknown>) {
+  const quantity = Math.max(1, Number(item.quantity) || 1)
+  const fromLine = money(item.total ?? item.subtotal)
+  const fromUnit = money(item.unit_price)
+  const total =
+    fromLine != null && fromLine > 0
+      ? fromLine
+      : fromUnit != null
+        ? fromUnit * quantity
+        : null
+  const unit_price = total != null ? total / quantity : fromUnit
+  return { quantity, unit_price, total }
+}
+
+export function shopOrderShipping(order: Record<string, unknown>) {
+  const metadata = (order.metadata || {}) as Record<string, unknown>
+  return (
+    money(metadata.ozon_shipping_amount) ??
+    money(order.shipping_total) ??
+    money(order.quote_shipping_amount)
+  )
+}
+
 export function shopOrderCanMessage(statusCode: unknown) {
   const code = String(statusCode || "")
-  return code !== "canceled" && code !== "closed"
+  return code === "delivered" || code === "returned"
 }
 
 export function presentShopOrderFromMedusa(
@@ -78,7 +113,7 @@ export function presentShopOrderFromMedusa(
     : null
   const status = customerOrderStatus({
     source: "order",
-    status: String(order.status || ""),
+    status: orderIsCanceled(order) ? "canceled" : String(order.status || ""),
     paid: orderLooksPaid(order),
     fulfillment: shopFulfillmentOf(order),
   })
@@ -100,6 +135,7 @@ export function presentShopOrderFromMedusa(
       status.code === "returned",
     email: order.email ? String(order.email) : null,
     total: money(order.total),
+    shipping: shopOrderShipping(order),
     currency_code: String(order.currency_code || "rub"),
     created_at: order.created_at ? String(order.created_at) : null,
     details: null as string | null,
@@ -125,14 +161,65 @@ export function presentShopOrderFromMedusa(
       null,
     city: address.city ? String(address.city) : null,
     items: ((order.items as Array<Record<string, unknown>>) || []).map(
-      (item) => ({
-        title: item.title,
-        quantity: item.quantity,
-        sku: (item.variant as Record<string, unknown> | undefined)?.sku,
-        thumbnail: item.thumbnail || null,
-        unit_price: money(item.unit_price),
-      })
+      (item) => {
+        const amounts = shopLineAmounts(item)
+        return {
+          title: item.title,
+          quantity: amounts.quantity,
+          sku: (item.variant as Record<string, unknown> | undefined)?.sku,
+          handle: shopLineHandle(item),
+          thumbnail: item.thumbnail || null,
+          unit_price: amounts.unit_price,
+          total: amounts.total,
+        }
+      }
     ),
+  }
+}
+
+export function publicShopOrder(order: {
+  number?: unknown
+  source?: unknown
+  status?: unknown
+  can_message?: unknown
+  cancel_reason?: unknown
+  cancel_note?: unknown
+  paid?: unknown
+  total?: unknown
+  shipping?: unknown
+  currency_code?: unknown
+  ozon_tracking?: unknown
+  ozon_point_name?: unknown
+  items?: Array<{
+    title?: unknown
+    quantity?: unknown
+    handle?: unknown
+    thumbnail?: unknown
+    unit_price?: unknown
+    total?: unknown
+  }>
+}) {
+  return {
+    number: order.number,
+    source: order.source,
+    status: order.status,
+    can_message: order.can_message,
+    cancel_reason: order.cancel_reason ?? null,
+    cancel_note: order.cancel_note ?? null,
+    paid: order.paid,
+    total: order.total,
+    shipping: order.shipping ?? null,
+    currency_code: order.currency_code,
+    can_track: Boolean(order.ozon_tracking),
+    ozon_point_name: order.ozon_point_name || null,
+    items: (order.items || []).map((item) => ({
+      title: item.title,
+      quantity: item.quantity,
+      handle: item.handle || null,
+      thumbnail: item.thumbnail || null,
+      unit_price: item.unit_price,
+      total: item.total,
+    })),
   }
 }
 
@@ -142,6 +229,7 @@ export function presentShopOrderFromCustom(
   product?: {
     title?: string | null
     thumbnail?: string | null
+    handle?: string | null
   } | null
 ) {
   const paid = Boolean(order.paid_at)
@@ -160,6 +248,12 @@ export function presentShopOrderFromCustom(
     status: String(order.status || ""),
     paid,
   })
+  const total = money(order.quote_amount)
+  const shipping = shopOrderShipping(order)
+  const itemTotal =
+    total != null
+      ? Math.max(0, total - (shipping && shipping > 0 ? shipping : 0))
+      : null
   return {
     number,
     url: shopOrderUrl(number),
@@ -170,10 +264,8 @@ export function presentShopOrderFromCustom(
     cancel_note: null as string | null,
     paid,
     email: order.email ? String(order.email) : null,
-    total:
-      typeof order.quote_amount === "number"
-        ? order.quote_amount
-        : Number(order.quote_amount) || null,
+    total,
+    shipping,
     currency_code: "rub",
     created_at: order.created_at ? String(order.created_at) : null,
     details: note,
@@ -197,11 +289,10 @@ export function presentShopOrderFromCustom(
         title,
         quantity: 1,
         sku: null as string | null,
+        handle: product?.handle ? String(product.handle) : null,
         thumbnail: product?.thumbnail || urls[0] || null,
-        unit_price:
-          typeof order.quote_amount === "number"
-            ? order.quote_amount
-            : Number(order.quote_amount) || null,
+        unit_price: itemTotal,
+        total: itemTotal,
       },
     ],
   }

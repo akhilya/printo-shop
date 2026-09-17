@@ -2,6 +2,7 @@ import { MedusaContainer } from "@medusajs/framework"
 import { ContainerRegistrationKeys, Modules } from "@medusajs/framework/utils"
 import { ozonTrackingUrl } from "./ozon-delivery"
 import { ensureMedusaShopNumber } from "./shop-order-number"
+import { shopLineAmounts } from "./shop-order-view"
 
 export const PAID_STORE_ORDER_FIELDS = [
   "id",
@@ -15,6 +16,8 @@ export const PAID_STORE_ORDER_FIELDS = [
   "items.title",
   "items.quantity",
   "items.unit_price",
+  "items.total",
+  "items.subtotal",
   "items.thumbnail",
   "items.variant.sku",
   "shipping_address.first_name",
@@ -65,13 +68,17 @@ export function presentPaidStoreOrder(order: Record<string, unknown>) {
       metadata.ozon_point_address || address.address_1 || null,
     city: address.city || null,
     items: ((order.items as Array<Record<string, unknown>>) || []).map(
-      (item) => ({
-        title: item.title,
-        quantity: item.quantity,
-        sku: (item.variant as Record<string, unknown> | undefined)?.sku,
-        thumbnail: item.thumbnail || null,
-        unit_price: money(item.unit_price),
-      })
+      (item) => {
+        const amounts = shopLineAmounts(item)
+        return {
+          title: item.title,
+          quantity: amounts.quantity,
+          sku: (item.variant as Record<string, unknown> | undefined)?.sku,
+          thumbnail: item.thumbnail || null,
+          unit_price: amounts.unit_price,
+          total: amounts.total,
+        }
+      }
     ),
   }
 }

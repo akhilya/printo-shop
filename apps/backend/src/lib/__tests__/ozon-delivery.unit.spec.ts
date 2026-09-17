@@ -28,6 +28,8 @@ import {
   ozonQuoteErrorMessage,
   ozonCartArticle,
   ozonCheckoutItems,
+  ozonPaidUnitPrice,
+  applyOzonPaidGoodsTotal,
   ozonOrderItemsFromLines,
   hydrateOzonLineItems,
   ozonOrderItemsForCreate,
@@ -468,6 +470,39 @@ describe("ozonOrderCreateSplits", () => {
     expect(splits[0]?.items[0]).not.toHaveProperty("sku")
   })
 
+  it("keeps the shop paid price when checkout returns a catalog price", () => {
+    const splits = ozonOrderCreateSplits(
+      {
+        splits: [
+          {
+            warehouse_id: 1,
+            delivery_method: {
+              delivery_method_id: 7,
+              delivery_type: "PVZ",
+              timeslot_id: 3,
+              logistic_date_range: {
+                from: "2026-09-18T08:00:00Z",
+                to: "2026-09-18T12:00:00Z",
+              },
+            },
+            items: [
+              {
+                offer_id: "WA150",
+                quantity: 1,
+                price: { currency_code: "RUB", units: 2500 },
+              },
+            ],
+          },
+        ],
+      },
+      { items: [{ article: "WA150", quantity: 1, price: 1200 }] }
+    )
+    expect(splits[0]?.items[0]?.price).toEqual({
+      currency_code: "RUB",
+      units: 1200,
+    })
+  })
+
   it("rejects a checkout split without a timeslot", () => {
     expect(() =>
       ozonOrderCreateSplits(
@@ -842,6 +877,41 @@ describe("ozonOrderItemsFromLines", () => {
         quantity: 2,
         price: 640,
       },
+    ])
+  })
+
+  it("uses the paid line total after a promo, not the catalog unit price", () => {
+    expect(ozonPaidUnitPrice({ quantity: 2, unit_price: 1000, total: 1600 }, (value) => Number(value) || 0)).toBe(800)
+    expect(
+      ozonOrderItemsFromLines(
+        [
+          {
+            title: "Фигурка",
+            quantity: 1,
+            unit_price: 1500,
+            total: 1200,
+            variant_sku: "FI3",
+          },
+        ],
+        (value) => Number(value) || 0
+      )[0].price
+    ).toBe(1200)
+  })
+})
+
+describe("applyOzonPaidGoodsTotal", () => {
+  it("scales line prices to the paid goods total", () => {
+    expect(
+      applyOzonPaidGoodsTotal(
+        [
+          { article: "A", name: "A", quantity: 1, price: 1000 },
+          { article: "B", name: "B", quantity: 1, price: 1000 },
+        ],
+        1800
+      )
+    ).toEqual([
+      { article: "A", name: "A", quantity: 1, price: 900 },
+      { article: "B", name: "B", quantity: 1, price: 900 },
     ])
   })
 })

@@ -18,14 +18,20 @@ const ORDER_FIELDS = [
   "email",
   "status",
   "total",
+  "shipping_total",
   "currency_code",
   "created_at",
+  "canceled_at",
   "metadata",
   "items.title",
   "items.quantity",
   "items.unit_price",
+  "items.total",
+  "items.subtotal",
   "items.thumbnail",
   "items.variant.sku",
+  "items.variant.product.handle",
+  "items.product.handle",
   "shipping_address.address_1",
   "shipping_address.address_2",
   "shipping_address.city",
@@ -58,8 +64,11 @@ export async function loadShopOrderByNumber(
     } catch {
       return null
     }
-    let product: { title?: string | null; thumbnail?: string | null } | null =
-      null
+    let product: {
+      title?: string | null
+      thumbnail?: string | null
+      handle?: string | null
+    } | null = null
     const productId = String(row.product_id || "").trim()
     if (productId) {
       try {
@@ -67,10 +76,14 @@ export async function loadShopOrderByNumber(
           retrieveProduct: (
             id: string,
             config?: { select?: string[] }
-          ) => Promise<{ title?: string | null; thumbnail?: string | null }>
+          ) => Promise<{
+            title?: string | null
+            thumbnail?: string | null
+            handle?: string | null
+          }>
         }
         product = await productModule.retrieveProduct(productId, {
-          select: ["id", "title", "thumbnail"],
+          select: ["id", "title", "thumbnail", "handle"],
         })
       } catch {
         product = null

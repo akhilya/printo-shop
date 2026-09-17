@@ -14,7 +14,8 @@ const SPEC_LABELS = {
   "страна-изготовитель": "Страна",
   "страна производства": "Страна",
   "возрастные ограничения": "Возраст",
-  "вес с упаковкой, г": "Вес",
+  "вес, г": "Вес",
+  "вес товара": "Вес",
   вес: "Вес",
   "weight (g)": "Вес",
   "вид упаковки": "Упаковка",
@@ -89,8 +90,62 @@ export function withSpecUnit(key, label, value) {
   if (!/^\d+([.,]\d+)?$/.test(value)) return value
   const blob = `${key} ${label}`.toLowerCase()
   if (/мм|\bmm\b/.test(blob)) return `${value} мм`
-  if (label === "Вес" || /\bвес\b|weight/.test(blob)) return `${value} г`
+  if (label === "Вес" || isProductWeight(key, label)) return `${value} г`
   return value
+}
+
+function specBlob(key, label) {
+  return `${key || ""} ${label || ""}`.toLowerCase()
+}
+
+function isPackagedWeight(key, label) {
+  return /вес с упаковк|weight\s*(with|incl).*pack|package.?weight|packed.?weight/.test(
+    specBlob(key, label)
+  )
+}
+
+function isAdultFlag(key, label) {
+  return /признак\s*18|18\+|adult|nsfw|для взрослых/.test(specBlob(key, label))
+}
+
+function isYesValue(value) {
+  const text = formatSpecValue(value).toLowerCase()
+  return text === "да" || text === "true" || text === "1" || text === "yes"
+}
+
+function isAdultAgeValue(value) {
+  return /^18\+?$|^18\s*лет/.test(formatSpecValue(value).toLowerCase())
+}
+
+export function isAdultProduct(product) {
+  const attrs = parseAttributes(product?.metadata?.attributes)
+  for (const [key, raw] of Object.entries(attrs)) {
+    if (isAdultFlag(key, key) && isYesValue(raw)) return true
+    if (/возраст/.test(String(key).toLowerCase()) && isAdultAgeValue(raw)) {
+      return true
+    }
+  }
+  const explicit = parseShopSpecs(product?.metadata?.specs)
+  if (Array.isArray(explicit)) {
+    for (const item of explicit) {
+      const key = String(item?.key || item?.label || "")
+      const label = String(item?.label || key)
+      if (isAdultFlag(key, label) && isYesValue(item?.value)) return true
+      if (
+        /возраст/.test(specBlob(key, label)) &&
+        isAdultAgeValue(item?.value)
+      ) {
+        return true
+      }
+    }
+  }
+  return false
+}
+
+function isProductWeight(key, label) {
+  if (isPackagedWeight(key, label)) return false
+  const blob = specBlob(key, label)
+  return label === "Вес" || /(^|\s)(вес|weight)\b/.test(blob)
 }
 
 function parseShopSpecs(raw) {
@@ -121,7 +176,10 @@ export function productSpecs(product) {
   if (Array.isArray(explicit)) {
     for (const item of explicit) {
       const key = String(item?.key || item?.label || "").trim()
-      const label = specLabel(item?.label || key)
+      const rawLabel = String(item?.label || key)
+      if (isPackagedWeight(key, rawLabel)) continue
+      if (isAdultFlag(key, rawLabel)) continue
+      const label = specLabel(rawLabel)
       const value = formatSpecValue(item?.value)
       if (!key && !label) continue
       if (!value) continue
@@ -142,6 +200,8 @@ export function productSpecs(product) {
   for (const [rawKey, rawValue] of Object.entries(attrs)) {
     const key = String(rawKey || "").trim()
     if (!key) continue
+    if (isPackagedWeight(key, key)) continue
+    if (isAdultFlag(key, key)) continue
     const label = specLabel(key)
     let value = formatSpecValue(rawValue)
     if (!value) continue

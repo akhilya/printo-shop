@@ -1,12 +1,17 @@
 <script setup>
 import { Star } from "@lucide/vue"
 import { computed, onBeforeUnmount, ref, watch } from "vue"
-import { useRoute } from "vue-router"
+import { useRoute, useRouter } from "vue-router"
 import PhotoLightbox from "../components/PhotoLightbox.vue"
 import ProductPhoto from "../components/ProductPhoto.vue"
 import ProductRail from "../components/ProductRail.vue"
 import SelectField from "../components/SelectField.vue"
 import SiteBanner from "../components/SiteBanner.vue"
+import {
+  isAdultConfirmed,
+  isAdultProduct,
+  requestAdultConfirm,
+} from "../lib/adult-gate.js"
 import { addToCart, cartState, setQty } from "../lib/cart.js"
 import { cartLineForVariant } from "../lib/cart-line.js"
 import { reportForm } from "../lib/form-valid.js"
@@ -23,17 +28,23 @@ import {
   storeHeaders,
 } from "../lib/sdk.js"
 import { variantSalePrice } from "../lib/sales.js"
-import { OUT_OF_STOCK_LABEL, variantInStock } from "../lib/product-stock.js"
+import {
+  OUT_OF_STOCK_LABEL,
+  sortInStockFirst,
+  variantInStock,
+} from "../lib/product-stock.js"
 
 const MAX_REVIEW_PHOTOS = 6
 
 const route = useRoute()
+const router = useRouter()
 const product = ref(null)
 const related = ref([])
 const reviews = ref([])
 const active = ref(0)
 const variantId = ref("")
 const loading = ref(true)
+const allowed = ref(false)
 const error = ref("")
 const reviewForm = ref({ author: "", body: "", rating: 0 })
 const reviewPhotos = ref([])
@@ -41,6 +52,53 @@ const reviewBusy = ref(false)
 const reviewError = ref("")
 const reviewSent = ref(false)
 const lightbox = ref(null)
+let alive = true
+
+async function allowProduct(next) {
+  if (!isAdultProduct(next) || isAdultConfirmed()) {
+    allowed.value = true
+    return true
+  }
+  allowed.value = false
+  const ok = await requestAdultConfirm()
+  if (!alive) return false
+  if (!ok) {
+    router.replace("/products")
+    return false
+  }
+  allowed.value = true
+  return true
+}
+
+async function load() {
+  loading.value = true
+  allowed.value = false
+  error.value = ""
+  reviewSent.value = false
+  lightbox.value = null
+  try {
+    const { products } = await sdk.store.product.list({
+      handle: route.params.handle,
+      region_id: REGION_ID,
+      fields: productFields,
+    })
+    const next = products?.[0]
+    if (!next) {
+      throw new Error("not found")
+    }
+    product.value = next
+    variantId.value = next.variants?.[0]?.id || ""
+    active.value = 0
+    lightbox.value = null
+    loading.value = false
+    if (!(await allowProduct(next))) return
+    await Promise.all([loadRelated(next), loadReviews(next.id)])
+  } catch {
+    product.value = null
+    error.value = "Товар не найден"
+    loading.value = false
+  }
+}
 
 const images = computed(() => product.value?.images || [])
 const variants = computed(() => product.value?.variants || [])
@@ -73,34 +131,6 @@ const customOrderBanner = computed(() => {
   }
 })
 
-async function load() {
-  loading.value = true
-  error.value = ""
-  reviewSent.value = false
-  lightbox.value = null
-  try {
-    const { products } = await sdk.store.product.list({
-      handle: route.params.handle,
-      region_id: REGION_ID,
-      fields: productFields,
-    })
-    const next = products?.[0]
-    if (!next) {
-      throw new Error("not found")
-    }
-    product.value = next
-    variantId.value = next.variants?.[0]?.id || ""
-    active.value = 0
-    lightbox.value = null
-    loading.value = false
-    await Promise.all([loadRelated(next), loadReviews(next.id)])
-  } catch {
-    product.value = null
-    error.value = "Товар не найден"
-    loading.value = false
-  }
-}
-
 async function loadRelated(p) {
   related.value = []
   const collectionId = p.collection_id || p.collection?.id
@@ -112,7 +142,9 @@ async function loadRelated(p) {
       limit: 16,
       fields: productFields,
     })
-    related.value = (products || []).filter((item) => item.id !== p.id)
+    related.value = sortInStockFirst(
+      (products || []).filter((item) => item.id !== p.id)
+    )
   } catch {
     related.value = []
   }
@@ -260,6 +292,7 @@ function onLightboxIndex(index) {
 }
 
 onBeforeUnmount(() => {
+  alive = false
   clearReviewPhotos()
 })
 
@@ -269,7 +302,7 @@ watch(() => route.params.handle, load, { immediate: true })
 <template>
   <p v-if="loading" class="empty">Загрузка</p>
   <p v-else-if="error" class="err">{{ error }}</p>
-  <article v-else-if="product">
+  <article v-else-if="product && allowed">
     <div class="product" :class="{ 'is-oos': !inStock }">
       <div class="gallery">
         <button

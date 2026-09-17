@@ -80,6 +80,8 @@ export async function loadShopOrder(
       "items.title",
       "items.quantity",
       "items.unit_price",
+      "items.total",
+      "items.subtotal",
       "items.variant.sku",
       "items.variant.barcode",
       "items.variant.metadata",
@@ -194,6 +196,8 @@ async function ensureOzonIds(
       address: String(metadata.ozon_point_address || address.address_1 || ""),
     },
     amount: money(order.total),
+    shippingTotal:
+      order.shipping_total == null ? undefined : money(order.shipping_total),
     items,
   })
   const ids = extractOzonCreateIds(created)

@@ -5,6 +5,7 @@ import ProductPhoto from "../components/ProductPhoto.vue"
 import PromoField from "../components/PromoField.vue"
 import PvzPicker from "../components/PvzPicker.vue"
 import ConfirmDialog from "../components/ConfirmDialog.vue"
+import LineProduct from "../components/LineProduct.vue"
 import { checkoutConfirmFields } from "../lib/checkout-confirm.js"
 import {
   cartState,
@@ -72,6 +73,7 @@ const items = computed(() => {
       title: custom.value.title,
       thumbnail:
         custom.value.product_thumbnail || custom.value.image_urls?.[0] || "",
+      product_handle: custom.value.product_handle || "",
       quantity: 1,
       original_total: itemsAmount,
       total: Math.max(0, itemsAmount - discount),
@@ -466,10 +468,8 @@ const empty = computed(() => {
       <div class="checkout-items">
         <h2>Заказ</h2>
         <div v-for="item in items" :key="item.id" class="line">
-          <div class="matte">
-            <ProductPhoto :src="item.thumbnail || ''" :alt="item.title" />
-          </div>
-          <div>
+          <LineProduct :item="item">
+            <div>
             <div class="card-title">{{ item.title }}</div>
             <p
               v-if="item.variant?.title && item.variant.title !== 'Default'"
@@ -484,7 +484,9 @@ const empty = computed(() => {
               >{{ formatPrice(linePrices(item).original, currency) }}</span>
               {{ formatPrice(linePrices(item).current, currency) }}
             </div>
-            <div v-if="!isCustom" class="qty">
+            </div>
+          </LineProduct>
+          <div v-if="!isCustom" class="qty">
               <button
                 type="button"
                 :disabled="cartState.busy"
@@ -508,7 +510,6 @@ const empty = computed(() => {
                 Удалить
               </button>
             </div>
-          </div>
         </div>
         <p
           v-for="(block, index) in details"
@@ -606,16 +607,15 @@ const empty = computed(() => {
       @confirm="confirmPay"
     >
       <div v-for="item in items" :key="item.id" class="line">
-        <div class="matte">
-          <ProductPhoto :src="item.thumbnail || ''" :alt="item.title" />
-        </div>
-        <div>
+        <LineProduct :item="item">
+          <div>
           <div class="card-title">{{ item.title }}</div>
           <p class="muted">{{ item.quantity }} шт.</p>
           <div class="card-meta">
             {{ formatPrice(linePrices(item).current, currency) }}
           </div>
-        </div>
+          </div>
+        </LineProduct>
       </div>
       <dl class="confirm-rows">
         <div v-for="field in confirmFields" :key="field.label" class="confirm-row">

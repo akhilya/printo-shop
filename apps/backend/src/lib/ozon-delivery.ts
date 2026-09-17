@@ -1107,6 +1107,50 @@ export function ozonCartArticle(item: Record<string, unknown> | null | undefined
   return article
 }
 
+export function ozonPaidUnitPrice(
+  item: Record<string, unknown>,
+  amount: (value: unknown) => number
+) {
+  const quantity = Math.max(1, Number(item.quantity) || 1)
+  if (item.total != null) {
+    const total = amount(item.total)
+    if (total > 0) return total / quantity
+  }
+  if (item.subtotal != null) {
+    const subtotal = amount(item.subtotal)
+    if (subtotal > 0) return subtotal / quantity
+  }
+  return amount(item.unit_price)
+}
+
+export function applyOzonPaidGoodsTotal<
+  T extends { quantity: number; price: number }
+>(items: T[], paidGoods: number): T[] {
+  const rows = items.map((item) => ({
+    ...item,
+    quantity: Math.max(1, Math.round(Number(item.quantity) || 1)),
+    price: Math.max(0, Number(item.price) || 0),
+  }))
+  const target = Math.max(0, Math.round(paidGoods))
+  const sum = rows.reduce((acc, item) => acc + item.price * item.quantity, 0)
+  if (!rows.length || target <= 0 || sum <= 0 || Math.abs(sum - target) < 1) {
+    return rows
+  }
+  const factor = target / sum
+  const scaled = rows.map((item) => ({
+    ...item,
+    price: item.price * factor,
+  }))
+  const head = scaled.slice(0, -1).map((item) => ({
+    ...item,
+    price: Math.max(0, Math.round(item.price)),
+  }))
+  const used = head.reduce((acc, item) => acc + item.price * item.quantity, 0)
+  const last = scaled[scaled.length - 1]
+  last.price = Math.max(0, Math.round((target - used) / last.quantity))
+  return [...head, last]
+}
+
 export function ozonOrderItemsFromLines(
   items: Array<Record<string, unknown>>,
   amount: (value: unknown) => number
@@ -1118,7 +1162,7 @@ export function ozonOrderItemsFromLines(
       article: ozonCartArticle(item),
       name: String(product.title || item.title || "Товар"),
       quantity: Number(item.quantity || 1),
-      price: amount(item.unit_price),
+      price: ozonPaidUnitPrice(item, amount),
     }
   })
 }
@@ -1902,7 +1946,7 @@ export function ozonOrderCreateSplits(
             sku?: number
           } = {
             quantity,
-            price: ozonCreateMoney(recItem.price ?? cart?.price),
+            price: ozonCreateMoney(cart?.price ?? recItem.price),
           }
           if (offer) rowItem.offer_id = offer
           else if (sku != null && sku > 0) rowItem.sku = sku
@@ -1960,6 +2004,7 @@ async function createSellerOrder(input: {
   buyer: { name: string; phone: string; email?: string }
   point: { id: string; address: string }
   items: Array<{ article: string; name: string; quantity: number; price: number }>
+  paidGoods?: number
 }) {
   const contacts = ozonOrderContacts(input.buyer)
   if (!contacts.phone) {
@@ -1975,15 +2020,15 @@ async function createSellerOrder(input: {
       `Некорректный пункт выдачи: ${input.point.id || "пусто"}`
     )
   }
-  const cartItems = input.items.map((item) => {
-    const article = ozonOfferArticle(item.article)
-    return {
-      article,
-      quantity: item.quantity,
-      price: item.price,
-      sku: null as number | null,
-    }
-  })
+  let cartItems = input.items.map((item) => ({
+    article: ozonOfferArticle(item.article),
+    quantity: item.quantity,
+    price: item.price,
+    sku: null as number | null,
+  }))
+  if (input.paidGoods != null && input.paidGoods > 0) {
+    cartItems = applyOzonPaidGoodsTotal(cartItems, input.paidGoods)
+  }
   const skus = await sellerOfferSkus(
     input.creds,
     cartItems.map((item) => item.article)
@@ -2100,9 +2145,16 @@ export async function createOzonDeliveryOrder(input: {
   buyer: { name: string; phone: string; email?: string }
   point: { id: string; address: string }
   amount: number
+  shippingTotal?: number
   items: Array<{ article: string; name: string; quantity: number; price: number }>
 }) {
-  const { json, requests } = await createSellerOrder(input)
+  const shipping = Number(input.shippingTotal)
+  const { json, requests } = await createSellerOrder({
+    ...input,
+    paidGoods: Number.isFinite(shipping)
+      ? Math.max(0, Number(input.amount || 0) - shipping)
+      : undefined,
+  })
   const ids = await completeOzonCreateIds(input.creds, json)
   const rec = asRecord(json) || {}
   return {

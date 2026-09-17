@@ -28,7 +28,7 @@ function writeCartId(id) {
 }
 
 const CART_FIELDS =
-  "*items,*items.variant,+items.variant.metadata,*promotions,*shipping_methods"
+  "*items,*items.variant,+items.variant.metadata,*items.variant.product,+items.variant.product.handle,+items.product.handle,*promotions,*shipping_methods"
 
 async function retrieveCart(id) {
   const { cart } = await sdk.store.cart.retrieve(id, { fields: CART_FIELDS })
