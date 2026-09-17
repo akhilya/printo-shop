@@ -20,10 +20,16 @@ import {
   parseOzonPostingNumbers,
   ozonMapViewport,
   pointsInBounds,
+  clustersInBounds,
+  normalizeOzonBounds,
+  tileOzonBounds,
   quoteOzonDelivery,
   ozonQuoteErrorMessage,
   ozonCartArticle,
   ozonCheckoutItems,
+  ozonOrderItemsFromLines,
+  hydrateOzonLineItems,
+  ozonOrderItemsForCreate,
   resolveOzonMapLayers,
   sellerAuthHeaders,
   sellerAuthHeadersFor,
@@ -667,6 +673,60 @@ describe("pointsInBounds", () => {
   })
 })
 
+describe("normalizeOzonBounds", () => {
+  it("clamps a wrapped leaflet world view into valid longs", () => {
+    const bounds = normalizeOzonBounds({
+      south: 40,
+      west: -244,
+      north: 70,
+      east: 318,
+    })
+    expect(bounds.west).toBeGreaterThanOrEqual(-180)
+    expect(bounds.east).toBeLessThanOrEqual(180)
+    expect(bounds.east).toBeGreaterThan(bounds.west)
+    expect(bounds.east - bounds.west).toBeGreaterThan(100)
+  })
+})
+
+describe("tileOzonBounds", () => {
+  it("keeps a city view as one tile", () => {
+    expect(
+      tileOzonBounds({ south: 55.6, west: 37.4, north: 55.9, east: 37.8 })
+    ).toHaveLength(1)
+  })
+
+  it("splits a country-wide view into longitude strips", () => {
+    const tiles = tileOzonBounds({
+      south: 40,
+      west: 20,
+      north: 70,
+      east: 140,
+    })
+    expect(tiles.length).toBeGreaterThan(1)
+    expect(tiles[0]?.west).toBe(20)
+    expect(tiles.at(-1)?.east).toBe(140)
+    expect(tiles.every((tile) => tile.east - tile.west <= 50.0001)).toBe(true)
+  })
+})
+
+describe("clustersInBounds", () => {
+  it("keeps clusters on the right of a wide viewport", () => {
+    const clusters = Array.from({ length: 120 }, (_, i) => ({
+      count: 3,
+      lat: 55,
+      lon: 20 + i,
+    }))
+    const visible = clustersInBounds(clusters, {
+      south: 40,
+      west: 20,
+      north: 70,
+      east: 140,
+    })
+    expect(visible.some((item) => item.lon >= 100)).toBe(true)
+    expect(visible.some((item) => item.lon <= 40)).toBe(true)
+  })
+})
+
 describe("nearestOzonPoints", () => {
   it("keeps the closest points", () => {
     const nearest = nearestOzonPoints(
@@ -746,8 +806,77 @@ describe("ozonCartArticle", () => {
     ).toBe("GE57")
   })
 
+  it("reads variant_sku from the order line snapshot", () => {
+    expect(
+      ozonCartArticle({ id: "ordli_1", title: "Фигурка", variant_sku: "GE57" })
+    ).toBe("GE57")
+  })
+
   it("does not send a medusa line id as an ozon article", () => {
     expect(ozonCartArticle({ id: "orli_1", title: "Varesa" })).toBe("")
+    expect(
+      ozonCartArticle({ id: "ordli_1", variant: { sku: "ordli_1" } })
+    ).toBe("")
+  })
+})
+
+describe("ozonOrderItemsFromLines", () => {
+  it("takes offer_id from the order snapshot, not the line id", () => {
+    expect(
+      ozonOrderItemsFromLines(
+        [
+          {
+            id: "ordli_1",
+            title: "Фигурка",
+            quantity: 2,
+            unit_price: 640,
+            variant_sku: "GE57",
+          },
+        ],
+        (value) => Number(value) || 0
+      )
+    ).toEqual([
+      {
+        article: "GE57",
+        name: "Фигурка",
+        quantity: 2,
+        price: 640,
+      },
+    ])
+  })
+})
+
+describe("hydrateOzonLineItems", () => {
+  it("fills sku from the product catalog when the order line has no snapshot", async () => {
+    const items = await ozonOrderItemsForCreate(
+      [
+        {
+          id: "ordli_1",
+          title: "Фигурка",
+          quantity: 1,
+          unit_price: 640,
+          variant_id: "variant_01ABC",
+        },
+      ],
+      (value) => Number(value) || 0,
+      async () => [{ id: "variant_01ABC", sku: "GE57" }]
+    )
+    expect(items).toEqual([
+      {
+        article: "GE57",
+        name: "Фигурка",
+        quantity: 1,
+        price: 640,
+      },
+    ])
+    expect(
+      hydrateOzonLineItems(
+        [{ variant_id: "variant_01ABC", title: "Фигурка" }],
+        [{ id: "variant_01ABC", sku: "GE57" }]
+      )[0]
+    ).toMatchObject({
+      variant: { sku: "GE57" },
+    })
   })
 })
 
@@ -776,6 +905,16 @@ describe("ozonCheckoutItems", () => {
         quantity: 1,
       },
     ])
+  })
+
+  it("drops items without a real offer_id or sku", () => {
+    expect(
+      ozonCheckoutItems([
+        { article: "ordli_1", quantity: 1 },
+        { article: "", quantity: 1 },
+        { article: "sku", quantity: 1 },
+      ])
+    ).toEqual([])
   })
 })
 
@@ -974,6 +1113,21 @@ describe("quoteOzonDelivery", () => {
         },
       ],
     })
+  })
+
+  it("does not call ozon when line items have no offer_id or sku", async () => {
+    global.fetch = jest.fn() as typeof fetch
+    await expect(
+      createOzonDeliveryOrder({
+        creds: sellerInput.creds,
+        orderNumber: "10",
+        buyer: { name: "Иван Петров", phone: sellerInput.phone },
+        point: { id: "77", address: "Тверская 1" },
+        amount: 1500,
+        items: [{ article: "ordli_1", name: "Фигурка", quantity: 1, price: 1500 }],
+      })
+    ).rejects.toThrow(/нет sku\/offer_id/)
+    expect(global.fetch).not.toHaveBeenCalled()
   })
 })
 
@@ -1231,5 +1385,34 @@ describe("loadOzonPoints", () => {
       String(call[0]).includes("api-seller.ozon.ru")
     )
     expect(ozonCalls).toHaveLength(1)
+  })
+
+  it("asks Ozon for longitude strips when the map is zoomed far out", async () => {
+    const payload = {
+      clusters: [
+        {
+          points_count: 8,
+          coordinate: { lat: 55.7, long: 37.6 },
+        },
+      ],
+    }
+    global.fetch = jest.fn().mockResolvedValue({
+      ok: true,
+      headers: { get: () => "application/json" },
+      arrayBuffer: async () => Buffer.from(JSON.stringify(payload)),
+    })
+    await loadOzonPoints(
+      { ozon_client_id: "app-uuid", ozon_oauth_token: "aaa.bbb.ccc" },
+      { zoom: 4, south: 40, west: 20, north: 75, east: 140 }
+    )
+    const mapCalls = (global.fetch as jest.Mock).mock.calls.filter((call) =>
+      String(call[0]).includes("/v1/delivery/map")
+    )
+    expect(mapCalls.length).toBeGreaterThan(1)
+    const wests = mapCalls.map(
+      (call) => JSON.parse(String(call[1].body)).viewport.left_bottom.long
+    )
+    expect(Math.min(...wests)).toBe(20)
+    expect(Math.max(...wests)).toBeGreaterThan(50)
   })
 })

@@ -64,6 +64,7 @@ export async function applyOzonShippingToCart(
       "items.unit_price",
       "items.variant_id",
       "items.variant.sku",
+      "items.variant_sku",
       "items.variant.weight",
       "shipping_methods.id",
       "shipping_methods.name",

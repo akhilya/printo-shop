@@ -1,5 +1,5 @@
 import { MedusaContainer } from "@medusajs/framework"
-import { ContainerRegistrationKeys } from "@medusajs/framework/utils"
+import { ContainerRegistrationKeys, Modules } from "@medusajs/framework/utils"
 import { ozonTrackingUrl } from "./ozon-delivery"
 import { ensureMedusaShopNumber } from "./shop-order-number"
 
@@ -82,11 +82,23 @@ export async function loadPaidStoreOrderByCartId(
 ) {
   const id = String(cartId || "").trim()
   if (!id) return null
+  const orderModule = container.resolve(Modules.ORDER) as {
+    listOrders: (
+      filters: { cart_id: string },
+      config?: { take?: number; select?: string[] }
+    ) => Promise<Array<{ id?: string }>>
+  }
+  const [found] = await orderModule.listOrders(
+    { cart_id: id },
+    { take: 1, select: ["id"] }
+  )
+  const orderId = String(found?.id || "").trim()
+  if (!orderId) return null
   const query = container.resolve(ContainerRegistrationKeys.QUERY)
   const { data } = await query.graph({
     entity: "order",
     fields: PAID_STORE_ORDER_FIELDS,
-    filters: { cart_id: id },
+    filters: { id: orderId },
   })
   const order = ((data ?? [])[0] || null) as Record<string, unknown> | null
   if (!order?.id) return null

@@ -5,6 +5,7 @@ import {
   extractOzonCreateIds,
   firstText,
   ozonCredsFromRow,
+  ozonOrderItemsForCreate,
   ozonPackErrorMessage,
   ozonTrackingUrl,
   type OzonCreds,
@@ -80,6 +81,12 @@ export async function loadShopOrder(
       "items.quantity",
       "items.unit_price",
       "items.variant.sku",
+      "items.variant.barcode",
+      "items.variant.metadata",
+      "items.variant_sku",
+      "items.sku",
+      "items.variant_id",
+      "items.metadata",
       "items.variant.product.title",
       "items.thumbnail",
       "shipping_total",
@@ -148,18 +155,32 @@ async function ensureOzonIds(
   const name =
     [address.first_name, address.last_name].filter(Boolean).join(" ").trim() ||
     "Покупатель"
-  const items = ((order.items as Array<Record<string, unknown>>) || []).map(
-    (item) => {
-      const variant = (item.variant || {}) as Record<string, unknown>
-      const product = (variant.product || {}) as Record<string, unknown>
-      return {
-        article: String(variant.sku || item.id || "sku"),
-        name: String(product.title || item.title || "Товар"),
-        quantity: Number(item.quantity || 1),
-        price: money(item.unit_price),
-      }
+  const items = await ozonOrderItemsForCreate(
+    (order.items as Array<Record<string, unknown>>) || [],
+    money,
+    async (ids) => {
+      const productModule = container.resolve(Modules.PRODUCT)
+      const rows = await productModule.listProductVariants(
+        { id: ids },
+        { select: ["id", "sku", "barcode", "metadata"] }
+      )
+      return rows.map((row) => ({
+        id: row.id,
+        sku: row.sku,
+        barcode: row.barcode,
+        metadata: (row.metadata || {}) as Record<string, unknown>,
+      }))
     }
   )
+  if (items.some((item) => !item.article)) {
+    throw new MedusaError(
+      MedusaError.Types.INVALID_DATA,
+      `Нет артикула Ozon у позиций: ${items
+        .filter((item) => !item.article)
+        .map((item) => item.name)
+        .join(", ")}`
+    )
+  }
   const created = await createOzonDeliveryOrder({
     creds,
     orderNumber: String(metadata.shop_number || order.display_id || order.id),

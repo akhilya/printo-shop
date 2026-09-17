@@ -142,6 +142,7 @@ function pvzCacheKey(
   bounds: OzonBounds,
   zoom: number
 ) {
+  const view = normalizeOzonBounds(bounds)
   const z = Number.isFinite(zoom) ? zoom : 12
   const pin = z >= PVZ_PIN_ZOOM
   const zoomKey = pin ? PVZ_PIN_ZOOM : Math.max(0, Math.floor(z / 2) * 2)
@@ -149,10 +150,10 @@ function pvzCacheKey(
   return [
     clientId || "anon",
     zoomKey,
-    quantizeCoord(bounds.south, digits),
-    quantizeCoord(bounds.west, digits),
-    quantizeCoord(bounds.north, digits),
-    quantizeCoord(bounds.east, digits),
+    quantizeCoord(view.south, digits),
+    quantizeCoord(view.west, digits),
+    quantizeCoord(view.north, digits),
+    quantizeCoord(view.east, digits),
   ].join(":")
 }
 
@@ -720,6 +721,84 @@ export type OzonBounds = {
   east: number
 }
 
+function clampOzonLat(value: number) {
+  return Math.max(-85, Math.min(85, value))
+}
+
+function tileLonStrip(
+  south: number,
+  west: number,
+  north: number,
+  east: number,
+  maxLonSpan: number
+): OzonBounds[] {
+  const span = east - west
+  if (span <= 0) return []
+  if (span <= maxLonSpan) {
+    return [{ south, west, north, east }]
+  }
+  const count = Math.min(6, Math.max(2, Math.ceil(span / maxLonSpan)))
+  const step = span / count
+  const tiles: OzonBounds[] = []
+  for (let i = 0; i < count; i++) {
+    tiles.push({
+      south,
+      north,
+      west: west + i * step,
+      east: i === count - 1 ? east : west + (i + 1) * step,
+    })
+  }
+  return tiles
+}
+
+export function normalizeOzonBounds(bounds: OzonBounds): OzonBounds {
+  let south = clampOzonLat(bounds.south)
+  let north = clampOzonLat(bounds.north)
+  let west = bounds.west
+  let east = bounds.east
+  if (north < south) {
+    const swap = south
+    south = north
+    north = swap
+  }
+  if (east < west) east += 360
+  if (east - west > 360) {
+    const mid = (west + east) / 2
+    west = mid - 180
+    east = mid + 180
+  }
+  while (east < -180) {
+    west += 360
+    east += 360
+  }
+  while (west > 180) {
+    west -= 360
+    east -= 360
+  }
+  west = Math.max(-180, west)
+  east = Math.min(180, east)
+  if (east <= west) {
+    return { south, west: 19, north, east: 180 }
+  }
+  return { south, west, north, east }
+}
+
+export function tileOzonBounds(
+  bounds: OzonBounds,
+  maxLonSpan = 50
+): OzonBounds[] {
+  const south = clampOzonLat(Math.min(bounds.south, bounds.north))
+  const north = clampOzonLat(Math.max(bounds.north, bounds.south))
+  if (bounds.east < bounds.west) {
+    return [
+      ...tileLonStrip(south, bounds.west, north, 180, maxLonSpan),
+      ...tileLonStrip(south, -180, north, bounds.east, maxLonSpan),
+    ].slice(0, 6)
+  }
+  const view = normalizeOzonBounds(bounds)
+  return tileLonStrip(south, view.west, north, view.east, maxLonSpan)
+}
+
 export function nearestOzonPoints(
   points: OzonPoint[],
   center: { lat: number; lon: number },
@@ -737,41 +816,67 @@ export function nearestOzonPoints(
 export function clustersInBounds(
   clusters: OzonMapCluster[],
   bounds: OzonBounds,
-  limit = 80
+  limit = 400
 ) {
-  const padLat = Math.max((bounds.north - bounds.south) * 0.02, 0.002)
-  const padLon = Math.max((bounds.east - bounds.west) * 0.02, 0.002)
-  return clusters
-    .filter(
-      (item) =>
-        item.lat >= bounds.south - padLat &&
-        item.lat <= bounds.north + padLat &&
-        item.lon >= bounds.west - padLon &&
-        item.lon <= bounds.east + padLon
-    )
-    .slice(0, limit)
+  const view = normalizeOzonBounds(bounds)
+  const padLat = Math.max((view.north - view.south) * 0.02, 0.002)
+  const padLon = Math.max((view.east - view.west) * 0.02, 0.002)
+  const inView = clusters.filter(
+    (item) =>
+      item.lat >= view.south - padLat &&
+      item.lat <= view.north + padLat &&
+      item.lon >= view.west - padLon &&
+      item.lon <= view.east + padLon
+  )
+  if (inView.length <= limit) return inView
+  const sorted = [...inView].sort(
+    (a, b) => a.lon - b.lon || a.lat - b.lat
+  )
+  const step = sorted.length / limit
+  const out: OzonMapCluster[] = []
+  const seen = new Set<number>()
+  for (let i = 0; i < limit; i++) {
+    const index = Math.min(sorted.length - 1, Math.floor(i * step))
+    if (seen.has(index)) continue
+    seen.add(index)
+    out.push(sorted[index])
+  }
+  return out
 }
 
 export function pointsInBounds(
   points: OzonPoint[],
   bounds: OzonBounds,
-  limit = 200
+  limit = 400
 ) {
-  const padLat = Math.max((bounds.north - bounds.south) * 0.02, 0.002)
-  const padLon = Math.max((bounds.east - bounds.west) * 0.02, 0.002)
-  const south = bounds.south - padLat
-  const north = bounds.north + padLat
-  const west = bounds.west - padLon
-  const east = bounds.east + padLon
-  return points
-    .filter(
-      (point) =>
-        point.lat >= south &&
-        point.lat <= north &&
-        point.lon >= west &&
-        point.lon <= east
-    )
-    .slice(0, limit)
+  const view = normalizeOzonBounds(bounds)
+  const padLat = Math.max((view.north - view.south) * 0.02, 0.002)
+  const padLon = Math.max((view.east - view.west) * 0.02, 0.002)
+  const south = view.south - padLat
+  const north = view.north + padLat
+  const west = view.west - padLon
+  const east = view.east + padLon
+  const inView = points.filter(
+    (point) =>
+      point.lat >= south &&
+      point.lat <= north &&
+      point.lon >= west &&
+      point.lon <= east
+  )
+  if (inView.length <= limit) return inView
+  const sorted = [...inView].sort(
+    (a, b) => a.lon - b.lon || a.lat - b.lat
+  )
+  const step = sorted.length / limit
+  const out: OzonPoint[] = []
+  const seen = new Set<number>()
+  for (let i = 0; i < limit; i++) {
+    const index = Math.min(sorted.length - 1, Math.floor(i * step))
+    if (seen.has(index)) continue
+    seen.add(index)
+    out.push(sorted[index])
+  }
+  return out
 }
 
 export function boundsFromCenter(
@@ -803,14 +908,11 @@ function parseBounds(input: {
   const west = Number(input.west)
   const north = Number(input.north)
   const east = Number(input.east)
-  if (
-    ![south, west, north, east].every(Number.isFinite) ||
-    north <= south ||
-    east <= west
-  ) {
+  if (![south, west, north, east].every(Number.isFinite) || north === south) {
     return null
   }
-  return { south, west, north, east }
+  if (east === west && Math.abs(east) <= 180) return null
+  return normalizeOzonBounds({ south, west, north, east })
 }
 
 export function ozonTrackingUrl(orderNumber?: string | null) {
@@ -916,9 +1018,18 @@ async function sellerOfferSkus(creds: OzonCreds, articles: string[]) {
   const ids = [...new Set(articles.map((row) => String(row || "").trim()).filter(Boolean))]
   if (!ids.length) return new Map<string, number>()
   const attempts: Array<{ path: string; body: Record<string, unknown> }> = [
-    { path: "/v3/product/info/list", body: { offer_id: ids } },
+    { path: "/v3/product/info/list", body: { offer_id: ids, product_id: [], sku: [] } },
     { path: "/v2/product/info/list", body: { offer_id: ids } },
   ]
+  const numeric = ids
+    .map((id) => Number(id))
+    .filter((id) => Number.isFinite(id) && id > 0)
+  if (numeric.length) {
+    attempts.unshift({
+      path: "/v3/product/info/list",
+      body: { offer_id: [], product_id: [], sku: numeric },
+    })
+  }
   for (const attempt of attempts) {
     try {
       const map = collectOfferSkus(await sellerPost(creds, attempt.path, attempt.body))
@@ -934,9 +1045,101 @@ export function ozonCartArticle(item: Record<string, unknown> | null | undefined
   const rec = asRecord(item)
   if (!rec) return ""
   const variant = asRecord(rec.variant) || {}
-  const article = firstText(variant.sku, rec.variant_sku)
+  const meta = {
+    ...(asRecord(rec.metadata) || {}),
+    ...(asRecord(variant.metadata) || {}),
+  }
+  const article = firstText(
+    variant.sku,
+    rec.variant_sku,
+    rec.sku,
+    rec.article,
+    rec.product_sku,
+    variant.barcode,
+    rec.variant_barcode,
+    meta.sku,
+    meta.offer_id,
+    meta.ozon_offer_id
+  )
   if (!article || article === "sku") return ""
+  if (/^(orli_|ordli_|item_|prod_|variant_|var_|order_)/i.test(article)) {
+    return ""
+  }
+  if (/^[a-z]+_01[A-Z0-9]{16,}$/i.test(article)) return ""
   return article
+}
+
+export function ozonOrderItemsFromLines(
+  items: Array<Record<string, unknown>>,
+  amount: (value: unknown) => number
+) {
+  return items.map((item) => {
+    const variant = asRecord(item.variant) || {}
+    const product = asRecord(variant.product) || {}
+    return {
+      article: ozonCartArticle(item),
+      name: String(product.title || item.title || "Товар"),
+      quantity: Number(item.quantity || 1),
+      price: amount(item.unit_price),
+    }
+  })
+}
+
+export function hydrateOzonLineItems(
+  items: Array<Record<string, unknown>>,
+  variants: Array<Record<string, unknown>>
+) {
+  const byId = new Map<string, Record<string, unknown>>()
+  for (const variant of variants) {
+    const id = firstText(variant.id)
+    if (id) byId.set(id, variant)
+  }
+  return items.map((item) => {
+    if (ozonCartArticle(item)) return item
+    const variantId = firstText(item.variant_id, asRecord(item.variant)?.id)
+    const found = variantId ? byId.get(variantId) : undefined
+    if (!found) return item
+    return {
+      ...item,
+      variant: {
+        ...(asRecord(item.variant) || {}),
+        sku: found.sku ?? asRecord(item.variant)?.sku,
+        barcode: found.barcode ?? asRecord(item.variant)?.barcode,
+        metadata: {
+          ...(asRecord(asRecord(item.variant)?.metadata) || {}),
+          ...(asRecord(found.metadata) || {}),
+        },
+      },
+    }
+  })
+}
+
+export async function ozonOrderItemsForCreate(
+  items: Array<Record<string, unknown>>,
+  amount: (value: unknown) => number,
+  loadVariants?: (
+    ids: string[]
+  ) => Promise<Array<Record<string, unknown>>>
+) {
+  let lines = items
+  if (loadVariants) {
+    const ids = [
+      ...new Set(
+        lines
+          .filter((item) => !ozonCartArticle(item))
+          .map((item) => firstText(item.variant_id, asRecord(item.variant)?.id))
+          .filter(Boolean)
+      ),
+    ]
+    if (ids.length) {
+      lines = hydrateOzonLineItems(lines, await loadVariants(ids))
+    }
+  }
+  return ozonOrderItemsFromLines(lines, amount)
+}
+
+export function ozonOfferArticle(value: unknown) {
+  return ozonCartArticle({ article: value, sku: value })
 }
 
 export function ozonCheckoutItems(
@@ -944,7 +1147,7 @@ export function ozonCheckoutItems(
 ) {
   return items
     .map((item) => {
-      const offerId = String(item.article || "").trim()
+      const offerId = ozonOfferArticle(item.article)
       const sku = Number(item.sku)
       const row: { offer_id?: string; sku?: number; quantity: number } = {
         quantity: Math.max(1, Math.round(Number(item.quantity) || 1)),
@@ -971,27 +1174,33 @@ async function quoteSellerDelivery(input: {
   if (!input.point.id) return null
   const phone = normalizeOzonPhone(input.phone || "")
   const mapPointId = Number(input.point.id) || input.point.id
+  const quotedItems = input.items.map((item) => ({
+    ...item,
+    article: ozonOfferArticle(item.article),
+  }))
   const skus = await sellerOfferSkus(
     input.creds,
-    input.items.map((item) => item.article)
+    quotedItems.map((item) => item.article)
   )
   const fromPlaceId = Number(input.creds.fromPlaceId)
+  const checkoutItems = ozonCheckoutItems(
+    quotedItems.map((item) => ({
+      article: item.article,
+      quantity: item.quantity,
+      sku:
+        skus.get(item.article) ??
+        (Number.isFinite(Number(item.article)) && Number(item.article) > 0
+          ? Number(item.article)
+          : null),
+    }))
+  )
+  if (!checkoutItems.length) return null
   const body: Record<string, unknown> = {
     delivery_schema: "FBS",
     delivery_type: {
       pick_up: { map_point_id: mapPointId },
     },
-    items: ozonCheckoutItems(
-      input.items.map((item) => ({
-        article: item.article,
-        quantity: item.quantity,
-        sku:
-          skus.get(item.article) ??
-          (Number.isFinite(Number(item.article)) && Number(item.article) > 0
-            ? Number(item.article)
-            : null),
-      }))
-    ),
+    items: checkoutItems,
   }
   if (Number.isFinite(fromPlaceId) && fromPlaceId > 0) {
     body.from_place_id = fromPlaceId
@@ -1232,18 +1441,45 @@ async function enrichSellerPoints(creds: OzonCreds, points: OzonPoint[]) {
 }
 
 export function ozonMapViewport(bounds: OzonBounds) {
+  const view = normalizeOzonBounds(bounds)
   return {
-    left_bottom: { lat: bounds.south, long: bounds.west },
-    right_top: { lat: bounds.north, long: bounds.east },
+    left_bottom: { lat: view.south, long: view.west },
+    right_top: { lat: view.north, long: view.east },
   }
 }
 
-async function loadSellerPoints(
+function mergeSellerMapParts(
+  parts: Array<{ points: OzonPoint[]; clusters: OzonMapCluster[] }>,
+  bounds: OzonBounds
+) {
+  const points: OzonPoint[] = []
+  const clusters: OzonMapCluster[] = []
+  const seenPoint = new Set<string>()
+  const seenCluster = new Set<string>()
+  for (const part of parts) {
+    for (const point of part.points) {
+      if (seenPoint.has(point.id)) continue
+      seenPoint.add(point.id)
+      points.push(point)
+    }
+    for (const cluster of part.clusters) {
+      const key = `${cluster.lat}:${cluster.lon}:${cluster.count}`
+      if (seenCluster.has(key)) continue
+      seenCluster.add(key)
+      clusters.push(cluster)
+    }
+  }
+  return {
+    points: pointsInBounds(points, bounds),
+    clusters: clustersInBounds(clusters, bounds),
+  }
+}
+
+async function loadSellerMapTile(
   creds: OzonCreds,
   bounds: OzonBounds,
-  _center: { lat: number; lon: number },
   zoom: number
-): Promise<{ points: OzonPoint[]; clusters: OzonMapCluster[] }> {
+): Promise<{ points: OzonPoint[]; clusters: OzonMapCluster[] } | null> {
   try {
     const raw = await sellerPost(creds, "/v1/delivery/map", {
       zoom: Math.round(Math.min(19, Math.max(0, zoom))),
@@ -1275,14 +1511,40 @@ async function loadSellerPoints(
         return { points: inView, clusters: [] }
       }
     }
-    if (zoom < PVZ_PIN_ZOOM && (fromMap.length || clusters.length)) {
+    if (fromMap.length || clusters.length) {
       return {
-        points: await enrichSellerPoints(creds, fromMap),
+        points:
+          zoom < PVZ_PIN_ZOOM
+            ? await enrichSellerPoints(creds, fromMap)
+            : fromMap,
         clusters,
       }
     }
+    return { points: [], clusters: [] }
   } catch {
-    // Fall through to the full list, then clip to the viewport.
+    return null
+  }
+}
+
+async function loadSellerPoints(
+  creds: OzonCreds,
+  bounds: OzonBounds,
+  _center: { lat: number; lon: number },
+  zoom: number
+): Promise<{ points: OzonPoint[]; clusters: OzonMapCluster[] }> {
+  const tiles = tileOzonBounds(bounds)
+  const parts = (
+    await Promise.all(
+      tiles.map((tile) => loadSellerMapTile(creds, tile, zoom))
+    )
+  ).filter(
+    (
+      part
+    ): part is { points: OzonPoint[]; clusters: OzonMapCluster[] } =>
+      Boolean(part && (part.points.length || part.clusters.length))
+  )
+  if (parts.length) {
+    return mergeSellerMapParts(parts, bounds)
   }
   const raw = await sellerPost(creds, "/v1/delivery/point/list", {})
   return {
@@ -1673,20 +1935,26 @@ async function createSellerOrder(input: {
       `Некорректный пункт выдачи: ${input.point.id || "пусто"}`
     )
   }
+  const cartItems = input.items.map((item) => {
+    const article = ozonOfferArticle(item.article)
+    return {
+      article,
+      quantity: item.quantity,
+      price: item.price,
+      sku: null as number | null,
+    }
+  })
   const skus = await sellerOfferSkus(
     input.creds,
-    input.items.map((item) => item.article)
+    cartItems.map((item) => item.article)
   )
-  const cartItems = input.items.map((item) => ({
-    article: item.article,
-    quantity: item.quantity,
-    price: item.price,
-    sku:
+  for (const item of cartItems) {
+    item.sku =
       skus.get(item.article) ??
       (Number.isFinite(Number(item.article)) && Number(item.article) > 0
         ? Number(item.article)
-        : null),
-  }))
+        : null)
+  }
   const checkoutBody: Record<string, unknown> = {
     buyer_phone: contacts.phone,
     delivery_type: {
@@ -1699,6 +1967,19 @@ async function createSellerOrder(input: {
         sku: item.sku,
       }))
     ),
+  }
+  const checkoutItems = checkoutBody.items as unknown[]
+  if (!Array.isArray(checkoutItems) || !checkoutItems.length) {
+    const labels = input.items
+      .map((item) => item.article || item.name)
+      .filter(Boolean)
+      .join(", ")
+    throw new MedusaError(
+      MedusaError.Types.INVALID_DATA,
+      labels
+        ? `Ozon: нет sku/offer_id у позиций (${labels})`
+        : "Ozon: в заказе нет артикулов sku/offer_id"
+    )
   }
   const fromPlaceId = Number(input.creds.fromPlaceId)
   if (Number.isFinite(fromPlaceId) && fromPlaceId > 0) {
