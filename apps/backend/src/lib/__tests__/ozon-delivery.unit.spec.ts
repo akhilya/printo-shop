@@ -684,7 +684,7 @@ describe("ozonQuoteErrorMessage", () => {
       ozonQuoteErrorMessage(
         new Error('checkout FBS: Ozon HTTP 403: {"code":7,"message":"method is not allowed"}')
       )
-    ).toMatch(/кабинет/)
+    ).toMatch(/доставку|пункты/i)
   })
 
   it("explains an oauth-client token", () => {
@@ -694,7 +694,7 @@ describe("ozonQuoteErrorMessage", () => {
           'Ozon HTTP 403: {"code":7,"message":"token must be issued for seller, not oauth-client"}'
         )
       )
-    ).toMatch(/кабинет/)
+    ).toMatch(/доставку|пункты/i)
   })
 
   it("explains a missing delivery service on the app", () => {
@@ -702,7 +702,7 @@ describe("ozonQuoteErrorMessage", () => {
       ozonQuoteErrorMessage(
         new Error('Ozon HTTP 403: {"code":7,"message":"no access for this service"}')
       )
-    ).toMatch(/Ozon Доставка/)
+    ).toMatch(/доставку|пункты/i)
   })
 
   it("explains an invalid refresh token without Ozon jargon", () => {
@@ -711,8 +711,16 @@ describe("ozonQuoteErrorMessage", () => {
         'Ozon HTTP 400: {"code":3, "message":"invalid_refresh_token", "details":[]}'
       )
     )
-    expect(message).toMatch(/Подключите кабинет/)
-    expect(message).not.toMatch(/invalid_refresh_token|HTTP 400/i)
+    expect(message).toMatch(/доставку|пункты/i)
+    expect(message).not.toMatch(/invalid_refresh_token|HTTP 400|code|JSON|\{/i)
+  })
+
+  it("never returns Ozon JSON or HTTP status to the shopper", () => {
+    const message = ozonQuoteErrorMessage(
+      new Error('Ozon HTTP 400: {"code":9,"message":"unexpected_blob"}')
+    )
+    expect(message).toMatch(/[А-Яа-яЁё]/)
+    expect(message).not.toMatch(/HTTP \d+|unexpected_blob|\{|"code"/i)
   })
 })
 
@@ -791,6 +799,6 @@ describe("loadOzonPoints", () => {
     expect(result.configured).toBe(false)
     expect(result.points).toEqual([])
     expect(result.center).toEqual({ lat: 55.75, lon: 37.61 })
-    expect(result.message).toMatch(/Подключите Ozon/)
+    expect(result.message).toMatch(/пункты выдачи/)
   })
 })

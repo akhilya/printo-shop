@@ -648,29 +648,26 @@ export function ozonTrackingUrl(orderNumber?: string | null) {
 
 export function ozonQuoteErrorMessage(error: unknown, fromPlaceId = "") {
   const raw = error instanceof Error ? error.message : String(error || "")
-  if (/no access for this service|logistic is disabled/i.test(raw)) {
-    return "У приложения нет доступа к Ozon Доставка. Добавьте этот API в приложение и подключите его в кабинете."
+  if (
+    /no access for this service|logistic is disabled|oauth-client|issued for seller|method is not allowed|invalid number of segments|failed to parse access token|invalid_refresh_token|HTTP 401|unauthorized|access_token|invalid_client/i.test(
+      raw
+    )
+  ) {
+    return fromPlaceId
+      ? "Не удалось посчитать доставку"
+      : "Не удалось загрузить пункты выдачи."
   }
-  if (/oauth-client|issued for seller/i.test(raw)) {
-    return "Подключите кабинет продавца к приложению в настройках магазина."
+  if (/Ozon HTTP|\bHTTP \s*\d+|[{"]/.test(raw)) {
+    return fromPlaceId
+      ? "Не удалось посчитать доставку"
+      : "Не удалось загрузить пункты выдачи."
   }
-  if (/method is not allowed/i.test(raw)) {
-    return "Подключите кабинет продавца Ozon в настройках магазина."
+  if (/[А-Яа-яЁё]/.test(raw) && !/[A-Za-z]{4,}/.test(raw.replace(/Ozon/gi, ""))) {
+    return raw.slice(0, 280)
   }
-  if (/invalid number of segments|failed to parse access token/i.test(raw)) {
-    return "Ozon не принял доступ приложения. Подключите кабинет продавца заново."
-  }
-  if (/invalid_refresh_token/i.test(raw)) {
-    return "Подключите кабинет продавца Ozon в настройках магазина."
-  }
-  if (/HTTP 401|unauthorized|access_token|invalid_client/i.test(raw)) {
-    return "Ozon не принял доступ кабинета. Подключите приложение заново."
-  }
-  const text = raw.replace(/^Ozon HTTP \d+:\s*/i, "").trim()
-  if (text && !/^keys=/i.test(text)) return text.slice(0, 280)
   return fromPlaceId
-    ? "Ozon не вернул тариф доставки"
-    : "В настройках не выбран пункт сдачи Ozon"
+    ? "Не удалось посчитать доставку"
+    : "Не удалось загрузить пункты выдачи."
 }
 
 export function extractOzonAmount(raw: unknown): number | null {
@@ -1101,7 +1098,7 @@ export async function loadOzonPoints(
       points: [] as OzonPoint[],
       clusters: [] as OzonMapCluster[],
       center,
-      message: "Подключите Ozon Доставку в настройках магазина.",
+      message: "Не удалось загрузить пункты выдачи.",
     }
   }
   try {

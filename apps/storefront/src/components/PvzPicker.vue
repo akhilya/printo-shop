@@ -6,7 +6,7 @@ import {
   mergeNearbyClusters,
   showPvzClusters,
 } from "../lib/pvz-cluster.js"
-import { BACKEND_URL, storeHeaders } from "../lib/sdk.js"
+import { BACKEND_URL, shopError, storeHeaders } from "../lib/sdk.js"
 
 const props = defineProps({
   phone: { type: String, default: "" },
@@ -23,7 +23,7 @@ const loading = ref(false)
 
 const statusText = computed(() => {
   if (!configured.value) {
-    return "Ozon Доставка ещё не подключена в настройках магазина."
+    return "Не удалось загрузить пункты выдачи."
   }
   if (loading.value) return "Ищем пункты в кадре…"
   return message.value || "\u00a0"
@@ -156,7 +156,9 @@ async function loadPoints() {
     configured.value = data.configured !== false
     points.value = data.points || []
     clusters.value = data.clusters || []
-    message.value = data.message || ""
+    message.value = data.message
+      ? shopError(data.message, "Не удалось загрузить пункты выдачи.")
+      : ""
     await nextTick()
     resizeMap()
     paintMarkers()
@@ -189,6 +191,12 @@ async function goToQuery() {
     })
     const data = await res.json()
     configured.value = data.configured !== false
+    if (data.message) {
+      message.value = shopError(
+        data.message,
+        "Не удалось найти это место."
+      )
+    }
     if (data.center) {
       map.setView([data.center.lat, data.center.lon], 12)
     }

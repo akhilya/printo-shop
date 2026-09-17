@@ -407,7 +407,7 @@ async function submit(event) {
     !shopState.ozonConfigured &&
     shopState.ozonQuoteMode !== "fixed"
   ) {
-    error.value = "Ozon Доставка ещё не подключена"
+    error.value = "Сейчас нельзя оформить доставку. Попробуйте позже."
     return
   }
   if (!isCustom.value && !cartState.cart?.id) {

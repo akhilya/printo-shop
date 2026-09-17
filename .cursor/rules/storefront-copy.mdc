@@ -1,0 +1,12 @@
+---
+description: Storefront copy is Russian and non-technical
+alwaysApply: true
+---
+
+# No technical text on the storefront
+
+`apps/storefront` and any store API payload the shop page renders are for the buyer. Russian, short, human.
+
+Never show HTTP statuses, JSON, stack traces, English exception text, field names, URLs, token/OAuth/Medusa/Ozon API codes, or admin instructions ("подключите кабинет", "API", "настройках магазина").
+
+Sanitize at the boundary: map backend errors to a generic line before they reach the template (`Не удалось загрузить пункты выдачи.`, `Не удалось посчитать доставку.`). If unsure, use the fallback. Logs and admin UI may stay specific.

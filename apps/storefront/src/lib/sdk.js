@@ -1,4 +1,5 @@
 import Medusa from "@medusajs/js-sdk"
+export { shopError } from "./shop-error.js"
 
 export const BACKEND_URL =
   import.meta.env.VITE_MEDUSA_BACKEND_URL || "http://localhost:9000"
@@ -102,20 +103,6 @@ export function realVariants(product) {
   const variants = product?.variants || []
   if (variants.length <= 1) return []
   return variants
-}
-
-export function shopError(error, fallback) {
-  const raw = String(
-    error?.message || (typeof error === "string" ? error : "")
-  ).trim()
-  if (!raw) return fallback
-  if (/medusa|localhost|publishable|stack|t-?bank|ключ/i.test(raw)) {
-    return fallback
-  }
-  if (/[A-Za-z]{3,}/.test(raw) && !/[А-Яа-яЁё]/.test(raw)) {
-    return fallback
-  }
-  return raw
 }
 
 export function formatPrice(amount, currency = "RUB") {

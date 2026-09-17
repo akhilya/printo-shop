@@ -133,6 +133,7 @@ claude mcp add --transport http medusa https://docs.medusajs.com/mcp # or agent 
 
 ## Conventions
 
+- **Storefront copy is never technical.** Buyer-facing text is short Russian. No HTTP, JSON, stack traces, English errors, API codes, or admin instructions. Map those to a generic line before the page.
 - **Backend routing is file-based.** A store endpoint is `src/api/store/<path>/route.ts` exporting `GET`/`POST`/etc. Don't add a router or register routes manually.
 - **Business logic belongs in workflows**, not in route handlers. Routes resolve and run a workflow; workflows compose steps.
 - Adding a task to `turbo.json` requires declaring its `outputs`, or Turbo will cache nothing/the wrong thing.
