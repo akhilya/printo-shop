@@ -1057,16 +1057,15 @@ async function sellerOfferSkus(creds: OzonCreds, articles: string[]) {
   const ids = [...new Set(articles.map((row) => String(row || "").trim()).filter(Boolean))]
   if (!ids.length) return new Map<string, number>()
   const attempts: Array<{ path: string; body: Record<string, unknown> }> = [
-    { path: "/v3/product/info/list", body: { offer_id: ids, product_id: [], sku: [] } },
-    { path: "/v2/product/info/list", body: { offer_id: ids } },
+    { path: "/v3/product/info/list", body: { offer_id: ids } },
   ]
   const numeric = ids
     .map((id) => Number(id))
     .filter((id) => Number.isFinite(id) && id > 0)
   if (numeric.length) {
-    attempts.unshift({
+    attempts.push({
       path: "/v3/product/info/list",
-      body: { offer_id: [], product_id: [], sku: numeric },
+      body: { sku: numeric },
     })
   }
   for (const attempt of attempts) {
@@ -1212,7 +1211,8 @@ async function quoteSellerDelivery(input: {
 }) {
   if (!input.point.id) return null
   const phone = normalizeOzonPhone(input.phone || "")
-  const mapPointId = Number(input.point.id) || input.point.id
+  const mapPointId = Number(input.point.id)
+  if (!Number.isFinite(mapPointId) || mapPointId <= 0) return null
   const quotedItems = input.items.map((item) => ({
     ...item,
     article: ozonOfferArticle(item.article),
@@ -1891,37 +1891,37 @@ export function ozonOrderCreateSplits(
           )
           const cart = cartByOffer.get(offer)
           const sku = firstNumber(recItem.sku, recId.sku, cart?.sku)
-          if (sku == null || sku <= 0) {
-            notes.push(
-              `сплит ${index + 1}: нет SKU Ozon для ${offer || "товара"}`
-            )
-            return null
-          }
           const quantity = Math.max(
             1,
             Math.round(firstNumber(recItem.quantity, cart?.quantity) || 1)
           )
           const rowItem: {
-            sku: number
             quantity: number
             price: { currency_code: string; units: number; nanos?: number }
             offer_id?: string
+            sku?: number
           } = {
-            sku,
             quantity,
             price: ozonCreateMoney(recItem.price ?? cart?.price),
           }
           if (offer) rowItem.offer_id = offer
+          else if (sku != null && sku > 0) rowItem.sku = sku
+          else {
+            notes.push(
+              `сплит ${index + 1}: нет SKU Ozon для ${offer || "товара"}`
+            )
+            return null
+          }
           return rowItem
         })
         .filter(
           (
             item
           ): item is {
-            sku: number
             quantity: number
             price: { currency_code: string; units: number; nanos?: number }
             offer_id?: string
+            sku?: number
           } => Boolean(item)
         )
       if (!items.length) return null

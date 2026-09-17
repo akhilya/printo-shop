@@ -426,7 +426,6 @@ describe("ozonOrderCreateSplits", () => {
         items: [
           {
             offer_id: "WA150",
-            sku: 987,
             quantity: 1,
             price: { currency_code: "RUB", units: 1500 },
           },
@@ -437,36 +436,36 @@ describe("ozonOrderCreateSplits", () => {
 
   it("maps a postamat and cart prices when checkout items omit them", () => {
     expect(ozonCreateDeliveryType("POSTAMAT")).toBe("POSTAMAT")
-    expect(
-      ozonOrderCreateSplits(
-        {
-          splits: [
-            {
-              warehouse_id: 1,
-              delivery_method: {
-                delivery_method_id: 7,
-                delivery_type: "POSTAMAT",
-                timeslot_id: 3,
-                logistic_date_range: {
-                  from: "2026-09-18T08:00:00Z",
-                  to: "2026-09-18T12:00:00Z",
-                },
+    const splits = ozonOrderCreateSplits(
+      {
+        splits: [
+          {
+            warehouse_id: 1,
+            delivery_method: {
+              delivery_method_id: 7,
+              delivery_type: "POSTAMAT",
+              timeslot_id: 3,
+              logistic_date_range: {
+                from: "2026-09-18T08:00:00Z",
+                to: "2026-09-18T12:00:00Z",
               },
             },
-          ],
-        },
-        { items: cart }
-      )
-    ).toMatchObject([
+          },
+        ],
+      },
+      { items: cart }
+    )
+    expect(splits).toMatchObject([
       {
         delivery_method: {
           delivery_method_id: 7,
           delivery_type: "POSTAMAT",
           timeslot_id: 3,
         },
-        items: [{ sku: 987, price: { units: 1500 } }],
+        items: [{ offer_id: "WA150", price: { units: 1500 } }],
       },
     ])
+    expect(splits[0]?.items[0]).not.toHaveProperty("sku")
   })
 
   it("rejects a checkout split without a timeslot", () => {
@@ -1032,6 +1031,10 @@ describe("quoteOzonDelivery", () => {
       offer_id: "WA150",
       quantity: 1,
     })
+    const catalog = (global.fetch as jest.Mock).mock.calls.find((call) =>
+      String(call[0]).includes("/v3/product/info/list")
+    )
+    expect(JSON.parse(String(catalog[1].body))).toEqual({ offer_id: ["WA150"] })
   })
 
   it("tries FBO checkout when FBS has no tariff", async () => {
@@ -1112,7 +1115,6 @@ describe("quoteOzonDelivery", () => {
           items: [
             {
               offer_id: "WA150",
-              sku: 987,
               quantity: 1,
               price: { currency_code: "RUB", units: 1500 },
             },
@@ -1120,6 +1122,9 @@ describe("quoteOzonDelivery", () => {
         },
       ],
     })
+    expect(JSON.parse(String(create[1].body)).splits[0].items[0]).not.toHaveProperty(
+      "sku"
+    )
   })
 
   it("does not call ozon when line items have no offer_id or sku", async () => {
