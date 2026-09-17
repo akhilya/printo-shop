@@ -95,7 +95,7 @@ export function visiblePages(current, total) {
 }
 
 export const productFields =
-  "id,title,handle,thumbnail,description,collection_id,*variants.calculated_price,+variants.inventory_quantity,+variants.sku,+variants.metadata,*images,*collection,categories.id,categories.name,categories.handle,+metadata"
+  "id,title,handle,thumbnail,description,collection_id,*variants.calculated_price,+variants.inventory_quantity,+variants.manage_inventory,+variants.sku,+variants.metadata,*images,*collection,categories.id,categories.name,categories.handle,+metadata"
 
 export { productSpecs } from "./product-specs.js"
 

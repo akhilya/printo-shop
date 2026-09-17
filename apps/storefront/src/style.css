@@ -385,6 +385,10 @@ a.btn:hover .link-arrow,
   transition: transform 120ms var(--ease-out);
 }
 
+.card.is-oos {
+  opacity: 0.45;
+}
+
 .visually-hidden {
   position: absolute;
   width: 1px;
@@ -811,6 +815,10 @@ a.btn:active {
   gap: var(--space-6);
 }
 
+.product.is-oos .gallery {
+  opacity: 0.45;
+}
+
 @media (min-width: 900px) {
   .product {
     grid-template-columns: minmax(18rem, 34rem) minmax(0, 1fr);
@@ -955,6 +963,13 @@ a.btn:active {
 }
 
 .in-cart-label {
+  margin: 0;
+  font-size: var(--fs-ui);
+  font-weight: var(--fw-medium);
+  line-height: var(--lh-ui);
+}
+
+.oos {
   margin: 0;
   font-size: var(--fs-ui);
   font-weight: var(--fw-medium);

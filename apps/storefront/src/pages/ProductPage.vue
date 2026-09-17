@@ -22,6 +22,7 @@ import {
   storeHeaders,
 } from "../lib/sdk.js"
 import { variantSalePrice } from "../lib/sales.js"
+import { OUT_OF_STOCK_LABEL, variantInStock } from "../lib/product-stock.js"
 
 const MAX_REVIEW_PHOTOS = 6
 
@@ -59,6 +60,7 @@ const price = computed(() =>
 const cartLine = computed(() =>
   cartLineForVariant(cartState.cart, variantId.value)
 )
+const inStock = computed(() => variantInStock(selectedVariant.value))
 const customOrderBanner = computed(() => {
   if (!product.value?.id) return null
   return {
@@ -270,7 +272,7 @@ watch(() => route.params.handle, load, { immediate: true })
   <p v-if="loading" class="empty">Загрузка</p>
   <p v-else-if="error" class="err">{{ error }}</p>
   <article v-else-if="product">
-    <div class="product">
+    <div class="product" :class="{ 'is-oos': !inStock }">
       <div class="gallery">
         <button
           type="button"
@@ -320,7 +322,8 @@ watch(() => route.params.handle, load, { immediate: true })
             </option>
           </select>
         </SelectField>
-        <div v-if="cartLine" class="in-cart">
+        <p v-if="!inStock" class="oos">{{ OUT_OF_STOCK_LABEL }}</p>
+        <div v-else-if="cartLine" class="in-cart">
           <p class="in-cart-label">В корзине</p>
           <div class="buy-qty">
             <button

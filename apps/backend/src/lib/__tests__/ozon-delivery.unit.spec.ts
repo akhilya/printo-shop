@@ -19,6 +19,7 @@ import {
   sellerAuthHeadersFor,
   fetchOzonAppToken,
   resetOzonAppTokenCache,
+  resetOzonPvzCache,
   setOzonTokenPersist,
   ozonAuthorizeUrl,
   ozonOAuthRedirectUri,
@@ -761,6 +762,7 @@ describe("loadOzonPoints", () => {
 
   afterEach(() => {
     global.fetch = fetchFn
+    resetOzonPvzCache()
   })
 
   it("loads clustered buckets when the map is zoomed out", async () => {
@@ -800,5 +802,36 @@ describe("loadOzonPoints", () => {
     expect(result.points).toEqual([])
     expect(result.center).toEqual({ lat: 55.75, lon: 37.61 })
     expect(result.message).toMatch(/пункты выдачи/)
+  })
+
+  it("reuses cached pickup points when the map only zooms a little", async () => {
+    const payload = {
+      clusters: [
+        {
+          points_count: 12,
+          coordinate: { lat: 55.75, long: 37.62 },
+          viewport: {
+            left_bottom: { lat: 55.6, long: 37.4 },
+            right_top: { lat: 55.9, long: 37.8 },
+          },
+        },
+      ],
+    }
+    global.fetch = jest.fn().mockResolvedValue({
+      ok: true,
+      headers: { get: () => "application/json" },
+      arrayBuffer: async () => Buffer.from(JSON.stringify(payload)),
+    })
+    const row = {
+      ozon_client_id: "app-uuid",
+      ozon_oauth_token: "aaa.bbb.ccc",
+    }
+    const view = { south: 55.61, west: 37.41, north: 55.89, east: 37.79 }
+    await loadOzonPoints(row, { ...view, zoom: 10 })
+    await loadOzonPoints(row, { ...view, zoom: 11.4 })
+    const ozonCalls = (global.fetch as jest.Mock).mock.calls.filter((call) =>
+      String(call[0]).includes("api-seller.ozon.ru")
+    )
+    expect(ozonCalls).toHaveLength(1)
   })
 })

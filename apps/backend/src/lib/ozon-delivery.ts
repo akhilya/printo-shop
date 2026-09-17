@@ -107,6 +107,73 @@ export function resetOzonAppTokenCache() {
   ozonAppTokenCache = null
 }
 
+type PvzCacheEntry = {
+  points: OzonPoint[]
+  clusters: OzonMapCluster[]
+  expiresAt: number
+}
+
+const PVZ_CACHE_TTL_MS = 30 * 60 * 1000
+const pvzCache = new Map<string, PvzCacheEntry>()
+const pvzInflight = new Map<
+  string,
+  Promise<{ points: OzonPoint[]; clusters: OzonMapCluster[] }>
+>()
+
+export function resetOzonPvzCache() {
+  pvzCache.clear()
+  pvzInflight.clear()
+}
+
+function quantizeCoord(n: number, digits: number) {
+  const f = 10 ** digits
+  return Math.round(Number(n) * f) / f
+}
+
+function pvzCacheKey(
+  clientId: string,
+  bounds: OzonBounds,
+  zoom: number
+) {
+  const z = Number.isFinite(zoom) ? zoom : 12
+  const pin = z >= PVZ_PIN_ZOOM
+  const zoomKey = pin ? PVZ_PIN_ZOOM : Math.max(0, Math.floor(z / 2) * 2)
+  const digits = pin ? 2 : 1
+  return [
+    clientId || "anon",
+    zoomKey,
+    quantizeCoord(bounds.south, digits),
+    quantizeCoord(bounds.west, digits),
+    quantizeCoord(bounds.north, digits),
+    quantizeCoord(bounds.east, digits),
+  ].join(":")
+}
+
+function readPvzCache(key: string) {
+  const hit = pvzCache.get(key)
+  if (!hit) return null
+  if (hit.expiresAt <= Date.now()) {
+    pvzCache.delete(key)
+    return null
+  }
+  return { points: hit.points, clusters: hit.clusters }
+}
+
+function writePvzCache(
+  key: string,
+  value: { points: OzonPoint[]; clusters: OzonMapCluster[] }
+) {
+  if (pvzCache.size >= 64) {
+    const first = pvzCache.keys().next().value
+    if (first) pvzCache.delete(first)
+  }
+  pvzCache.set(key, {
+    points: value.points,
+    clusters: value.clusters,
+    expiresAt: Date.now() + PVZ_CACHE_TTL_MS,
+  })
+}
+
 export function setOzonTokenPersist(fn: OzonTokenPersist | null) {
   ozonTokenPersist = fn
 }
@@ -1102,30 +1169,41 @@ export async function loadOzonPoints(
     }
   }
   try {
-    const phone = normalizeOzonPhone(input.phone || "")
-    if (phone) {
-      try {
-        await sellerPost(creds, "/v1/delivery/check", {
-          client_phone: phone,
-          phone,
-        })
-      } catch {
-        // Availability check is best-effort until the cabinet is enabled.
+    const mapZoom = Number.isFinite(zoom) ? zoom : 12
+    const cacheKey = pvzCacheKey(creds.clientId || creds.accessToken, bounds, mapZoom)
+    let loaded = readPvzCache(cacheKey)
+    if (!loaded) {
+      const phone = normalizeOzonPhone(input.phone || "")
+      if (phone) {
+        try {
+          await sellerPost(creds, "/v1/delivery/check", {
+            client_phone: phone,
+            phone,
+          })
+        } catch {
+          // Availability check is best-effort until the cabinet is enabled.
+        }
       }
+      let pending = pvzInflight.get(cacheKey)
+      if (!pending) {
+        pending = loadSellerPoints(creds, bounds, center, mapZoom).then(
+          (value) => {
+            writePvzCache(cacheKey, value)
+            return value
+          }
+        )
+        pvzInflight.set(cacheKey, pending)
+        pending.finally(() => pvzInflight.delete(cacheKey))
+      }
+      loaded = await pending
     }
-    const loaded = await loadSellerPoints(
-      creds,
-      bounds,
-      center,
-      Number.isFinite(zoom) ? zoom : 12
-    )
     const grouped = loaded.clusters.length
       ? loaded
-      : clusterOzonPoints(loaded.points, Number.isFinite(zoom) ? zoom : 12)
+      : clusterOzonPoints(loaded.points, mapZoom)
     const layers = resolveOzonMapLayers(
       grouped.points,
       grouped.clusters,
-      Number.isFinite(zoom) ? zoom : 12
+      mapZoom
     )
     return {
       configured: true,
