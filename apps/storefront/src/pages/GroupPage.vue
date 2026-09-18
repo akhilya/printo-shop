@@ -10,6 +10,7 @@ import { SHOP_NAME, shopAbsoluteUrl, shopCanonicalPath } from "../lib/seo.js"
 import {
   PAGE_SIZE,
   listShopCatalog,
+  listShopCategories,
   sdk,
 } from "../lib/sdk.js"
 
@@ -46,20 +47,21 @@ async function load() {
   error.value = ""
   title.value = ""
   try {
-    const group = await resolveGroup(route.params.id)
-    title.value = group.title
+    const collectionId = String(route.params.id || "")
     const offset = (page.value - 1) * PAGE_SIZE
-    const [productRes, catRes] = await Promise.all([
+    const [group, productRes, nextCategories] = await Promise.all([
+      resolveGroup(collectionId),
       listShopCatalog({
-        collectionId: group.query.collection_id,
+        collectionId,
         limit: PAGE_SIZE,
         offset,
       }),
-      sdk.store.category.list({ limit: 20, include_descendants_tree: false }),
+      listShopCategories(),
     ])
+    title.value = group.title
     products.value = sortInStockFirst(productRes.products || [])
     count.value = productRes.count || 0
-    categories.value = catRes.product_categories || []
+    categories.value = nextCategories
     window.scrollTo(0, 0)
   } catch {
     error.value = "Коллекция не найдена"

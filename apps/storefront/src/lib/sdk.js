@@ -207,6 +207,24 @@ export async function listShopCatalog({
   }
 }
 
+let categoryCache = { at: 0, rows: [] }
+
+export async function listShopCategories() {
+  if (categoryCache.rows.length && Date.now() - categoryCache.at < 60_000) {
+    return categoryCache.rows
+  }
+  const { product_categories } = await sdk.store.category.list({
+    limit: 50,
+    include_descendants_tree: false,
+    fields: "id,name,handle",
+  })
+  categoryCache = {
+    at: Date.now(),
+    rows: product_categories || [],
+  }
+  return categoryCache.rows
+}
+
 export async function listShopGroups() {
   const res = await fetch(`${BACKEND_URL}/store/shop-groups`, {
     headers: storeHeaders(),

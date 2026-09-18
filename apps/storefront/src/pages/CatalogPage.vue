@@ -10,7 +10,7 @@ import { SHOP_NAME, shopAbsoluteUrl, shopCanonicalPath } from "../lib/seo.js"
 import {
   PAGE_SIZE,
   listShopCatalog,
-  sdk,
+  listShopCategories,
 } from "../lib/sdk.js"
 
 const route = useRoute()
@@ -47,18 +47,18 @@ async function load() {
   error.value = ""
   try {
     const offset = (page.value - 1) * PAGE_SIZE
-    const [productRes, catRes] = await Promise.all([
+    const [productRes, nextCategories] = await Promise.all([
       listShopCatalog({
         q: q.value,
         categoryId: cat.value,
         limit: PAGE_SIZE,
         offset,
       }),
-      sdk.store.category.list({ limit: 20, include_descendants_tree: false }),
+      listShopCategories(),
     ])
     products.value = sortInStockFirst(productRes.products || [])
     count.value = productRes.count || 0
-    categories.value = catRes.product_categories || []
+    categories.value = nextCategories
     window.scrollTo(0, 0)
   } catch {
     error.value = "Не удалось загрузить каталог."

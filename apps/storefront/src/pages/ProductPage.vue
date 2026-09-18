@@ -20,6 +20,7 @@ import { applyShopSeo } from "../lib/seo-head.js"
 import { SHOP_NAME, shopProductNode } from "../lib/seo.js"
 import {
   descriptionParagraphs,
+  listShopCatalog,
   productFields,
   productGroup,
   productImage,
@@ -194,11 +195,9 @@ async function loadRelated(p) {
   const collectionId = p.collection_id || p.collection?.id
   if (!collectionId) return
   try {
-    const { products } = await sdk.store.product.list({
-      collection_id: collectionId,
-      region_id: REGION_ID,
+    const { products } = await listShopCatalog({
+      collectionId,
       limit: 16,
-      fields: productFields,
     })
     related.value = shuffleInStockFirst(
       (products || []).filter((item) => item.id !== p.id)

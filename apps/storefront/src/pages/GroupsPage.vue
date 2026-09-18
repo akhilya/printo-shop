@@ -2,7 +2,7 @@
 import { onMounted, ref } from "vue"
 import CatalogNav from "../components/CatalogNav.vue"
 import GroupCard from "../components/GroupCard.vue"
-import { listShopGroups, sdk } from "../lib/sdk.js"
+import { listShopCategories, listShopGroups } from "../lib/sdk.js"
 
 const groups = ref([])
 const categories = ref([])
@@ -13,12 +13,12 @@ onMounted(async () => {
   loading.value = true
   error.value = ""
   try {
-    const [nextGroups, catRes] = await Promise.all([
+    const [nextGroups, nextCategories] = await Promise.all([
       listShopGroups(),
-      sdk.store.category.list({ limit: 20, include_descendants_tree: false }),
+      listShopCategories(),
     ])
     groups.value = nextGroups
-    categories.value = catRes.product_categories || []
+    categories.value = nextCategories
   } catch {
     error.value = "Не удалось загрузить коллекции"
     groups.value = []

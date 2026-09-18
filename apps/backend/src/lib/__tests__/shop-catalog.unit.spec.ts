@@ -6,7 +6,9 @@ import {
   pickLuckyCatalogRow,
   presentCatalogProduct,
   productMatchesCatalogQuery,
+  slimCatalogMetadata,
   sortCatalogByAvailability,
+  canPreviewInStockPage,
 } from "../shop-catalog"
 
 const inStock = {
@@ -127,5 +129,30 @@ describe("shop catalog", () => {
       ],
     })
     expect(presentCatalogProduct({ id: "z" }).variants).toEqual([])
+  })
+
+  it("keeps only listing metadata on catalog cards", () => {
+    expect(
+      slimCatalogMetadata({
+        price: "1500",
+        specs: "[]",
+        image_keys: "[1,2,3]",
+        delegat_product_id: "9",
+        attributes: "{}",
+      })
+    ).toEqual({ price: "1500", attributes: "{}" })
+  })
+
+  it("uses a short in-stock preview for the home rail", () => {
+    expect(
+      canPreviewInStockPage({ in_stock: true, limit: 16, offset: 0 })
+    ).toBe(true)
+    expect(
+      canPreviewInStockPage({
+        in_stock: true,
+        collection_id: "pcol_1",
+        limit: 16,
+      })
+    ).toBe(false)
   })
 })

@@ -17,7 +17,10 @@ export async function GET(req: MedusaRequest, res: MedusaResponse) {
       offset: Number(req.query.offset || 0),
       limit: Number(req.query.limit || 20),
     })
-    res.setHeader("Cache-Control", "public, max-age=30, stale-while-revalidate=60")
+    res.setHeader(
+      "Cache-Control",
+      "public, max-age=15, stale-while-revalidate=120"
+    )
     res.json(page)
   } catch {
     res.status(500).json({ message: "Не удалось загрузить каталог." })

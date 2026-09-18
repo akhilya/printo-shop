@@ -9,10 +9,35 @@ import {
 
 export const SHOP_VIEWS_KEY = "shop_views"
 
-const CATALOG_PAGE = 300
+const CATALOG_PAGE = 1000
 const CATALOG_CAP = 10000
-const INVENTORY_PAGE = 1000
-const CATALOG_TTL_MS = 90_000
+const INVENTORY_PAGE = 2000
+const CATALOG_TTL_MS = 60_000
+const CATALOG_STALE_MS = 10 * 60_000
+const IN_STOCK_PREVIEW_BATCH = 48
+const CATALOG_PRODUCT_FIELDS = [
+  "id",
+  "title",
+  "handle",
+  "thumbnail",
+  "status",
+  "collection_id",
+  "metadata",
+  "categories.id",
+  "variants.id",
+  "variants.sku",
+  "variants.manage_inventory",
+  "variants.metadata",
+  "variants.inventory_items.inventory_item_id",
+  "variants.inventory_items.required_quantity",
+]
+const CATALOG_META_KEYS = [
+  "price",
+  "old_price",
+  "sale_price",
+  "attributes",
+  "brand",
+] as const
 
 type CatalogLevel = {
   available_quantity?: number | null
@@ -115,6 +140,23 @@ export function productMatchesCatalogQuery(row: CatalogRow, needle: string) {
   return false
 }
 
+export function canPreviewInStockPage(input: {
+  q?: string | null
+  category_id?: string | null
+  collection_id?: string | null
+  in_stock?: boolean
+  offset?: number
+  limit?: number
+}) {
+  if (!input.in_stock) return false
+  if (catalogNeedle(input.q)) return false
+  if (String(input.category_id || "").trim()) return false
+  if (String(input.collection_id || "").trim()) return false
+  const offset = Math.max(0, Number(input.offset) || 0)
+  const limit = Math.min(Math.max(Number(input.limit) || 20, 1), 100)
+  return offset + limit <= IN_STOCK_PREVIEW_BATCH
+}
+
 export function sortCatalogByAvailability(rows: CatalogRow[]) {
   return [...rows].sort((a, b) => {
     return Number(catalogProductInStock(b)) - Number(catalogProductInStock(a))
@@ -153,10 +195,8 @@ export function presentCatalogProduct(row: CatalogRow) {
     handle: row.handle || "",
     thumbnail: row.thumbnail || null,
     collection_id: row.collection_id || null,
-    metadata,
-    images: (row.images || [])
-      .map((image) => ({ url: String(image?.url || "") }))
-      .filter((image) => image.url),
+    metadata: slimCatalogMetadata(metadata),
+    images: row.thumbnail ? [{ url: String(row.thumbnail) }] : [],
     categories: (row.categories || []).map((category) => ({
       id: String(category.id || ""),
     })),
@@ -165,7 +205,7 @@ export function presentCatalogProduct(row: CatalogRow) {
       sku: variant.sku || undefined,
       manage_inventory: variant.manage_inventory,
       inventory_quantity: variant.inventory_quantity,
-      metadata: variant.metadata || {},
+      metadata: slimCatalogMetadata(variant.metadata),
       calculated_price:
         current == null
           ? null
@@ -178,19 +218,46 @@ export function presentCatalogProduct(row: CatalogRow) {
   }
 }
 
+export function slimCatalogMetadata(metadata: unknown) {
+  const source = (metadata || {}) as Record<string, unknown>
+  const next: Record<string, unknown> = {}
+  for (const key of CATALOG_META_KEYS) {
+    if (source[key] != null && source[key] !== "") next[key] = source[key]
+  }
+  return next
+}
+
+function slimCatalogRow(row: CatalogRow): CatalogRow {
+  return {
+    id: row.id,
+    title: row.title || "",
+    handle: row.handle || "",
+    thumbnail: row.thumbnail || null,
+    collection_id: row.collection_id || null,
+    metadata: slimCatalogMetadata(row.metadata),
+    categories: (row.categories || []).map((category) => ({
+      id: String(category.id || ""),
+    })),
+    variants: (row.variants || []).map((variant) => ({
+      id: variant.id,
+      sku: variant.sku,
+      manage_inventory: variant.manage_inventory,
+      inventory_quantity: variant.inventory_quantity,
+      metadata: slimCatalogMetadata(variant.metadata),
+    })),
+  }
+}
+
 export function pageCatalogProducts(
   rows: CatalogRow[],
   offset: number,
   limit: number
 ) {
-  const page = pageCatalogIds(rows, offset, limit)
-  const byId = new Map(rows.map((row) => [row.id, row]))
+  const start = Math.max(0, Number(offset) || 0)
+  const size = Math.min(Math.max(Number(limit) || 20, 1), 100)
   return {
-    products: page.ids.flatMap((id) => {
-      const row = byId.get(id)
-      return row ? [presentCatalogProduct(row)] : []
-    }),
-    count: page.count,
+    products: rows.slice(start, start + size).map(presentCatalogProduct),
+    count: rows.length,
   }
 }
 
@@ -216,9 +283,38 @@ function presentLucky(row: CatalogRow) {
 
 let catalogCache: { at: number; rows: CatalogRow[] } = { at: 0, rows: [] }
 let catalogInflight: Promise<CatalogRow[]> | null = null
+let groupsCache: {
+  catalogAt: number
+  groups: Array<{
+    id: string
+    title: string
+    path: string
+    images: ReturnType<typeof applyShopGroupCoverImages>
+    count: number
+  }>
+} | null = null
 
 export function invalidateShopCatalogCache() {
   catalogCache = { at: 0, rows: [] }
+  groupsCache = null
+}
+
+function refreshCatalogInBackground(container: MedusaContainer) {
+  if (catalogInflight) return catalogInflight
+  catalogInflight = loadPublishedCatalogRows(container)
+    .then((rows) => {
+      catalogCache = { at: Date.now(), rows }
+      groupsCache = null
+      return rows
+    })
+    .catch((error) => {
+      if (catalogCache.rows.length) return catalogCache.rows
+      throw error
+    })
+    .finally(() => {
+      catalogInflight = null
+    })
+  return catalogInflight
 }
 
 async function listQtyByInventoryItem(container: MedusaContainer) {
@@ -259,58 +355,122 @@ async function listQtyByInventoryItem(container: MedusaContainer) {
   return qty
 }
 
-async function loadPublishedCatalogRows(container: MedusaContainer) {
+function inventoryItemIdsFromRows(rows: CatalogRow[]) {
+  const ids: string[] = []
+  for (const row of rows) {
+    for (const variant of row.variants || []) {
+      for (const item of variant.inventory_items || []) {
+        const id = String(item.inventory_item_id || "")
+        if (id) ids.push(id)
+      }
+    }
+  }
+  return ids
+}
+
+async function listQtyForInventoryItems(
+  container: MedusaContainer,
+  itemIds: string[]
+) {
+  const unique = [...new Set(itemIds.filter(Boolean))]
+  if (!unique.length) return {}
+  const inventory = container.resolve(Modules.INVENTORY) as {
+    listInventoryLevels: (
+      filters: Record<string, unknown>,
+      config?: Record<string, unknown>
+    ) => Promise<
+      Array<{
+        inventory_item_id?: string
+        stocked_quantity?: number
+        reserved_quantity?: number
+      }>
+    >
+  }
+  const levels = await inventory.listInventoryLevels(
+    { inventory_item_id: unique },
+    {
+      take: Math.min(unique.length * 8, CATALOG_CAP),
+      select: ["inventory_item_id", "stocked_quantity", "reserved_quantity"],
+    }
+  )
+  const qty: Record<string, number> = {}
+  for (const level of levels) {
+    const id = String(level.inventory_item_id || "")
+    if (!id) continue
+    const available = Math.max(
+      0,
+      (Number(level.stocked_quantity) || 0) -
+        (Number(level.reserved_quantity) || 0)
+    )
+    qty[id] = (qty[id] || 0) + available
+  }
+  return qty
+}
+
+async function loadEnoughInStockRows(container: MedusaContainer, needed: number) {
   const query = container.resolve(ContainerRegistrationKeys.QUERY)
-  const rows: CatalogRow[] = []
-  for (let skip = 0; skip < CATALOG_CAP; skip += CATALOG_PAGE) {
+  const inStock: CatalogRow[] = []
+  const want = Math.max(1, needed)
+  for (let skip = 0; skip < CATALOG_CAP; skip += IN_STOCK_PREVIEW_BATCH) {
     const { data } = await query.graph({
       entity: "product",
-      fields: [
-        "id",
-        "title",
-        "handle",
-        "thumbnail",
-        "status",
-        "collection_id",
-        "metadata",
-        "images.url",
-        "categories.id",
-        "variants.id",
-        "variants.sku",
-        "variants.manage_inventory",
-        "variants.metadata",
-        "variants.inventory_items.inventory_item_id",
-        "variants.inventory_items.required_quantity",
-      ],
+      fields: CATALOG_PRODUCT_FIELDS,
       filters: { status: "published" },
-      pagination: { skip, take: CATALOG_PAGE },
+      pagination: { skip, take: IN_STOCK_PREVIEW_BATCH },
     })
     const batch = (data ?? []) as CatalogRow[]
-    rows.push(...batch)
-    if (batch.length < CATALOG_PAGE) break
+    if (!batch.length) break
+    const qty = await listQtyForInventoryItems(
+      container,
+      inventoryItemIdsFromRows(batch)
+    ).catch(() => ({}))
+    applyInventoryItemQuantities(batch, qty)
+    for (const row of batch) {
+      if (!catalogProductInStock(row)) continue
+      inStock.push(slimCatalogRow(row))
+      if (inStock.length >= want) return inStock
+    }
+    if (batch.length < IN_STOCK_PREVIEW_BATCH) break
   }
-  try {
-    applyInventoryItemQuantities(rows, await listQtyByInventoryItem(container))
-  } catch {
-    // Untracked variants stay as manage_inventory / missing qty.
+  return inStock
+}
+
+async function loadPublishedCatalogRows(container: MedusaContainer) {
+  const query = container.resolve(ContainerRegistrationKeys.QUERY)
+  const loadRows = async () => {
+    const rows: CatalogRow[] = []
+    for (let skip = 0; skip < CATALOG_CAP; skip += CATALOG_PAGE) {
+      const { data } = await query.graph({
+        entity: "product",
+        fields: CATALOG_PRODUCT_FIELDS,
+        filters: { status: "published" },
+        pagination: { skip, take: CATALOG_PAGE },
+      })
+      const batch = (data ?? []) as CatalogRow[]
+      rows.push(...batch)
+      if (batch.length < CATALOG_PAGE) break
+    }
+    return rows
   }
-  return rows
+  const [rows, qty] = await Promise.all([
+    loadRows(),
+    listQtyByInventoryItem(container).catch(() => ({})),
+  ])
+  applyInventoryItemQuantities(rows, qty)
+  return rows.map(slimCatalogRow)
 }
 
 async function listPublishedCatalogRows(container: MedusaContainer) {
-  if (catalogCache.rows.length && Date.now() - catalogCache.at < CATALOG_TTL_MS) {
+  const age = Date.now() - catalogCache.at
+  if (catalogCache.rows.length && age < CATALOG_TTL_MS) {
+    return catalogCache.rows
+  }
+  if (catalogCache.rows.length && age < CATALOG_STALE_MS) {
+    refreshCatalogInBackground(container)
     return catalogCache.rows
   }
   if (catalogInflight) return catalogInflight
-  catalogInflight = loadPublishedCatalogRows(container)
-    .then((rows) => {
-      catalogCache = { at: Date.now(), rows }
-      return rows
-    })
-    .finally(() => {
-      catalogInflight = null
-    })
-  return catalogInflight
+  return refreshCatalogInBackground(container)
 }
 
 export async function listShopCatalogPage(
@@ -327,6 +487,13 @@ export async function listShopCatalogPage(
   const needle = catalogNeedle(input.q)
   const categoryId = String(input.category_id || "").trim()
   const collectionId = String(input.collection_id || "").trim()
+  const offset = input.offset || 0
+  const limit = input.limit || 20
+  if (canPreviewInStockPage(input) && !catalogCache.rows.length) {
+    refreshCatalogInBackground(container)
+    const rows = await loadEnoughInStockRows(container, offset + limit)
+    return pageCatalogProducts(rows, offset, limit)
+  }
   let rows = sortCatalogByAvailability(
     (await listPublishedCatalogRows(container)).filter((row) => {
       if (!productMatchesCatalogQuery(row, needle)) return false
@@ -345,17 +512,20 @@ export async function listShopCatalogPage(
   if (input.in_stock) {
     rows = rows.filter(catalogProductInStock)
   }
-  return pageCatalogProducts(rows, input.offset || 0, input.limit || 20)
+  return pageCatalogProducts(rows, offset, limit)
 }
 
 export async function listShopGroupsCatalog(container: MedusaContainer) {
+  const rows = await listPublishedCatalogRows(container)
+  if (groupsCache && groupsCache.catalogAt === catalogCache.at) {
+    return groupsCache.groups
+  }
   const query = container.resolve(ContainerRegistrationKeys.QUERY)
   const { data } = await query.graph({
     entity: "product_collection",
     fields: ["id", "title", "handle", "metadata"],
     pagination: { skip: 0, take: 200 },
   })
-  const rows = await listPublishedCatalogRows(container)
   const imagesByGroup = new Map<string, ShopGroupProductImage[]>()
   const countByGroup = new Map<string, number>()
   for (const product of rows) {
@@ -368,7 +538,7 @@ export async function listShopGroupsCatalog(container: MedusaContainer) {
     list.push({ product_id: String(product.id), src })
     imagesByGroup.set(id, list)
   }
-  return ((data ?? []) as Array<Record<string, unknown>>)
+  const groups = ((data ?? []) as Array<Record<string, unknown>>)
     .map((collection) => {
       const id = String(collection.id || "")
       return {
@@ -383,6 +553,10 @@ export async function listShopGroupsCatalog(container: MedusaContainer) {
       }
     })
     .filter((group) => group.id && group.count > 0)
+  if (catalogCache.at) {
+    groupsCache = { catalogAt: catalogCache.at, groups }
+  }
+  return groups
 }
 
 export async function getLuckyShopProduct(
