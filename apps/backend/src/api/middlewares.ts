@@ -108,6 +108,11 @@ export default defineMiddlewares({
       middlewares: [applyStoreCors],
     },
     {
+      matcher: "/hooks/shop-*",
+      methods: ["GET", "OPTIONS", "HEAD"],
+      middlewares: [applyStoreCors],
+    },
+    {
       matcher: "/admin/delegat*",
       methods: ["POST"],
       bodyParser: {

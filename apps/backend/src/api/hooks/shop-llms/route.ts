@@ -2,6 +2,8 @@ import type { MedusaRequest, MedusaResponse } from "@medusajs/framework/http"
 import { loadShopLlmCatalog } from "../../../lib/shop-llm-catalog"
 import { renderLlmsTxt, shopLlmOrigin } from "../../../lib/shop-llm"
 
+export const AUTHENTICATE = false
+
 export async function GET(req: MedusaRequest, res: MedusaResponse) {
   try {
     const catalog = await loadShopLlmCatalog(req.scope)

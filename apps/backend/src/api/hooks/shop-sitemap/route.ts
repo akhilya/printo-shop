@@ -3,6 +3,8 @@ import { ContainerRegistrationKeys } from "@medusajs/framework/utils"
 import { listShopGroupsCatalog } from "../../../lib/shop-catalog"
 import { shopSitemapDocument } from "../../../lib/shop-sitemap"
 
+export const AUTHENTICATE = false
+
 const PRODUCT_PAGE = 300
 const PRODUCT_CAP = 10000
 
