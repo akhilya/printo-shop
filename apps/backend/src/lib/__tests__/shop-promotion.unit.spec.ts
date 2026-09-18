@@ -2,7 +2,10 @@ import {
   parseShopPromotionCreate,
   parseShopPromotionUpdate,
   presentShopPromotion,
+  promotionCodesFromOrder,
   promotionDiscountAmount,
+  promotionUsesLabel,
+  tallyPromotionUses,
 } from "../shop-promotion"
 
 describe("parseShopPromotionCreate", () => {
@@ -50,6 +53,15 @@ describe("parseShopPromotionUpdate", () => {
       application_method: { target_type: "items" },
     })
   })
+
+  it("accepts an active or inactive status", () => {
+    expect(parseShopPromotionUpdate({ status: "inactive" })).toMatchObject({
+      status: "inactive",
+    })
+    expect(parseShopPromotionUpdate({ status: "active" })).toMatchObject({
+      status: "active",
+    })
+  })
 })
 
 describe("presentShopPromotion", () => {
@@ -61,6 +73,38 @@ describe("presentShopPromotion", () => {
         application_method: { type: "percentage", value: 10, target_type: "order" },
       }).include_shipping
     ).toBe(true)
+  })
+
+  it("attaches how many times the code was used", () => {
+    expect(
+      presentShopPromotion(
+        { id: "promo_1", code: "LETO10", application_method: {} },
+        { LETO10: 3 }
+      ).used_count
+    ).toBe(3)
+  })
+})
+
+describe("promotion usage", () => {
+  it("collects unique codes from an order", () => {
+    expect(
+      promotionCodesFromOrder({
+        promotions: [{ code: "leto10" }],
+        items: [{ adjustments: [{ code: "LETO10" }, { code: "SHIP5" }] }],
+      }).sort()
+    ).toEqual(["LETO10", "SHIP5"])
+  })
+
+  it("counts one application per order", () => {
+    expect(
+      tallyPromotionUses([["LETO10"], ["LETO10", "SHIP5"], ["leto10"]])
+    ).toEqual({ LETO10: 3, SHIP5: 1 })
+  })
+
+  it("labels application counts in Russian", () => {
+    expect(promotionUsesLabel(1)).toBe("1 применение")
+    expect(promotionUsesLabel(2)).toBe("2 применения")
+    expect(promotionUsesLabel(5)).toBe("5 применений")
   })
 })
 

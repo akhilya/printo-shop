@@ -21,19 +21,17 @@ export async function POST(
   const promotion: IPromotionModuleService = req.scope.resolve(
     Modules.PROMOTION
   )
-  const existing = (await promotion.retrievePromotion(req.params.id, {
+  await promotion.updatePromotions({
+    id: req.params.id,
+    ...(parsed.status ? { status: parsed.status } : {}),
+    ...(parsed.application_method
+      ? { application_method: parsed.application_method }
+      : {}),
+  })
+  const row = (await promotion.retrievePromotion(req.params.id, {
     relations: ["application_method"],
   })) as unknown as Record<string, unknown>
-  const updated = await promotion.updatePromotions({
-    id: req.params.id,
-    application_method: {
-      target_type: parsed.application_method.target_type,
-    },
-  })
-  const row = Array.isArray(updated) ? updated[0] : updated
   res.json({
-    promotion: presentShopPromotion(
-      (row || existing) as unknown as Record<string, unknown>
-    ),
+    promotion: presentShopPromotion(row),
   })
 }

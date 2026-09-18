@@ -15,6 +15,7 @@ import {
 import { useMutation, useQuery, useQueryClient } from "@tanstack/react-query"
 import { useState } from "react"
 import { sdk } from "../../lib/sdk"
+import { promotionUsesLabel } from "../../../lib/shop-promotion"
 
 type ShopPromotion = {
   id: string
@@ -24,6 +25,7 @@ type ShopPromotion = {
   type: "percentage" | "fixed"
   value: number
   include_shipping: boolean
+  used_count: number
 }
 
 const EMPTY = {
@@ -76,6 +78,23 @@ const ShopPromotionsPage = () => {
       }),
     onSuccess: () => {
       queryClient.invalidateQueries({ queryKey: ["admin-shop-promotions"] })
+    },
+    onError: () => toast.error("Не удалось сохранить"),
+  })
+
+  const toggleStatus = useMutation({
+    mutationFn: (row: ShopPromotion) =>
+      sdk.client.fetch(`/admin/shop-promotions/${row.id}`, {
+        method: "POST",
+        body: {
+          status: row.status === "active" ? "inactive" : "active",
+        },
+      }),
+    onSuccess: (_result, row) => {
+      queryClient.invalidateQueries({ queryKey: ["admin-shop-promotions"] })
+      toast.success(
+        row.status === "active" ? "Скидка выключена" : "Скидка включена"
+      )
     },
     onError: () => toast.error("Не удалось сохранить"),
   })
@@ -193,7 +212,7 @@ const ShopPromotionsPage = () => {
               {rows.map((row) => (
                 <div
                   key={row.id}
-                  className="flex items-center justify-between gap-x-4"
+                  className="flex flex-col gap-y-3 sm:flex-row sm:items-center sm:justify-between"
                 >
                   <div>
                     <Text weight="plus">{row.code}</Text>
@@ -202,17 +221,31 @@ const ShopPromotionsPage = () => {
                         ? `${row.value} ₽`
                         : `${row.value} %`}
                       {row.is_automatic ? " · сама" : ""}
+                      {" · "}
+                      {promotionUsesLabel(row.used_count)}
                     </Text>
                   </div>
-                  <div className="flex items-center gap-x-3">
-                    <Badge color={row.include_shipping ? "blue" : "grey"}>
-                      {row.include_shipping ? "С доставкой" : "Только товар"}
-                    </Badge>
-                    <Switch
-                      checked={row.include_shipping}
-                      onCheckedChange={() => toggleShipping.mutate(row)}
-                      disabled={toggleShipping.isPending}
-                    />
+                  <div className="flex flex-wrap items-center gap-x-4 gap-y-2">
+                    <div className="flex items-center gap-x-2">
+                      <Text size="small" className="text-ui-fg-subtle">
+                        Включена
+                      </Text>
+                      <Switch
+                        checked={row.status === "active"}
+                        onCheckedChange={() => toggleStatus.mutate(row)}
+                        disabled={toggleStatus.isPending}
+                      />
+                    </div>
+                    <div className="flex items-center gap-x-2">
+                      <Badge color={row.include_shipping ? "blue" : "grey"}>
+                        {row.include_shipping ? "С доставкой" : "Только товар"}
+                      </Badge>
+                      <Switch
+                        checked={row.include_shipping}
+                        onCheckedChange={() => toggleShipping.mutate(row)}
+                        disabled={toggleShipping.isPending}
+                      />
+                    </div>
                   </div>
                 </div>
               ))}
