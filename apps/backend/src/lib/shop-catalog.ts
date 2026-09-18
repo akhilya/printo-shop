@@ -1,16 +1,32 @@
 import { MedusaContainer } from "@medusajs/framework"
-import { ContainerRegistrationKeys } from "@medusajs/framework/utils"
+import { ContainerRegistrationKeys, Modules } from "@medusajs/framework/utils"
 import { updateProductsWorkflow } from "@medusajs/medusa/core-flows"
 
 export const SHOP_VIEWS_KEY = "shop_views"
 
-const CATALOG_PAGE = 100
-const CATALOG_CAP = 2000
+const CATALOG_PAGE = 300
+const CATALOG_CAP = 10000
+const INVENTORY_PAGE = 1000
+const CATALOG_TTL_MS = 90_000
+
+type CatalogLevel = {
+  available_quantity?: number | null
+  stocked_quantity?: number | null
+  reserved_quantity?: number | null
+}
+
+type CatalogInventoryItem = {
+  inventory_item_id?: string | null
+  required_quantity?: number | null
+  inventory?: { location_levels?: CatalogLevel[] | null } | null
+}
 
 type CatalogVariant = {
+  id?: string | null
   sku?: string | null
   manage_inventory?: boolean | null
   inventory_quantity?: number | null
+  inventory_items?: CatalogInventoryItem[] | null
 }
 
 export type CatalogRow = {
@@ -24,18 +40,61 @@ export type CatalogRow = {
   variants?: CatalogVariant[] | null
 }
 
+export function applyInventoryItemQuantities(
+  rows: CatalogRow[],
+  qtyByItem: Record<string, number>
+) {
+  for (const row of rows) {
+    for (const variant of row.variants || []) {
+      if (variant.manage_inventory === false) {
+        variant.inventory_quantity = 1
+        continue
+      }
+      const items = variant.inventory_items || []
+      if (!items.length) continue
+      let min = Infinity
+      for (const item of items) {
+        const id = String(item.inventory_item_id || "")
+        const available = Number(qtyByItem[id] || 0)
+        const required = Math.max(1, Number(item.required_quantity) || 1)
+        min = Math.min(min, Math.floor(available / required))
+      }
+      if (Number.isFinite(min)) variant.inventory_quantity = min
+    }
+  }
+  return rows
+}
+
 export function catalogNeedle(value: unknown) {
   return String(value || "").trim().toLowerCase()
+}
+
+export function variantCatalogQuantity(variant: CatalogVariant) {
+  if (variant.manage_inventory === false) return 1
+  const qty = Number(variant.inventory_quantity)
+  if (Number.isFinite(qty)) return qty
+  const items = variant.inventory_items || []
+  if (!items.length) return 0
+  let min = Infinity
+  for (const item of items) {
+    const levels = item.inventory?.location_levels || []
+    const available = levels.reduce((sum, level) => {
+      const avail = Number(level.available_quantity)
+      if (Number.isFinite(avail)) return sum + Math.max(0, avail)
+      const stocked = Number(level.stocked_quantity) || 0
+      const reserved = Number(level.reserved_quantity) || 0
+      return sum + Math.max(0, stocked - reserved)
+    }, 0)
+    const required = Math.max(1, Number(item.required_quantity) || 1)
+    min = Math.min(min, Math.floor(available / required))
+  }
+  return Number.isFinite(min) ? min : 0
 }
 
 export function catalogProductInStock(row: CatalogRow) {
   const variants = row.variants || []
   if (!variants.length) return false
-  return variants.some((variant) => {
-    if (variant.manage_inventory === false) return true
-    const qty = Number(variant.inventory_quantity)
-    return Number.isFinite(qty) && qty > 0
-  })
+  return variants.some((variant) => variantCatalogQuantity(variant) > 0)
 }
 
 export function productMatchesCatalogQuery(row: CatalogRow, needle: string) {
@@ -83,7 +142,52 @@ function presentLucky(row: CatalogRow) {
   }
 }
 
-async function listPublishedCatalogRows(container: MedusaContainer) {
+let catalogCache: { at: number; rows: CatalogRow[] } = { at: 0, rows: [] }
+let catalogInflight: Promise<CatalogRow[]> | null = null
+
+export function invalidateShopCatalogCache() {
+  catalogCache = { at: 0, rows: [] }
+}
+
+async function listQtyByInventoryItem(container: MedusaContainer) {
+  const inventory = container.resolve(Modules.INVENTORY) as {
+    listInventoryLevels: (
+      filters: Record<string, unknown>,
+      config?: Record<string, unknown>
+    ) => Promise<
+      Array<{
+        inventory_item_id?: string
+        stocked_quantity?: number
+        reserved_quantity?: number
+      }>
+    >
+  }
+  const qty: Record<string, number> = {}
+  for (let skip = 0; skip < CATALOG_CAP; skip += INVENTORY_PAGE) {
+    const levels = await inventory.listInventoryLevels(
+      {},
+      {
+        skip,
+        take: INVENTORY_PAGE,
+        select: ["inventory_item_id", "stocked_quantity", "reserved_quantity"],
+      }
+    )
+    for (const level of levels) {
+      const id = String(level.inventory_item_id || "")
+      if (!id) continue
+      const available = Math.max(
+        0,
+        (Number(level.stocked_quantity) || 0) -
+          (Number(level.reserved_quantity) || 0)
+      )
+      qty[id] = (qty[id] || 0) + available
+    }
+    if (levels.length < INVENTORY_PAGE) break
+  }
+  return qty
+}
+
+async function loadPublishedCatalogRows(container: MedusaContainer) {
   const query = container.resolve(ContainerRegistrationKeys.QUERY)
   const rows: CatalogRow[] = []
   for (let skip = 0; skip < CATALOG_CAP; skip += CATALOG_PAGE) {
@@ -97,9 +201,11 @@ async function listPublishedCatalogRows(container: MedusaContainer) {
         "status",
         "collection_id",
         "categories.id",
+        "variants.id",
         "variants.sku",
         "variants.manage_inventory",
-        "variants.inventory_quantity",
+        "variants.inventory_items.inventory_item_id",
+        "variants.inventory_items.required_quantity",
       ],
       filters: { status: "published" },
       pagination: { skip, take: CATALOG_PAGE },
@@ -108,7 +214,28 @@ async function listPublishedCatalogRows(container: MedusaContainer) {
     rows.push(...batch)
     if (batch.length < CATALOG_PAGE) break
   }
+  try {
+    applyInventoryItemQuantities(rows, await listQtyByInventoryItem(container))
+  } catch {
+    // Untracked variants stay as manage_inventory / missing qty.
+  }
   return rows
+}
+
+async function listPublishedCatalogRows(container: MedusaContainer) {
+  if (catalogCache.rows.length && Date.now() - catalogCache.at < CATALOG_TTL_MS) {
+    return catalogCache.rows
+  }
+  if (catalogInflight) return catalogInflight
+  catalogInflight = loadPublishedCatalogRows(container)
+    .then((rows) => {
+      catalogCache = { at: Date.now(), rows }
+      return rows
+    })
+    .finally(() => {
+      catalogInflight = null
+    })
+  return catalogInflight
 }
 
 export async function listShopCatalogPage(
@@ -117,6 +244,7 @@ export async function listShopCatalogPage(
     q?: string | null
     category_id?: string | null
     collection_id?: string | null
+    in_stock?: boolean
     offset?: number
     limit?: number
   }
@@ -124,7 +252,7 @@ export async function listShopCatalogPage(
   const needle = catalogNeedle(input.q)
   const categoryId = String(input.category_id || "").trim()
   const collectionId = String(input.collection_id || "").trim()
-  const rows = sortCatalogByAvailability(
+  let rows = sortCatalogByAvailability(
     (await listPublishedCatalogRows(container)).filter((row) => {
       if (!productMatchesCatalogQuery(row, needle)) return false
       if (collectionId && String(row.collection_id || "") !== collectionId) {
@@ -139,6 +267,9 @@ export async function listShopCatalogPage(
       return true
     })
   )
+  if (input.in_stock) {
+    rows = rows.filter(catalogProductInStock)
+  }
   return pageCatalogIds(rows, input.offset || 0, input.limit || 20)
 }
 

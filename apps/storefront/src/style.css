@@ -502,6 +502,39 @@ a.btn:hover .link-arrow,
   border-top: 1px solid var(--hairline);
 }
 
+.banner-lucky {
+  margin-top: var(--space-8);
+  padding-top: var(--space-5);
+  border-top: 1px solid var(--hairline);
+  gap: var(--space-5);
+  align-items: center;
+}
+
+.banner-lucky .banner-title {
+  margin: 0 0 var(--space-2);
+}
+
+.banner-lucky .banner-body {
+  margin: 0;
+  max-width: 42ch;
+}
+
+.banner-lucky-card {
+  width: min(100%, 14rem);
+}
+
+@media (min-width: 720px) {
+  .banner-lucky {
+    grid-template-columns: minmax(0, 1fr) minmax(11rem, 14rem);
+    column-gap: var(--space-7);
+  }
+
+  .banner-lucky-card {
+    width: 100%;
+    justify-self: end;
+  }
+}
+
 .banner-order {
   background: var(--ink);
   color: var(--paper);

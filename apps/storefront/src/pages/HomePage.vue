@@ -6,7 +6,7 @@ import ProductCell from "../components/ProductCell.vue"
 import LinkArrow from "../components/LinkArrow.vue"
 import LuckyBanner from "../components/LuckyBanner.vue"
 import SiteBanner from "../components/SiteBanner.vue"
-import { sortInStockFirst } from "../lib/product-stock.js"
+import { productInStock } from "../lib/product-stock.js"
 import {
   HOME_GROUPS,
   HOME_PRODUCTS,
@@ -60,7 +60,7 @@ onMounted(async () => {
   try {
     const [groupsResult, productsResult, bannersResult] = await Promise.allSettled([
       listShopGroups(),
-      listShopCatalog({ limit: HOME_PRODUCTS, offset: 0 }),
+      listShopCatalog({ limit: HOME_PRODUCTS, offset: 0, inStock: true }),
       loadBanners(),
     ])
     groups.value =
@@ -69,7 +69,7 @@ onMounted(async () => {
         : []
     products.value =
       productsResult.status === "fulfilled"
-        ? sortInStockFirst(productsResult.value.products || [])
+        ? (productsResult.value.products || []).filter(productInStock)
         : []
     banners.value =
       bannersResult.status === "fulfilled" ? bannersResult.value : []

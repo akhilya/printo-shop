@@ -185,6 +185,7 @@ export async function listShopCatalog({
   q,
   categoryId,
   collectionId,
+  inStock = false,
   limit = PAGE_SIZE,
   offset = 0,
 } = {}) {
@@ -192,6 +193,7 @@ export async function listShopCatalog({
   if (q) params.set("q", q)
   if (categoryId) params.set("category_id", categoryId)
   if (collectionId) params.set("collection_id", collectionId)
+  if (inStock) params.set("in_stock", "1")
   params.set("limit", String(limit))
   params.set("offset", String(offset))
   const res = await fetch(`${BACKEND_URL}/store/shop-catalog?${params}`, {
@@ -233,7 +235,16 @@ export async function loadLuckyProduct(excludeId) {
   )
   if (!res.ok) return null
   const data = await res.json()
-  return data.product || null
+  const slim = data.product
+  if (!slim?.id && !slim?.handle) return null
+  const { products } = await sdk.store.product.list({
+    id: slim.id ? [slim.id] : undefined,
+    handle: slim.handle || undefined,
+    limit: 1,
+    region_id: REGION_ID,
+    fields: productFields,
+  })
+  return products?.[0] || null
 }
 
 export async function recordProductView(productId) {

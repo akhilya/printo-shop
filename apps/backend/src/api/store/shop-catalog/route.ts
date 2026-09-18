@@ -11,9 +11,13 @@ export async function GET(req: MedusaRequest, res: MedusaResponse) {
         typeof req.query.collection_id === "string"
           ? req.query.collection_id
           : "",
+      in_stock:
+        req.query.in_stock === "1" ||
+        req.query.in_stock === "true",
       offset: Number(req.query.offset || 0),
       limit: Number(req.query.limit || 20),
     })
+    res.setHeader("Cache-Control", "public, max-age=30, stale-while-revalidate=60")
     res.json(page)
   } catch {
     res.status(500).json({ message: "Не удалось загрузить каталог." })

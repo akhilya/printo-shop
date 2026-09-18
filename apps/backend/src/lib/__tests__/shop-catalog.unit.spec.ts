@@ -1,4 +1,5 @@
 import {
+  applyInventoryItemQuantities,
   catalogProductInStock,
   pageCatalogIds,
   pickLuckyCatalogRow,
@@ -37,5 +38,50 @@ describe("shop catalog", () => {
     const picked = pickLuckyCatalogRow([inStock, empty], "a")
     expect(picked?.id).toBe("b")
     expect(pickLuckyCatalogRow([inStock], "a")).toBeNull()
+  })
+
+  it("reads stock from location levels when inventory_quantity is missing", () => {
+    const row = {
+      id: "d",
+      variants: [
+        {
+          id: "var_1",
+          inventory_items: [
+            {
+              required_quantity: 1,
+              inventory: {
+                location_levels: [{ stocked_quantity: 8, reserved_quantity: 1 }],
+              },
+            },
+          ],
+        },
+      ],
+    }
+    expect(catalogProductInStock(row)).toBe(true)
+    expect(
+      catalogProductInStock({
+        id: "e",
+        variants: [
+          {
+            inventory_items: [
+              { inventory: { location_levels: [{ stocked_quantity: 0 }] } },
+            ],
+          },
+        ],
+      })
+    ).toBe(false)
+  })
+
+  it("applies inventory item quantities onto variants", () => {
+    const rows = [
+      {
+        id: "f",
+        variants: [
+          { id: "v1", inventory_items: [{ inventory_item_id: "item_1" }] },
+        ],
+      },
+    ]
+    applyInventoryItemQuantities(rows, { item_1: 5 })
+    expect(catalogProductInStock(rows[0])).toBe(true)
   })
 })
