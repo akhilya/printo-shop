@@ -157,7 +157,7 @@ const ReviewsPage = () => {
 
 export const config = defineRouteConfig({
   label: "Отзывы",
-  nested: "/shop-storefront",
+  nested: "/products",
   rank: 4,
 })
 

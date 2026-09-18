@@ -81,7 +81,7 @@ const LegalPagesPage = () => {
 
 export const config = defineRouteConfig({
   label: "Документы",
-  nested: "/shop-storefront",
+  nested: "/products",
   rank: 3,
 })
 

@@ -159,7 +159,7 @@ const ShopDevPage = () => {
 
 export const config = defineRouteConfig({
   label: "Разработка",
-  nested: "/shop-service",
+  nested: "/inventory",
   rank: 5,
 })
 

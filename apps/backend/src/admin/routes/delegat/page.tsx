@@ -150,7 +150,7 @@ const DelegatPage = () => {
 
 export const config = defineRouteConfig({
   label: "Делегат",
-  nested: "/shop-service",
+  nested: "/inventory",
   rank: 2,
 })
 

@@ -320,7 +320,7 @@ export async function refundShopOrder(
   const email = String(order.email || "").trim()
   if (email) {
     try {
-      const { sendSmtpMail } = await import("./smtp")
+      const { sendSmtpMail } = await import("./smtp.js")
       await sendSmtpMail({
         to: email,
         subject: number ? `Заказ ${number}: вернули оплату` : "Вернули оплату",

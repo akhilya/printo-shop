@@ -258,7 +258,7 @@ const ShopPromotionsPage = () => {
 
 export const config = defineRouteConfig({
   label: "Скидки",
-  nested: "/shop-storefront",
+  nested: "/products",
   rank: 2,
 })
 

@@ -168,7 +168,7 @@ const ShopIssuesPage = () => {
 
 export const config = defineRouteConfig({
   label: "Обращения",
-  nested: "/shop-sales",
+  nested: "/orders",
   rank: 1,
 })
 

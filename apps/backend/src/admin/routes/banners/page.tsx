@@ -82,7 +82,7 @@ const BannersPage = () => {
 
 export const config = defineRouteConfig({
   label: "Баннеры",
-  nested: "/shop-storefront",
+  nested: "/products",
   rank: 1,
 })
 

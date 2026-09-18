@@ -1,6 +1,11 @@
 import { MedusaContainer } from "@medusajs/framework"
 import { ContainerRegistrationKeys, Modules } from "@medusajs/framework/utils"
 import { updateProductsWorkflow } from "@medusajs/medusa/core-flows"
+import {
+  applyShopGroupCoverImages,
+  readShopCollectionCover,
+  type ShopGroupProductImage,
+} from "./shop-collection-cover"
 
 export const SHOP_VIEWS_KEY = "shop_views"
 
@@ -277,11 +282,11 @@ export async function listShopGroupsCatalog(container: MedusaContainer) {
   const query = container.resolve(ContainerRegistrationKeys.QUERY)
   const { data } = await query.graph({
     entity: "product_collection",
-    fields: ["id", "title", "handle"],
+    fields: ["id", "title", "handle", "metadata"],
     pagination: { skip: 0, take: 200 },
   })
   const rows = await listPublishedCatalogRows(container)
-  const imagesByGroup = new Map<string, string[]>()
+  const imagesByGroup = new Map<string, ShopGroupProductImage[]>()
   const countByGroup = new Map<string, number>()
   for (const product of rows) {
     const id = String(product.collection_id || "").trim()
@@ -290,7 +295,7 @@ export async function listShopGroupsCatalog(container: MedusaContainer) {
     const src = product.thumbnail ? String(product.thumbnail) : ""
     if (!src) continue
     const list = imagesByGroup.get(id) || []
-    if (list.length < 4) list.push(src)
+    list.push({ product_id: String(product.id), src })
     imagesByGroup.set(id, list)
   }
   return ((data ?? []) as Array<Record<string, unknown>>)
@@ -300,7 +305,10 @@ export async function listShopGroupsCatalog(container: MedusaContainer) {
         id,
         title: String(collection.title || ""),
         path: `/collections/${id}`,
-        images: imagesByGroup.get(id) || [],
+        images: applyShopGroupCoverImages(
+          imagesByGroup.get(id) || [],
+          readShopCollectionCover(collection.metadata)
+        ),
         count: countByGroup.get(id) || 0,
       }
     })

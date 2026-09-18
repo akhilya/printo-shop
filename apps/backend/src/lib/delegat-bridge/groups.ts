@@ -171,12 +171,16 @@ export async function upsertGroup(
     return { success: false, error: "Group name is required" }
   }
 
-  const metadata: Record<string, string> = {}
+  let collectionId = await findCollectionId(container, payload)
+  const existing = collectionId
+    ? (await listCollections(container)).find((row) => row.id === collectionId)
+    : null
+  const metadata: Record<string, unknown> = {
+    ...((existing?.metadata || {}) as Record<string, unknown>),
+  }
   if (payload.delegat_group_id) {
     metadata.delegat_group_id = String(payload.delegat_group_id)
   }
-
-  let collectionId = await findCollectionId(container, payload)
 
   if (collectionId) {
     await updateCollectionsWorkflow(container).run({
@@ -184,10 +188,11 @@ export async function upsertGroup(
         selector: { id: collectionId },
         update: {
           title: name,
-          metadata: Object.keys(metadata).length ? metadata : undefined,
+          metadata,
         },
       },
     })
+    collectionsCache = null
   } else {
     const { result } = await createCollectionsWorkflow(container).run({
       input: {

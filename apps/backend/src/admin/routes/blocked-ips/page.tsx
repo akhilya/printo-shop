@@ -141,7 +141,7 @@ const BlockedIpsPage = () => {
 
 export const config = defineRouteConfig({
   label: "Блоклист IP",
-  nested: "/shop-service",
+  nested: "/inventory",
   rank: 4,
 })
 

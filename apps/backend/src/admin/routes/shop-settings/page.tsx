@@ -531,7 +531,7 @@ const ShopSettingsPage = () => {
 
 export const config = defineRouteConfig({
   label: "Настройки",
-  nested: "/shop-service",
+  nested: "/inventory",
   rank: 1,
 })
 

@@ -22,6 +22,7 @@ import {
   ozonReturnKind,
   shipOzonPosting,
   waitForOzonAwaitingDeliver,
+  type OzonPackageLabel,
   type OzonReturnKind,
 } from "./ozon-posting"
 import {
@@ -336,7 +337,7 @@ async function packOzonForOrderInner(
     ozon_pack_error: null,
   }
   await saveOrderMetadata(container, orderId, packed)
-  let label = null
+  let label: OzonPackageLabel | null = null
   let labelUrl = text(metadata.ozon_label_url) || null
   try {
     if (!ozonPostingReadyForLabel(posting.status)) {

@@ -102,7 +102,9 @@ export function shopIssueDetailPayload(detail: ShopIssueDetail) {
   return shopEventJsonDetail(detail)
 }
 
-export function parseShopIssueReply(body: unknown) {
+export function parseShopIssueReply(
+  body: unknown
+): { error: string } | { message: string } {
   const rec = asRecord(body)
   const message = String(rec.message ?? rec.text ?? rec.note ?? "").trim()
   if (message.length < 2) {
@@ -224,7 +226,7 @@ export async function listShopIssues(
     skip: input.offset,
   })
   const q = String(input.q || "").trim().toLowerCase()
-  const issues = []
+  const issues: Array<Awaited<ReturnType<typeof presentShopIssue>>> = []
   for (const row of rows as unknown as Array<Record<string, unknown>>) {
     const presented = await presentShopIssue(container, row)
     if (q) {

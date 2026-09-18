@@ -50,7 +50,7 @@ export type OutgoingMail = {
   to: string
   subject: string
   text: string
-  html: string
+  html?: string
   replyTo?: string
 }
 
@@ -68,7 +68,7 @@ export async function sendSmtpMail(
     replyTo: mail.replyTo,
     subject: mail.subject,
     text: mail.text,
-    html: mail.html,
+    html: mail.html || mail.text,
   })
   return { skipped: false as const }
 }
