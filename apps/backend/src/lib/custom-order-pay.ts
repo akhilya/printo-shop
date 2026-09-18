@@ -6,7 +6,12 @@ import {
 import { tbankPublicError } from "../modules/tbank/ca"
 import { TbankClient, isPublicHttpUrl } from "../modules/tbank/client"
 import { customReceiptLine, orderDescription } from "../modules/tbank/receipt-lines"
-import { promotionDiscountAmount } from "./shop-promotion"
+import {
+  promotionDiscountAmount,
+  promotionIsExhausted,
+  shopPromotionMaxUses,
+} from "./shop-promotion"
+import { loadShopPromotionUsage } from "./shop-promotion-usage"
 import { toKopecks } from "../modules/tbank/status"
 import { verifyTbankToken } from "../modules/tbank/token"
 import {
@@ -217,6 +222,7 @@ export async function applyCustomOrderPromo(
     fields: [
       "id",
       "code",
+      "limit",
       "is_automatic",
       "status",
       "application_method.type",
@@ -233,6 +239,14 @@ export async function applyCustomOrderPromo(
     throw new MedusaError(
       MedusaError.Types.NOT_ALLOWED,
       "Этот промокод применяется сам и на индивидуальный заказ не действует"
+    )
+  }
+  const usage = await loadShopPromotionUsage(container)
+  const used = usage[promoCode] || 0
+  if (promotionIsExhausted(used, shopPromotionMaxUses(promo))) {
+    throw new MedusaError(
+      MedusaError.Types.NOT_ALLOWED,
+      "Этот промокод уже нельзя применить"
     )
   }
   const method = (promo.application_method || {}) as Record<string, unknown>

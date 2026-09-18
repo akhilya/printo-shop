@@ -147,7 +147,7 @@ const CustomOrdersPage = () => {
 }
 
 export const config = defineRouteConfig({
-  label: "Индивидуальные заказы",
+  label: "На заказ",
   nested: "/orders",
   rank: 2,
 })

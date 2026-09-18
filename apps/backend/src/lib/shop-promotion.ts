@@ -31,6 +31,7 @@ export type ShopPromotionCreate = {
   type: "standard"
   status: "active"
   is_automatic: boolean
+  limit: number | null
   application_method: {
     type: "percentage" | "fixed"
     value: number
@@ -38,6 +39,24 @@ export type ShopPromotionCreate = {
     currency_code: "rub"
     allocation: "across"
   }
+}
+
+export function parseShopPromotionMaxUses(value: unknown) {
+  if (value == null || value === "") return 0
+  const n = Number(value)
+  if (!Number.isFinite(n) || n < 0 || Math.trunc(n) !== n) {
+    return { error: "Укажите число применений" }
+  }
+  return Math.trunc(n)
+}
+
+export function shopPromotionMaxUses(row: Record<string, unknown>) {
+  const n = Number(row.limit)
+  return Number.isFinite(n) && n > 0 ? Math.trunc(n) : 0
+}
+
+export function promotionIsExhausted(used: number, max: number) {
+  return max > 0 && used >= max
 }
 
 export function parseShopPromotionCreate(
@@ -63,11 +82,16 @@ export function parseShopPromotionCreate(
   if (type === "percentage" && value > 100) {
     return { error: "Процент не больше 100" }
   }
+  const maxUses = parseShopPromotionMaxUses(
+    rec.limit != null && rec.limit !== "" ? rec.limit : rec.max_uses
+  )
+  if (typeof maxUses !== "number") return maxUses
   return {
     code,
     type: "standard",
     status: "active",
     is_automatic: rec.is_automatic === true,
+    limit: maxUses > 0 ? maxUses : null,
     application_method: {
       type,
       value: type === "percentage" ? value : Math.round(value),
@@ -161,15 +185,10 @@ export function tallyPromotionUses(codeLists: string[][]) {
   return counts
 }
 
-export function promotionUsesLabel(count: number) {
-  const n = Math.max(0, Math.trunc(Number(count) || 0))
-  const mod10 = n % 10
-  const mod100 = n % 100
-  if (mod10 === 1 && mod100 !== 11) return `${n} применение`
-  if (mod10 >= 2 && mod10 <= 4 && (mod100 < 12 || mod100 > 14)) {
-    return `${n} применения`
-  }
-  return `${n} применений`
+export function promotionUsesLabel(used: number, max = 0) {
+  const n = Math.max(0, Math.trunc(Number(used) || 0))
+  const cap = Math.max(0, Math.trunc(Number(max) || 0))
+  return `${n}/${cap}`
 }
 
 export function presentShopPromotion(
@@ -188,6 +207,7 @@ export function presentShopPromotion(
     value: Number(method.value) || 0,
     include_shipping: promotionIncludesShipping(method.target_type),
     application_method_id: String(method.id || ""),
+    max_uses: shopPromotionMaxUses(row),
     used_count: usageByCode[code.toUpperCase()] || 0,
   }
 }

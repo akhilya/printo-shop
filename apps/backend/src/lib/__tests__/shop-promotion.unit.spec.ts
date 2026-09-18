@@ -4,6 +4,7 @@ import {
   presentShopPromotion,
   promotionCodesFromOrder,
   promotionDiscountAmount,
+  promotionIsExhausted,
   promotionUsesLabel,
   tallyPromotionUses,
 } from "../shop-promotion"
@@ -19,6 +20,7 @@ describe("parseShopPromotionCreate", () => {
       })
     ).toMatchObject({
       code: "LETO10",
+      limit: null,
       application_method: {
         type: "percentage",
         value: 10,
@@ -41,6 +43,33 @@ describe("parseShopPromotionCreate", () => {
         target_type: "items",
       },
     })
+  })
+
+  it("treats 0 max uses as unlimited and keeps a positive cap", () => {
+    expect(
+      parseShopPromotionCreate({
+        code: "FIG10",
+        type: "fixed",
+        value: 150,
+        max_uses: 0,
+      })
+    ).toMatchObject({ limit: null })
+    expect(
+      parseShopPromotionCreate({
+        code: "FIG10",
+        type: "fixed",
+        value: 150,
+        max_uses: 20,
+      })
+    ).toMatchObject({ limit: 20 })
+    expect(
+      parseShopPromotionCreate({
+        code: "FIG10",
+        type: "fixed",
+        value: 150,
+        max_uses: -1,
+      })
+    ).toEqual({ error: "Укажите число применений" })
   })
 })
 
@@ -78,10 +107,10 @@ describe("presentShopPromotion", () => {
   it("attaches how many times the code was used", () => {
     expect(
       presentShopPromotion(
-        { id: "promo_1", code: "LETO10", application_method: {} },
+        { id: "promo_1", code: "LETO10", limit: 5, application_method: {} },
         { LETO10: 3 }
-      ).used_count
-    ).toBe(3)
+      )
+    ).toMatchObject({ used_count: 3, max_uses: 5 })
   })
 })
 
@@ -101,10 +130,13 @@ describe("promotion usage", () => {
     ).toEqual({ LETO10: 3, SHIP5: 1 })
   })
 
-  it("labels application counts in Russian", () => {
-    expect(promotionUsesLabel(1)).toBe("1 применение")
-    expect(promotionUsesLabel(2)).toBe("2 применения")
-    expect(promotionUsesLabel(5)).toBe("5 применений")
+  it("labels application counts as used over max", () => {
+    expect(promotionUsesLabel(0, 5)).toBe("0/5")
+    expect(promotionUsesLabel(8, 20)).toBe("8/20")
+    expect(promotionUsesLabel(20, 20)).toBe("20/20")
+    expect(promotionUsesLabel(8, 0)).toBe("8/0")
+    expect(promotionIsExhausted(20, 20)).toBe(true)
+    expect(promotionIsExhausted(8, 0)).toBe(false)
   })
 })
 

@@ -25,12 +25,14 @@ type ShopPromotion = {
   value: number
   include_shipping: boolean
   used_count: number
+  max_uses: number
 }
 
 const EMPTY = {
   code: "",
   type: "percentage" as "percentage" | "fixed",
   value: "10",
+  max_uses: "0",
   include_shipping: false,
   is_automatic: false,
 }
@@ -55,6 +57,7 @@ const ShopPromotionsPage = () => {
           code: form.code,
           type: form.type,
           value: Number(form.value),
+          max_uses: Number(form.max_uses),
           include_shipping: form.include_shipping,
           is_automatic: form.is_automatic,
         },
@@ -156,6 +159,24 @@ const ShopPromotionsPage = () => {
               }
             />
           </div>
+          <div className="flex flex-col gap-y-2">
+            <Label>Макс. применений</Label>
+            <Input
+              type="number"
+              min={0}
+              step={1}
+              value={form.max_uses}
+              onChange={(event) =>
+                setForm((current) => ({
+                  ...current,
+                  max_uses: event.target.value,
+                }))
+              }
+            />
+            <Text size="small" className="text-ui-fg-subtle">
+              0 — без ограничения
+            </Text>
+          </div>
           <div className="flex items-center justify-between gap-x-4">
             <div>
               <Label>Учитывать доставку</Label>
@@ -221,7 +242,7 @@ const ShopPromotionsPage = () => {
                         : `${row.value} %`}
                       {row.is_automatic ? " · сама" : ""}
                       {" · "}
-                      {promotionUsesLabel(row.used_count)}
+                      {promotionUsesLabel(row.used_count, row.max_uses)}
                     </Text>
                   </div>
                   <div className="flex flex-wrap items-center gap-x-4 gap-y-2">

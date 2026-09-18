@@ -8,6 +8,7 @@ const LINKS = [
   { to: "/shop-promotions", label: "Скидки", hint: "Промокоды витрины" },
   { to: "/legal-pages", label: "Документы", hint: "Оферта и возврат" },
   { to: "/reviews", label: "Отзывы", hint: "Модерация" },
+  { to: "/shop-collections", label: "Карточки коллекций", hint: "Лицевое фото" },
 ]
 
 const ShopStorefrontPage = () => (
