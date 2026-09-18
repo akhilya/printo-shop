@@ -26,11 +26,15 @@ export function applyStoreCors(
   if (originAllowed(origin)) {
     res.setHeader("Access-Control-Allow-Origin", origin)
     res.setHeader("Access-Control-Allow-Credentials", "true")
-    res.setHeader("Access-Control-Allow-Methods", "GET, OPTIONS")
+    res.setHeader(
+      "Access-Control-Allow-Methods",
+      "GET, POST, PUT, PATCH, DELETE, HEAD, OPTIONS"
+    )
     res.setHeader(
       "Access-Control-Allow-Headers",
       "Content-Type, Authorization, x-publishable-api-key"
     )
+    res.setHeader("Access-Control-Max-Age", "86400")
     res.setHeader("Vary", "Origin")
   }
   if (req.method === "OPTIONS") {

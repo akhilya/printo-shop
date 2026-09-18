@@ -36,6 +36,10 @@ async function warmShopSettings(
   res: MedusaResponse,
   next: MedusaNextFunction
 ) {
+  if (req.method === "OPTIONS") {
+    next()
+    return
+  }
   try {
     await getShopSetting(req.scope)
   } catch {
@@ -88,6 +92,11 @@ async function rejectClosedOrders(
  */
 export default defineMiddlewares({
   routes: [
+    {
+      matcher: "/store*",
+      methods: ["OPTIONS"],
+      middlewares: [applyStoreCors],
+    },
     {
       matcher: "/store*",
       middlewares: [warmShopSettings, stripStoreCategoryDictionaries],

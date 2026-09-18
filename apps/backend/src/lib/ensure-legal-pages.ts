@@ -4,9 +4,28 @@ import { DEFAULT_LEGAL_PAGES } from "./legal-page"
 import { LEGAL_PAGE_MODULE } from "../modules/legal-page"
 import type LegalPageModuleService from "../modules/legal-page/service"
 
+const LEGAL_CACHE_MS = 60_000
+let legalCache: { at: number; rows: unknown[] } = { at: 0, rows: [] }
+
+export function invalidateLegalPagesCache() {
+  legalCache = { at: 0, rows: [] }
+}
+
+export async function listLegalPagesCached(container: MedusaContainer) {
+  if (legalCache.rows.length && Date.now() - legalCache.at < LEGAL_CACHE_MS) {
+    return legalCache.rows
+  }
+  const rows = await ensureDefaultLegalPages(container)
+  legalCache = { at: Date.now(), rows }
+  return rows
+}
+
 export async function ensureDefaultLegalPages(container: MedusaContainer) {
   const service: LegalPageModuleService = container.resolve(LEGAL_PAGE_MODULE)
-  const existing = await service.listLegalPages({}, { take: 20 })
+  const existing = await service.listLegalPages(
+    {},
+    { take: 20, select: ["id", "slug", "title", "body", "enabled"] }
+  )
   const bySlug = new Map(existing.map((row) => [String(row.slug), row]))
   const missing = DEFAULT_LEGAL_PAGES.filter((item) => !bySlug.has(item.slug))
   if (missing.length) {
@@ -21,5 +40,11 @@ export async function ensureDefaultLegalPages(container: MedusaContainer) {
   if (updates.length) {
     await service.updateLegalPages(updates)
   }
-  return service.listLegalPages({}, { take: 20 })
+  if (missing.length || updates.length) {
+    return service.listLegalPages(
+      {},
+      { take: 20, select: ["id", "slug", "title", "body", "enabled"] }
+    )
+  }
+  return existing
 }

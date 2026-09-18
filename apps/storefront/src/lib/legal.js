@@ -31,7 +31,13 @@ export async function loadLegalPages() {
     })
     if (!res.ok) return
     const data = await res.json()
-    const pages = (data.pages || []).filter((page) => page.enabled !== false)
+    const pages = (data.pages || [])
+      .filter((page) => page.enabled !== false)
+      .map((page) => ({
+        slug: page.slug,
+        title: page.title,
+        enabled: page.enabled !== false,
+      }))
     if (pages.length) legalPages.value = pages
   } catch {
     legalPages.value = [...LEGAL_FALLBACK]

@@ -73,7 +73,9 @@ function asVat(value: string): TbankVat {
   return TBANK_VAT.includes(value as TbankVat) ? (value as TbankVat) : "none"
 }
 
+const SHOP_SETTING_TTL_MS = 30_000
 let cachedRow: Record<string, unknown> | null = null
+let cachedAt = 0
 
 function text(row: Record<string, unknown>, key: string): string {
   return String(row[key] || "").trim()
@@ -81,6 +83,7 @@ function text(row: Record<string, unknown>, key: string): string {
 
 export function cacheShopSetting(row: Record<string, unknown> | null) {
   cachedRow = row
+  cachedAt = row ? Date.now() : 0
 }
 
 export function peekShopSetting(): Record<string, unknown> | null {
@@ -288,6 +291,9 @@ export function parseShopSettingUpdate(
 
 export async function getShopSetting(container: MedusaContainer) {
   const service: ShopSettingModuleService = container.resolve(SHOP_SETTING_MODULE)
+  if (cachedRow && Date.now() - cachedAt < SHOP_SETTING_TTL_MS) {
+    return cachedRow
+  }
   setOzonTokenPersist(async ({ refreshToken }) => {
     const current = peekShopSetting()
     if (!current?.id) return

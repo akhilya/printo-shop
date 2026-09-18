@@ -3,6 +3,10 @@ import { Modules } from "@medusajs/framework/utils"
 import type { IPromotionModuleService } from "@medusajs/framework/types"
 import { presentCatalogSales } from "../../../lib/catalog-sales"
 
+export async function OPTIONS(_req: MedusaRequest, res: MedusaResponse) {
+  res.status(204).end()
+}
+
 export async function GET(req: MedusaRequest, res: MedusaResponse) {
   try {
     const promotion: IPromotionModuleService = req.scope.resolve(

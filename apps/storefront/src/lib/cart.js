@@ -28,10 +28,12 @@ function writeCartId(id) {
 }
 
 const CART_FIELDS =
-  "*items,*items.variant,+items.variant.metadata,*items.variant.product,+items.variant.product.handle,+items.product.handle,*promotions,*shipping_methods"
+  "id,email,currency_code,region_id,completed_at,total,subtotal,discount_total,item_total,item_subtotal,original_item_total,original_item_subtotal,item_discount_total,shipping_total,shipping_subtotal,metadata,*items,+items.variant.id,+items.variant.metadata,+items.variant.product.handle,+items.product.handle,*promotions,*shipping_methods"
 
-async function retrieveCart(id) {
-  const { cart } = await sdk.store.cart.retrieve(id, { fields: CART_FIELDS })
+export const CART_QUERY = { fields: CART_FIELDS }
+
+export async function retrieveCart(id) {
+  const { cart } = await sdk.store.cart.retrieve(id, CART_QUERY)
   return cart
 }
 
@@ -90,7 +92,10 @@ async function ensureCart() {
       else if (cartState.cart?.id) return cartState.cart
     }
   }
-  const { cart } = await sdk.store.cart.create({ region_id: REGION_ID })
+  const { cart } = await sdk.store.cart.create(
+    { region_id: REGION_ID },
+    CART_QUERY
+  )
   writeCartId(cart.id)
   cartState.cart = cart
   return cart
@@ -101,10 +106,14 @@ export async function addToCart(variantId, quantity = 1) {
   cartState.error = ""
   try {
     const cart = await ensureCart()
-    const { cart: next } = await sdk.store.cart.createLineItem(cart.id, {
-      variant_id: variantId,
-      quantity,
-    })
+    const { cart: next } = await sdk.store.cart.createLineItem(
+      cart.id,
+      {
+        variant_id: variantId,
+        quantity,
+      },
+      CART_QUERY
+    )
     cartState.cart = next
     openCart()
   } catch (error) {
@@ -126,7 +135,8 @@ export async function setQty(lineId, quantity) {
     const { cart } = await sdk.store.cart.updateLineItem(
       cartState.cart.id,
       lineId,
-      { quantity }
+      { quantity },
+      CART_QUERY
     )
     cartState.cart = cart
   } catch (error) {
@@ -143,7 +153,8 @@ export async function removeLine(lineId) {
   try {
     const { parent: cart } = await sdk.store.cart.deleteLineItem(
       cartState.cart.id,
-      lineId
+      lineId,
+      CART_QUERY
     )
     cartState.cart = cart ?? (await retrieveCart(cartState.cart.id))
   } catch (error) {
@@ -238,9 +249,13 @@ export async function applyPromo(code) {
   cartState.busy = true
   cartState.error = ""
   try {
-    const { cart } = await sdk.store.cart.addPromotions(cartState.cart.id, {
-      promo_codes: [promo],
-    })
+    const { cart } = await sdk.store.cart.addPromotions(
+      cartState.cart.id,
+      {
+        promo_codes: [promo],
+      },
+      CART_QUERY
+    )
     cartState.cart = cart
   } catch (error) {
     const raw = String(error.message || "")
@@ -258,9 +273,13 @@ export async function removePromo(code) {
   cartState.busy = true
   cartState.error = ""
   try {
-    const { cart } = await sdk.store.cart.removePromotions(cartState.cart.id, {
-      promo_codes: [promo],
-    })
+    const { cart } = await sdk.store.cart.removePromotions(
+      cartState.cart.id,
+      {
+        promo_codes: [promo],
+      },
+      CART_QUERY
+    )
     cartState.cart = cart
   } catch (error) {
     cartState.error = shopError(error, "Не удалось убрать промокод")

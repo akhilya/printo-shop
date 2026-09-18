@@ -3,6 +3,7 @@ import type {
   MedusaResponse,
 } from "@medusajs/framework/http"
 import { parseLegalPageInput, presentLegalPage } from "../../../../lib/legal-page"
+import { invalidateLegalPagesCache } from "../../../../lib/ensure-legal-pages"
 import { LEGAL_PAGE_MODULE } from "../../../../modules/legal-page"
 import type LegalPageModuleService from "../../../../modules/legal-page/service"
 
@@ -51,6 +52,7 @@ export async function POST(
     id,
     ...update,
   })
+  invalidateLegalPagesCache()
   const page = Array.isArray(updated) ? updated[0] : updated
   res.json({
     page: presentLegalPage(

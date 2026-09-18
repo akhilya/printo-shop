@@ -89,14 +89,20 @@ export function parseLegalPageInput(
   }
 }
 
-export function presentLegalPage(row: Record<string, unknown>) {
-  const body = String(row.body || "")
+export function presentLegalPageNav(row: Record<string, unknown>) {
   return {
     id: String(row.id || ""),
     slug: String(row.slug || ""),
     title: String(row.title || ""),
+    enabled: row.enabled !== false,
+  }
+}
+
+export function presentLegalPage(row: Record<string, unknown>) {
+  const body = String(row.body || "")
+  return {
+    ...presentLegalPageNav(row),
     body,
     html: renderLegalMarkdown(body),
-    enabled: row.enabled !== false,
   }
 }

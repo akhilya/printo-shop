@@ -1,6 +1,11 @@
 import { renderLegalMarkdown } from "../legal-markdown"
 import { LEGAL_COPY, SELLER_INN, shouldReplaceLegalBody } from "../legal-copy"
-import { DEFAULT_LEGAL_PAGES, parseLegalPageInput } from "../legal-page"
+import {
+  DEFAULT_LEGAL_PAGES,
+  parseLegalPageInput,
+  presentLegalPage,
+  presentLegalPageNav,
+} from "../legal-page"
 
 describe("renderLegalMarkdown", () => {
   it("renders headings, lists and safe links", () => {
@@ -81,5 +86,26 @@ describe("parseLegalPageInput", () => {
     expect("error" in parsed).toBe(false)
     if ("error" in parsed) return
     expect(parsed.enabled).toBe(true)
+  })
+})
+
+describe("presentLegalPageNav", () => {
+  it("omits body and html from the listing payload", () => {
+    const row = {
+      id: "lp_1",
+      slug: "offer",
+      title: "Оферта",
+      body: "## Договор\n\nТекст оферты",
+      enabled: true,
+    }
+    expect(presentLegalPageNav(row)).toEqual({
+      id: "lp_1",
+      slug: "offer",
+      title: "Оферта",
+      enabled: true,
+    })
+    const full = presentLegalPage(row)
+    expect(full.body).toContain("Текст оферты")
+    expect(full.html).toContain("<h3>Договор</h3>")
   })
 })

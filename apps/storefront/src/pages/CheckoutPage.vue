@@ -8,10 +8,12 @@ import ConfirmDialog from "../components/ConfirmDialog.vue"
 import LineProduct from "../components/LineProduct.vue"
 import { checkoutConfirmFields } from "../lib/checkout-confirm.js"
 import {
+  CART_QUERY,
   cartState,
   cartTotals,
   linePrices,
   loadCart,
+  retrieveCart,
   removeLine,
   setQty,
 } from "../lib/cart.js"
@@ -311,7 +313,9 @@ async function payCart() {
     postal_code: form.postal_code || "000000",
     country_code: "ru",
   }
-  let { cart } = await sdk.store.cart.update(cartState.cart.id, {
+  let { cart } = await sdk.store.cart.update(
+    cartState.cart.id,
+    {
     email: form.email,
     shipping_address: address,
     billing_address: address,
@@ -325,15 +329,21 @@ async function payCart() {
       legal_accepted: true,
       legal_accepted_at: new Date().toISOString(),
     },
-  })
+    },
+    CART_QUERY
+  )
   const options = await sdk.store.fulfillment.listCartOptions({
     cart_id: cart.id,
   })
   const shipping = options.shipping_options?.[0]
   if (shipping) {
-    const added = await sdk.store.cart.addShippingMethod(cart.id, {
-      option_id: shipping.id,
-    })
+    const added = await sdk.store.cart.addShippingMethod(
+      cart.id,
+      {
+        option_id: shipping.id,
+      },
+      CART_QUERY
+    )
     cart = added.cart
   }
   if (form.ozon_point_id) {
@@ -350,8 +360,7 @@ async function payCart() {
         phone: form.phone,
       }),
     })
-    const fresh = await sdk.store.cart.retrieve(cart.id)
-    cart = fresh.cart
+    cart = await retrieveCart(cart.id)
   }
   const { payment_collection } = await sdk.store.payment.initiatePaymentSession(
     cart,
