@@ -193,7 +193,61 @@ function isPdf(contentType: string, buffer: Buffer) {
   return buffer.subarray(0, 4).toString("utf8") === "%PDF"
 }
 
-function labelFromRaw(
+export function ozonErrorCode(error: unknown) {
+  const raw =
+    error instanceof Error
+      ? error.message
+      : error && typeof error === "object" && "message" in error
+        ? String((error as { message: unknown }).message || "")
+        : String(error || "")
+  const jsonStart = raw.indexOf("{")
+  if (jsonStart >= 0) {
+    try {
+      const json = JSON.parse(raw.slice(jsonStart)) as Record<string, unknown>
+      return String(json.message || json.code || "").trim()
+    } catch {
+      // fall through
+    }
+  }
+  return raw
+}
+
+export function ozonShipAlreadyPacked(error: unknown) {
+  return /POSTING_ALREADY_SHIPPED|HAS_INCORRECT_STATUS|TRANSITION_IS_NOT_POSSIBLE/i.test(
+    ozonErrorCode(error)
+  )
+}
+
+export function ozonLabelNotReady(error: unknown) {
+  const code = ozonErrorCode(error)
+  return /INVALID_ARGUMENT|aren't ready|NO_POSTINGS_FOR_BATCH_DOWNLOAD/i.test(code)
+}
+
+export function ozonPostingReadyForLabel(status?: string | null) {
+  const mapped = mapOzonPostingStatus(status)
+  return (
+    mapped === "awaiting_deliver" ||
+    mapped === "delivering" ||
+    mapped === "delivered"
+  )
+}
+
+function bytesFromLabelContent(value: unknown) {
+  const text = String(value || "")
+  if (!text) return Buffer.alloc(0)
+  if (text.startsWith("%PDF")) return Buffer.from(text, "utf8")
+  try {
+    const decoded = Buffer.from(text, "base64")
+    if (decoded.length && (isPdf("", decoded) || decoded.length > 32)) {
+      return decoded
+    }
+  } catch {
+    // use the raw string
+  }
+  return Buffer.from(text, "utf8")
+}
+
+export function parseOzonLabelResponse(
   raw: { ok: boolean; status: number; contentType: string; buffer: Buffer },
   postingNumber: string
 ): OzonPackageLabel {
@@ -209,12 +263,57 @@ function labelFromRaw(
       "Ozon вернул пустую этикетку"
     )
   }
+  const text = raw.buffer.toString("utf8").trim()
+  if (text.startsWith("{")) {
+    try {
+      const json = JSON.parse(text) as Record<string, unknown>
+      const result = (json.result || json) as Record<string, unknown>
+      const content = result.file_content || json.file_content
+      const bytes = bytesFromLabelContent(content)
+      if (bytes.length) {
+        const name = String(
+          result.file_name || json.file_name || `ozon-${postingNumber}.pdf`
+        )
+        return {
+          bytes,
+          contentType: String(
+            result.content_type || json.content_type || "application/pdf"
+          ),
+          fileName: name,
+        }
+      }
+    } catch {
+      // fall through to a raw PDF
+    }
+  }
   const pdf = isPdf(raw.contentType, raw.buffer)
   return {
     bytes: raw.buffer,
     contentType: pdf ? "application/pdf" : raw.contentType || "application/pdf",
     fileName: `ozon-${postingNumber}.${pdf ? "pdf" : "bin"}`,
   }
+}
+
+export async function waitForOzonAwaitingDeliver(
+  fetchPosting: () => Promise<OzonPostingInfo>,
+  options?: {
+    attempts?: number
+    delayMs?: number
+    sleep?: (ms: number) => Promise<void>
+  }
+) {
+  const attempts = options?.attempts ?? 12
+  const delayMs = options?.delayMs ?? 2500
+  const sleep =
+    options?.sleep || ((ms: number) => new Promise((resolve) => setTimeout(resolve, ms)))
+  let posting = await fetchPosting()
+  if (ozonPostingReadyForLabel(posting.status)) return posting
+  for (let i = 0; i < attempts; i++) {
+    await sleep(delayMs)
+    posting = await fetchPosting()
+    if (ozonPostingReadyForLabel(posting.status)) return posting
+  }
+  return posting
 }
 
 export async function getOzonPosting(
@@ -292,18 +391,25 @@ export async function shipOzonPosting(
       "В отправлении Ozon нет товаров для сборки"
     )
   }
-  await sellerPost(creds, "/v4/posting/fbs/ship", {
-    posting_number: postingNumber,
-    packages: [
-      {
-        products: posting.products.map((product) => ({
-          product_id: product.productId,
-          quantity: product.quantity,
-        })),
-      },
-    ],
-  })
-  return { ...posting, status: "awaiting_deliver" }
+  try {
+    await sellerPost(creds, "/v4/posting/fbs/ship", {
+      posting_number: postingNumber,
+      packages: [
+        {
+          products: posting.products.map((product) => ({
+            product_id: product.productId,
+            quantity: product.quantity,
+          })),
+        },
+      ],
+    })
+    return { ...posting, status: "awaiting_deliver" }
+  } catch (error) {
+    if (!ozonShipAlreadyPacked(error)) throw error
+    const fresh = await getOzonPosting(creds, postingNumber)
+    if (ozonPostingReadyForLabel(fresh.status)) return fresh
+    throw error
+  }
 }
 
 export async function handOverOzonPosting(creds: OzonCreds, postingNumber: string) {
@@ -336,7 +442,7 @@ export async function getOzonPackageLabel(
   const raw = await sellerRequest(creds, "/v2/posting/fbs/package-label", {
     posting_number: [postingNumber],
   })
-  return labelFromRaw(raw, postingNumber)
+  return parseOzonLabelResponse(raw, postingNumber)
 }
 
 export function ozonLabelTracking(orderNumber?: string | null) {

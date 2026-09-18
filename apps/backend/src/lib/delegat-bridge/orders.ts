@@ -101,6 +101,7 @@ export function presentDelegatOrder(order: Record<string, unknown>) {
   const fulfillment = mapDelegatOrderStatus(order)
   const hasLabel = Boolean(
     metadata.ozon_label_url ||
+      metadata.ozon_packed_at ||
       (metadata.ozon_posting_number &&
         (fulfillment === "awaiting_deliver" ||
           fulfillment === "delivering" ||

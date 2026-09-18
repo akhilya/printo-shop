@@ -328,8 +328,8 @@ export async function applyShopOrderAction(
     )
   }
   if (next === "awaiting_deliver") {
-    await ensureNativeFulfillment(container, order)
     await packOzonForOrder(container, orderId)
+    await ensureNativeFulfillment(container, order)
   } else if (next === "delivering") {
     const fulfillmentId = await ensureNativeFulfillment(container, order)
     await packOzonForOrder(container, orderId).catch(() => null)

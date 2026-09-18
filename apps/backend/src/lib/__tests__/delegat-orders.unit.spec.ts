@@ -196,6 +196,20 @@ describe("presentDelegatOrder", () => {
     expect(presented.ozon_posting_number).toBe("123-1")
   })
 
+  it("flags a packed posting even before the PDF is stored", () => {
+    const presented = presentDelegatOrder({
+      id: "order_packed",
+      status: "completed",
+      metadata: {
+        shop_number: "1234567890",
+        ozon_posting_number: "123-1",
+        ozon_packed_at: "2026-09-18T13:16:20.000Z",
+      },
+      items: [],
+    })
+    expect(presented.has_label).toBe(true)
+  })
+
   it("prefixes Ozon PVZ onto the address", () => {
     const presented = presentDelegatOrder({
       id: "order_2",

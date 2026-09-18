@@ -16,8 +16,11 @@ import {
   getOzonPosting,
   handOverOzonPosting,
   mapOzonPostingStatus,
+  ozonLabelNotReady,
+  ozonPostingReadyForLabel,
   ozonReturnKind,
   shipOzonPosting,
+  waitForOzonAwaitingDeliver,
   type OzonReturnKind,
 } from "./ozon-posting"
 import {
@@ -210,7 +213,36 @@ async function ensureOzonIds(
   }
 }
 
+const packingOrders = new Map<string, Promise<Record<string, unknown> | null>>()
+
 export async function packOzonForOrder(
+  container: MedusaContainer,
+  orderId: string
+) {
+  const running = packingOrders.get(orderId)
+  if (running) return running
+  const job = packOzonForOrderInner(container, orderId).finally(() => {
+    packingOrders.delete(orderId)
+  })
+  packingOrders.set(orderId, job)
+  return job
+}
+
+async function retryOzonLabel(creds: OzonCreds, postingNumber: string) {
+  let lastError: unknown = null
+  for (let i = 0; i < 6; i++) {
+    try {
+      return await getOzonPackageLabel(creds, postingNumber)
+    } catch (error) {
+      lastError = error
+      if (!ozonLabelNotReady(error) || i === 5) break
+      await new Promise((resolve) => setTimeout(resolve, 4000))
+    }
+  }
+  throw lastError
+}
+
+async function packOzonForOrderInner(
   container: MedusaContainer,
   orderId: string
 ) {
@@ -222,6 +254,7 @@ export async function packOzonForOrder(
   if (metadata.ozon_packed_at && metadata.ozon_label_url) {
     return metadata
   }
+  const alreadyPacked = Boolean(metadata.ozon_packed_at)
   try {
     metadata = await ensureOzonIds(container, { ...order, metadata }, creds)
   } catch (error) {
@@ -269,14 +302,14 @@ export async function packOzonForOrder(
   try {
     posting = await getOzonPosting(creds, postingNumber, orderNumber)
     number = posting.postingNumber || postingNumber
-    try {
-      await shipOzonPosting(creds, { ...posting, postingNumber: number })
-    } catch (error) {
-      const message = error instanceof Error ? error.message : String(error)
-      if (!/already|ожидает|awaiting_deliver|packed/i.test(message)) {
-        throw error
-      }
+    if (!alreadyPacked) {
+      posting = await shipOzonPosting(creds, { ...posting, postingNumber: number })
+      number = posting.postingNumber || number
     }
+    posting = await waitForOzonAwaitingDeliver(
+      () => getOzonPosting(creds, number, orderNumber)
+    )
+    number = posting.postingNumber || number
   } catch (error) {
     const message = ozonPackErrorMessage(error)
     await recordShopEvent(container, {
@@ -289,29 +322,7 @@ export async function packOzonForOrder(
     })
     throw new MedusaError(MedusaError.Types.INVALID_DATA, message)
   }
-  let label
-  try {
-    label = await getOzonPackageLabel(creds, number)
-  } catch (error) {
-    const message = ozonPackErrorMessage(error)
-    await recordShopEvent(container, {
-      kind: "ozon_pack",
-      level: "error",
-      title: "Не удалось получить этикетку Ozon",
-      message,
-      detail: shopEventErrorDetail(error),
-      ...orderLogContext(order),
-      posting_number: number,
-    })
-    throw new MedusaError(MedusaError.Types.INVALID_DATA, message)
-  }
-  const labelUrl = await storeOzonLabel(
-    container,
-    number,
-    label.bytes,
-    label.contentType
-  )
-  const next = {
+  const packed = {
     ...metadata,
     ozon_posting_number: number,
     ozon_order_number:
@@ -320,10 +331,39 @@ export async function packOzonForOrder(
       metadata.ozon_tracking ||
       ozonTrackingUrl(posting.orderNumber || metadata.ozon_order_number),
     ozon_posting_status: posting.status || "awaiting_deliver",
-    ozon_label_url: labelUrl,
-    ozon_label_name: label.fileName,
     ozon_packed_at: new Date().toISOString(),
     ozon_pack_error: null,
+  }
+  await saveOrderMetadata(container, orderId, packed)
+  let label = null
+  let labelUrl = text(metadata.ozon_label_url) || null
+  try {
+    if (!ozonPostingReadyForLabel(posting.status)) {
+      throw new Error("INVALID_ARGUMENT")
+    }
+    label = await retryOzonLabel(creds, number)
+    labelUrl = await storeOzonLabel(
+      container,
+      number,
+      label.bytes,
+      label.contentType
+    )
+  } catch (error) {
+    const message = ozonPackErrorMessage(error)
+    await recordShopEvent(container, {
+      kind: "ozon_pack",
+      level: "warn",
+      title: "Не удалось получить этикетку Ozon",
+      message,
+      detail: shopEventErrorDetail(error),
+      ...orderLogContext(order),
+      posting_number: number,
+    })
+  }
+  const next = {
+    ...packed,
+    ozon_label_url: labelUrl,
+    ozon_label_name: label?.fileName || metadata.ozon_label_name || null,
   }
   await saveOrderMetadata(container, orderId, next)
   await recordShopEvent(container, {
@@ -331,10 +371,12 @@ export async function packOzonForOrder(
     title: "Заказ собран в Ozon",
     message: labelUrl
       ? "Этикетка получена. Можно сдавать в ПВЗ."
-      : "Сборка подтверждена, этикетка не сохранилась.",
+      : "Сборка подтверждена. Этикетку можно скачать чуть позже.",
     detail: shopEventJsonDetail({
       posting,
-      label: { fileName: label.fileName, contentType: label.contentType },
+      label: label
+        ? { fileName: label.fileName, contentType: label.contentType }
+        : null,
       labelUrl,
     }),
     ...orderLogContext({ ...order, metadata: next }),

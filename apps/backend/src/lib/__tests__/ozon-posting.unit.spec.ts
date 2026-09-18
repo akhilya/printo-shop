@@ -2,10 +2,15 @@ import {
   extractOzonPostingStatus,
   mapOzonPostingStatus,
   ozonFbsCancelBody,
+  ozonLabelNotReady,
   ozonOrderCancelBody,
+  ozonPostingReadyForLabel,
   ozonReturnKind,
   ozonReturnMessage,
+  ozonShipAlreadyPacked,
+  parseOzonLabelResponse,
   parseOzonPosting,
+  waitForOzonAwaitingDeliver,
 } from "../ozon-posting"
 
 describe("mapOzonPostingStatus", () => {
@@ -66,6 +71,65 @@ describe("extractOzonPostingStatus", () => {
     expect(
       extractOzonPostingStatus({ tracking: { status: "In_Transit" } })
     ).toBe("In_Transit")
+  })
+})
+
+describe("ozon pack and label", () => {
+  it("treats a repeated ship as already packed", () => {
+    expect(
+      ozonShipAlreadyPacked({
+        message: 'Ozon HTTP 400: {"code":3,"message":"HAS_INCORRECT_STATUS"}',
+      })
+    ).toBe(true)
+    expect(
+      ozonShipAlreadyPacked({
+        message: 'Ozon HTTP 400: {"code":3,"message":"POSTING_ALREADY_SHIPPED"}',
+      })
+    ).toBe(true)
+  })
+
+  it("knows a label is not ready until awaiting_deliver", () => {
+    expect(ozonPostingReadyForLabel("awaiting_packaging")).toBe(false)
+    expect(ozonPostingReadyForLabel("awaiting_deliver")).toBe(true)
+    expect(
+      ozonLabelNotReady({
+        message: 'Ozon HTTP 400: {"code":3,"message":"INVALID_ARGUMENT"}',
+      })
+    ).toBe(true)
+  })
+
+  it("reads a JSON package-label payload from the docs example", () => {
+    const parsed = parseOzonLabelResponse(
+      {
+        ok: true,
+        status: 200,
+        contentType: "application/pdf",
+        buffer: Buffer.from(
+          JSON.stringify({
+            content_type: "application/pdf",
+            file_name: "ticket.pdf",
+            file_content: "%PDF-1.7\n%",
+          })
+        ),
+      },
+      "48173252-0034-4"
+    )
+    expect(parsed.fileName).toBe("ticket.pdf")
+    expect(parsed.bytes.toString("utf8")).toContain("%PDF-1.7")
+  })
+
+  it("waits until the posting is awaiting_deliver", async () => {
+    const statuses = ["awaiting_packaging", "awaiting_packaging", "awaiting_deliver"]
+    const posting = await waitForOzonAwaitingDeliver(
+      async () => ({
+        postingNumber: "1-1",
+        orderNumber: "1",
+        status: statuses.shift() || "awaiting_deliver",
+        products: [],
+      }),
+      { delayMs: 0, sleep: async () => undefined, attempts: 5 }
+    )
+    expect(posting.status).toBe("awaiting_deliver")
   })
 })
 
