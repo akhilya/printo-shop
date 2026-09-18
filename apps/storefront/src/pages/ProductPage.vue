@@ -2,6 +2,7 @@
 import { Star } from "@lucide/vue"
 import { computed, onBeforeUnmount, ref, watch } from "vue"
 import { useRoute, useRouter } from "vue-router"
+import LuckyBanner from "../components/LuckyBanner.vue"
 import PhotoLightbox from "../components/PhotoLightbox.vue"
 import ProductPhoto from "../components/ProductPhoto.vue"
 import ProductRail from "../components/ProductRail.vue"
@@ -21,6 +22,7 @@ import {
   productGroup,
   productSpecs,
   realVariants,
+  recordProductView,
   BACKEND_URL,
   REGION_ID,
   sdk,
@@ -30,7 +32,7 @@ import {
 import { variantSalePrice } from "../lib/sales.js"
 import {
   OUT_OF_STOCK_LABEL,
-  sortInStockFirst,
+  shuffleInStockFirst,
   variantInStock,
 } from "../lib/product-stock.js"
 
@@ -41,6 +43,7 @@ const router = useRouter()
 const product = ref(null)
 const related = ref([])
 const reviews = ref([])
+const banners = ref([])
 const active = ref(0)
 const variantId = ref("")
 const loading = ref(true)
@@ -92,7 +95,8 @@ async function load() {
     lightbox.value = null
     loading.value = false
     if (!(await allowProduct(next))) return
-    await Promise.all([loadRelated(next), loadReviews(next.id)])
+    recordProductView(next.id)
+    await Promise.all([loadRelated(next), loadReviews(next.id), loadBanners()])
   } catch {
     product.value = null
     error.value = "Товар не найден"
@@ -142,12 +146,32 @@ async function loadRelated(p) {
       limit: 16,
       fields: productFields,
     })
-    related.value = sortInStockFirst(
+    related.value = shuffleInStockFirst(
       (products || []).filter((item) => item.id !== p.id)
     )
   } catch {
     related.value = []
   }
+}
+
+async function loadBanners() {
+  try {
+    const res = await fetch(`${BACKEND_URL}/store/banners`, {
+      headers: storeHeaders(),
+    })
+    if (!res.ok) {
+      banners.value = []
+      return
+    }
+    const data = await res.json()
+    banners.value = data.banners || []
+  } catch {
+    banners.value = []
+  }
+}
+
+function bannerBySlot(slot) {
+  return banners.value.find((item) => item.slot === slot) || null
 }
 
 async function loadReviews(productId) {
@@ -529,6 +553,12 @@ watch(() => route.params.handle, load, { immediate: true })
         </form>
       </div>
     </section>
+
+    <LuckyBanner
+      v-if="product && bannerBySlot('product_lucky')"
+      :banner="bannerBySlot('product_lucky')"
+      :exclude-id="product.id"
+    />
 
     <PhotoLightbox
       v-if="lightbox"

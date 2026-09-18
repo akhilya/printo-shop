@@ -7,8 +7,7 @@ import ProductCell from "../components/ProductCell.vue"
 import { sortInStockFirst } from "../lib/product-stock.js"
 import {
   PAGE_SIZE,
-  productFields,
-  REGION_ID,
+  listShopCatalog,
   sdk,
 } from "../lib/sdk.js"
 
@@ -49,12 +48,10 @@ async function load() {
     title.value = group.title
     const offset = (page.value - 1) * PAGE_SIZE
     const [productRes, catRes] = await Promise.all([
-      sdk.store.product.list({
-        ...group.query,
-        region_id: REGION_ID,
+      listShopCatalog({
+        collectionId: group.query.collection_id,
         limit: PAGE_SIZE,
         offset,
-        fields: productFields,
       }),
       sdk.store.category.list({ limit: 20, include_descendants_tree: false }),
     ])

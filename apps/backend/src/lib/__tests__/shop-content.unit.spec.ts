@@ -42,6 +42,32 @@ describe("parseBannerInput", () => {
     if ("error" in parsed) return
     expect(parsed.cta_href).toBe("/order")
   })
+
+  it("clears an empty image url", () => {
+    const parsed = parseBannerInput(
+      {
+        slot: "home_hero",
+        title: "Баннер",
+        body: "Текст",
+        image_url: "   ",
+      },
+      true
+    )
+    expect("error" in parsed).toBe(false)
+    if ("error" in parsed) return
+    expect(parsed.image_url).toBeNull()
+  })
+
+  it("accepts lucky product banners", () => {
+    const parsed = parseBannerInput({
+      slot: "home_lucky",
+      title: "Мне повезёт",
+      body: "Случайная фигурка.",
+      cta_label: "Показать",
+      cta_href: "/products",
+    })
+    expect("error" in parsed).toBe(false)
+  })
 })
 
 describe("parseCustomOrderInput", () => {

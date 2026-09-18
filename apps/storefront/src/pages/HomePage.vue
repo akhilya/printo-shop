@@ -4,16 +4,15 @@ import { useRoute, useRouter } from "vue-router"
 import GroupCard from "../components/GroupCard.vue"
 import ProductCell from "../components/ProductCell.vue"
 import LinkArrow from "../components/LinkArrow.vue"
+import LuckyBanner from "../components/LuckyBanner.vue"
 import SiteBanner from "../components/SiteBanner.vue"
 import { sortInStockFirst } from "../lib/product-stock.js"
 import {
   HOME_GROUPS,
   HOME_PRODUCTS,
   BACKEND_URL,
+  listShopCatalog,
   listShopGroups,
-  productFields,
-  REGION_ID,
-  sdk,
   storeHeaders,
 } from "../lib/sdk.js"
 
@@ -61,11 +60,7 @@ onMounted(async () => {
   try {
     const [groupsResult, productsResult, bannersResult] = await Promise.allSettled([
       listShopGroups(),
-      sdk.store.product.list({
-        region_id: REGION_ID,
-        limit: HOME_PRODUCTS,
-        fields: productFields,
-      }),
+      listShopCatalog({ limit: HOME_PRODUCTS, offset: 0 }),
       loadBanners(),
     ])
     groups.value =
@@ -125,6 +120,10 @@ onMounted(async () => {
         </div>
       </section>
 
+      <LuckyBanner
+        v-if="bannerBySlot('home_lucky')"
+        :banner="bannerBySlot('home_lucky')"
+      />
       <SiteBanner
         v-if="bannerBySlot('home_catalog')"
         :banner="bannerBySlot('home_catalog')"

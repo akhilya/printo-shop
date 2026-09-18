@@ -20,3 +20,22 @@ export function sortInStockFirst(products) {
     return bIn - aIn
   })
 }
+
+export function shuffleList(items) {
+  const next = [...(items || [])]
+  for (let i = next.length - 1; i > 0; i -= 1) {
+    const j = Math.floor(Math.random() * (i + 1))
+    const swap = next[i]
+    next[i] = next[j]
+    next[j] = swap
+  }
+  return next
+}
+
+export function shuffleInStockFirst(products) {
+  const list = products || []
+  return [
+    ...shuffleList(list.filter(productInStock)),
+    ...shuffleList(list.filter((item) => !productInStock(item))),
+  ]
+}

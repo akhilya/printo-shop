@@ -3,6 +3,7 @@ import assert from "node:assert/strict"
 import {
   OUT_OF_STOCK_LABEL,
   productInStock,
+  shuffleInStockFirst,
   sortInStockFirst,
   variantInStock,
 } from "./product-stock.js"
@@ -54,6 +55,17 @@ describe("sortInStockFirst", () => {
       sortInStockFirst([empty, stocked, alsoEmpty]).map((item) => item.id),
       ["b", "a", "c"]
     )
+  })
+
+  it("shuffles within stock groups and keeps empty last", () => {
+    const mixed = shuffleInStockFirst([
+      { id: "a", variants: [{ inventory_quantity: 0 }] },
+      { id: "b", variants: [{ inventory_quantity: 1 }] },
+      { id: "c", variants: [{ inventory_quantity: 2 }] },
+    ])
+    const ids = mixed.map((item) => item.id)
+    assert.equal(ids.includes("a"), true)
+    assert.equal(ids[ids.length - 1], "a")
   })
 })
 

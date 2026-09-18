@@ -95,7 +95,7 @@ export function visiblePages(current, total) {
 }
 
 export const productFields =
-  "id,title,handle,thumbnail,description,collection_id,*variants.calculated_price,+variants.inventory_quantity,+variants.manage_inventory,+variants.sku,+variants.metadata,*images,*collection,categories.id,categories.name,categories.handle,+metadata"
+  "id,title,handle,thumbnail,description,collection_id,*variants.calculated_price,+variants.inventory_quantity,+variants.manage_inventory,+variants.sku,+variants.metadata,*images,*collection,categories.id,categories.name,categories.handle,+categories.metadata,+metadata"
 
 export { productSpecs } from "./product-specs.js"
 
@@ -181,38 +181,71 @@ export function ruFigures(n) {
   return `${n} фигурок`
 }
 
-export async function listShopGroups() {
-  const [{ collections }, { products }] = await Promise.all([
-    sdk.store.collection.list({
-      limit: 100,
-      fields: "id,title,handle",
-    }),
-    sdk.store.product.list({
-      limit: 200,
-      fields: "id,thumbnail,*images,collection_id",
-    }),
-  ])
-  const imagesByGroup = new Map()
-  const countByGroup = new Map()
-  for (const product of products || []) {
-    const id = product.collection_id
-    if (!id) continue
-    countByGroup.set(id, (countByGroup.get(id) || 0) + 1)
-    const src = product.thumbnail || product.images?.[0]?.url
-    if (!src) continue
-    const list = imagesByGroup.get(id) || []
-    if (list.length < 4) list.push(src)
-    imagesByGroup.set(id, list)
+export async function listShopCatalog({
+  q,
+  categoryId,
+  collectionId,
+  limit = PAGE_SIZE,
+  offset = 0,
+} = {}) {
+  const params = new URLSearchParams()
+  if (q) params.set("q", q)
+  if (categoryId) params.set("category_id", categoryId)
+  if (collectionId) params.set("collection_id", collectionId)
+  params.set("limit", String(limit))
+  params.set("offset", String(offset))
+  const res = await fetch(`${BACKEND_URL}/store/shop-catalog?${params}`, {
+    headers: storeHeaders(),
+  })
+  if (!res.ok) throw new Error("catalog")
+  const data = await res.json()
+  const ids = data.ids || []
+  if (!ids.length) return { products: [], count: data.count || 0 }
+  const { products } = await sdk.store.product.list({
+    id: ids,
+    limit: ids.length,
+    region_id: REGION_ID,
+    fields: productFields,
+  })
+  const byId = new Map((products || []).map((item) => [item.id, item]))
+  return {
+    products: ids.map((id) => byId.get(id)).filter(Boolean),
+    count: data.count || 0,
   }
-  return (collections || [])
-    .map((collection) => ({
-      id: collection.id,
-      title: collection.title,
-      path: `/collections/${collection.id}`,
-      images: imagesByGroup.get(collection.id) || [],
-      count: countByGroup.get(collection.id) || 0,
-    }))
-    .filter((group) => group.count > 0)
+}
+
+export async function listShopGroups() {
+  const res = await fetch(`${BACKEND_URL}/store/shop-groups`, {
+    headers: storeHeaders(),
+  })
+  if (!res.ok) throw new Error("groups")
+  const data = await res.json()
+  return data.groups || []
+}
+
+export async function loadLuckyProduct(excludeId) {
+  const params = new URLSearchParams()
+  if (excludeId) params.set("exclude", excludeId)
+  const query = params.toString()
+  const res = await fetch(
+    `${BACKEND_URL}/store/shop-lucky${query ? `?${query}` : ""}`,
+    { headers: storeHeaders() }
+  )
+  if (!res.ok) return null
+  const data = await res.json()
+  return data.product || null
+}
+
+export async function recordProductView(productId) {
+  if (!productId) return
+  try {
+    await fetch(
+      `${BACKEND_URL}/store/shop-products/${encodeURIComponent(productId)}/view`,
+      { method: "POST", headers: storeHeaders() }
+    )
+  } catch {
+    // Views are internal; a failed ping must not affect the page.
+  }
 }
 
 /**

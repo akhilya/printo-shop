@@ -3,6 +3,8 @@ export const BANNER_SLOTS = [
   "home_catalog",
   "home_custom",
   "home_order",
+  "home_lucky",
+  "product_lucky",
 ] as const
 export type BannerSlot = (typeof BANNER_SLOTS)[number]
 
@@ -44,6 +46,22 @@ export const DEFAULT_BANNERS: Array<{
     body: "Номер из письма — 10 цифр. Статус, пункт выдачи и доставка Ozon.",
     cta_label: "Найти",
     cta_href: "/order",
+    enabled: true,
+  },
+  {
+    slot: "home_lucky",
+    title: "Мне повезёт",
+    body: "Случайная фигурка из каталога. Вдруг это она.",
+    cta_label: "Показать",
+    cta_href: "/products",
+    enabled: true,
+  },
+  {
+    slot: "product_lucky",
+    title: "Мне повезёт",
+    body: "Другая случайная фигурка — не эта.",
+    cta_label: "Показать",
+    cta_href: "/products",
     enabled: true,
   },
 ]

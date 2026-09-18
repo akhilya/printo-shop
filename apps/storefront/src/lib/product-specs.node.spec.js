@@ -86,4 +86,31 @@ describe("productSpecs", () => {
       false
     )
   })
+
+  it("treats a category attribute id as 18+ and hides it", () => {
+    const product = {
+      metadata: { attributes: { 9080: "True", Вес: "40" } },
+      categories: [
+        {
+          metadata: {
+            delegat_fields: JSON.stringify([
+              { key: "9080", name: "Признак 18+" },
+            ]),
+          },
+        },
+      ],
+    }
+    assert.equal(isAdultProduct(product), true)
+    const rows = productSpecs(product)
+    assert.equal(rows.some((row) => /9080|18\+/.test(row.label)), false)
+    assert.equal(rows.some((row) => row.label === "Вес"), true)
+  })
+
+  it("hides unresolved numeric category keys from the buyer", () => {
+    const rows = productSpecs({
+      metadata: { attributes: { 9080: "False", 1234: "126" } },
+    })
+    assert.equal(isAdultProduct({ metadata: { attributes: { 9080: "True" } } }), true)
+    assert.equal(rows.some((row) => /^\d+$/.test(row.label)), false)
+  })
 })

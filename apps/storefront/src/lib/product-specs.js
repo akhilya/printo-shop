@@ -104,7 +104,37 @@ function isPackagedWeight(key, label) {
   )
 }
 
+function isAttributeId(key) {
+  return /^\d+$/.test(String(key || "").trim())
+}
+
+function parseFieldList(raw) {
+  if (Array.isArray(raw)) return raw
+  if (typeof raw !== "string" || !raw.trim()) return []
+  try {
+    const parsed = JSON.parse(raw)
+    return Array.isArray(parsed) ? parsed : []
+  } catch {
+    return []
+  }
+}
+
+function attributeName(key, product) {
+  const id = String(key || "").trim()
+  if (!id) return id
+  for (const category of product?.categories || []) {
+    for (const field of parseFieldList(category?.metadata?.delegat_fields)) {
+      const fieldKey = String(field?.key ?? field?.id ?? "").trim()
+      if (fieldKey !== id) continue
+      const name = String(field?.name || field?.label || "").trim()
+      if (name) return name
+    }
+  }
+  return id
+}
+
 function isAdultFlag(key, label) {
+  if (isAttributeId(key) && String(key).trim() === "9080") return true
   return /признак\s*18|18\+|adult|nsfw|для взрослых/.test(specBlob(key, label))
 }
 
@@ -120,8 +150,9 @@ function isAdultAgeValue(value) {
 export function isAdultProduct(product) {
   const attrs = parseAttributes(product?.metadata?.attributes)
   for (const [key, raw] of Object.entries(attrs)) {
-    if (isAdultFlag(key, key) && isYesValue(raw)) return true
-    if (/возраст/.test(String(key).toLowerCase()) && isAdultAgeValue(raw)) {
+    const name = attributeName(key, product)
+    if (isAdultFlag(key, name) && isYesValue(raw)) return true
+    if (/возраст/.test(String(name).toLowerCase()) && isAdultAgeValue(raw)) {
       return true
     }
   }
@@ -129,10 +160,11 @@ export function isAdultProduct(product) {
   if (Array.isArray(explicit)) {
     for (const item of explicit) {
       const key = String(item?.key || item?.label || "")
-      const label = String(item?.label || key)
-      if (isAdultFlag(key, label) && isYesValue(item?.value)) return true
+      const label = attributeName(key, product)
+      const named = String(item?.label || label || key)
+      if (isAdultFlag(key, named) && isYesValue(item?.value)) return true
       if (
-        /возраст/.test(specBlob(key, label)) &&
+        /возраст/.test(specBlob(key, named)) &&
         isAdultAgeValue(item?.value)
       ) {
         return true
@@ -176,10 +208,11 @@ export function productSpecs(product) {
   if (Array.isArray(explicit)) {
     for (const item of explicit) {
       const key = String(item?.key || item?.label || "").trim()
-      const rawLabel = String(item?.label || key)
-      if (isPackagedWeight(key, rawLabel)) continue
-      if (isAdultFlag(key, rawLabel)) continue
-      const label = specLabel(rawLabel)
+      const rawLabel = attributeName(key, product)
+      const named = String(item?.label && !isAttributeId(item.label) ? item.label : rawLabel)
+      if (isPackagedWeight(key, named)) continue
+      if (isAdultFlag(key, named) || (isAttributeId(key) && named === key)) continue
+      const label = specLabel(named)
       const value = formatSpecValue(item?.value)
       if (!key && !label) continue
       if (!value) continue
@@ -200,9 +233,11 @@ export function productSpecs(product) {
   for (const [rawKey, rawValue] of Object.entries(attrs)) {
     const key = String(rawKey || "").trim()
     if (!key) continue
-    if (isPackagedWeight(key, key)) continue
-    if (isAdultFlag(key, key)) continue
-    const label = specLabel(key)
+    const named = attributeName(key, product)
+    if (isPackagedWeight(key, named)) continue
+    if (isAdultFlag(key, named) || (isAttributeId(key) && named === key)) continue
+    if (key === "shop_views") continue
+    const label = specLabel(named)
     let value = formatSpecValue(rawValue)
     if (!value) continue
     if (seen.has(label.toLowerCase()) || seen.has(key.toLowerCase())) continue

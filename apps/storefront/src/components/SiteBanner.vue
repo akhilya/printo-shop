@@ -13,7 +13,8 @@ function isRemote(href) {
 const isProduct = computed(
   () =>
     props.banner.slot === "product_custom" ||
-    props.banner.slot === "home_custom"
+    props.banner.slot === "home_custom" ||
+    props.banner.slot === "product_lucky"
 )
 const isOrder = computed(() => props.banner.slot === "home_order")
 const ctaClass = computed(() => {
@@ -28,10 +29,13 @@ const ctaClass = computed(() => {
     class="banner"
     :class="{
       'banner-hero': banner.slot === 'home_hero',
-      'banner-catalog': banner.slot === 'home_catalog',
+      'banner-catalog':
+        banner.slot === 'home_catalog' || banner.slot === 'home_lucky',
       'banner-order': isOrder,
       'banner-product':
-        banner.slot === 'product_custom' || banner.slot === 'home_custom',
+        banner.slot === 'product_custom' ||
+        banner.slot === 'home_custom' ||
+        banner.slot === 'product_lucky',
     }"
   >
     <div class="banner-copy">

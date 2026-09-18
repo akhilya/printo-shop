@@ -31,6 +31,8 @@ const SLOT_LABELS: Record<string, string> = {
   home_catalog: "Главная — каталог",
   home_custom: "Главная — индивидуальный заказ",
   home_order: "Главная — заказ",
+  home_lucky: "Главная — мне повезёт",
+  product_lucky: "Товар — мне повезёт",
 }
 
 const BannerEditPage = () => {
@@ -174,7 +176,18 @@ const BannerEditPage = () => {
           <Label>Фото</Label>
           <Input type="file" accept="image/*" onChange={onUpload} />
           {form.image_url ? (
-            <img src={form.image_url} alt="" className="max-h-40 object-contain" />
+            <>
+              <img src={form.image_url} alt="" className="max-h-40 object-contain" />
+              <Button
+                type="button"
+                variant="secondary"
+                onClick={() =>
+                  setForm((current) => ({ ...current, image_url: "" }))
+                }
+              >
+                Убрать фото
+              </Button>
+            </>
           ) : null}
         </div>
         <Button onClick={() => save.mutate()} isLoading={save.isPending}>

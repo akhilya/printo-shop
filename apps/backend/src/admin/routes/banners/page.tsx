@@ -24,6 +24,8 @@ const SLOT_LABELS: Record<string, string> = {
   home_catalog: "Главная — каталог",
   home_custom: "Главная — индивидуальный заказ",
   home_order: "Главная — заказ",
+  home_lucky: "Главная — мне повезёт",
+  product_lucky: "Товар — мне повезёт",
 }
 
 const columnsHelper = createDataTableColumnHelper<AdminBanner>()
