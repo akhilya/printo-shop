@@ -2,7 +2,9 @@ import {
   applyInventoryItemQuantities,
   catalogProductInStock,
   pageCatalogIds,
+  pageCatalogProducts,
   pickLuckyCatalogRow,
+  presentCatalogProduct,
   productMatchesCatalogQuery,
   sortCatalogByAvailability,
 } from "../shop-catalog"
@@ -83,5 +85,47 @@ describe("shop catalog", () => {
     ]
     applyInventoryItemQuantities(rows, { item_1: 5 })
     expect(catalogProductInStock(rows[0])).toBe(true)
+  })
+
+  it("returns storefront products without listing ids", () => {
+    const page = pageCatalogProducts(
+      [
+        {
+          id: "a",
+          title: "Страж",
+          handle: "strazh",
+          thumbnail: "https://img/a.jpg",
+          metadata: { price: "1500", old_price: "2000", attributes: "{}" },
+          images: [{ url: "https://img/a.jpg" }],
+          variants: [
+            {
+              id: "v1",
+              sku: "WA150",
+              manage_inventory: true,
+              inventory_quantity: 2,
+            },
+          ],
+        },
+      ],
+      0,
+      20
+    )
+    expect(page.count).toBe(1)
+    expect(page.products).toHaveLength(1)
+    expect(page.products[0]).toMatchObject({
+      id: "a",
+      handle: "strazh",
+      variants: [
+        {
+          sku: "WA150",
+          calculated_price: {
+            calculated_amount: 1500,
+            original_amount: 2000,
+            currency_code: "rub",
+          },
+        },
+      ],
+    })
+    expect(presentCatalogProduct({ id: "z" }).variants).toEqual([])
   })
 })

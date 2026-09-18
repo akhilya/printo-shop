@@ -18,7 +18,15 @@ RUN npm run build
 
 FROM nginx:1.27-alpine
 
-COPY docker/storefront.nginx.conf /etc/nginx/conf.d/default.conf
+ARG VITE_MEDUSA_BACKEND_URL=https://api.printo.studio
+ENV BACKEND_URL=${VITE_MEDUSA_BACKEND_URL}
+
+COPY docker/storefront.nginx.conf /etc/nginx/templates/default.conf.template
+COPY docker/storefront-start.sh /storefront-start.sh
 COPY --from=build /app/apps/storefront/dist /usr/share/nginx/html
 
+RUN apk add --no-cache gettext \
+  && chmod +x /storefront-start.sh
+
 EXPOSE 80
+CMD ["/storefront-start.sh"]

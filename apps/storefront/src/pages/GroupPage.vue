@@ -5,6 +5,8 @@ import CatalogNav from "../components/CatalogNav.vue"
 import Pager from "../components/Pager.vue"
 import ProductCell from "../components/ProductCell.vue"
 import { sortInStockFirst } from "../lib/product-stock.js"
+import { applyShopSeo } from "../lib/seo-head.js"
+import { SHOP_NAME, shopAbsoluteUrl, shopCanonicalPath } from "../lib/seo.js"
 import {
   PAGE_SIZE,
   listShopCatalog,
@@ -65,6 +67,37 @@ async function load() {
     count.value = 0
   } finally {
     loading.value = false
+    const origin = window.location.origin
+    applyShopSeo({
+      path: route.path,
+      query: { page: page.value > 1 ? String(page.value) : "" },
+      title: title.value || "Коллекция",
+      description: title.value
+        ? `Фигурки из коллекции ${title.value}.`
+        : "Коллекция фигурок PrintO.studio.",
+      robots: error.value ? "noindex, follow" : undefined,
+      crumbs: [
+        { name: SHOP_NAME, path: "/" },
+        { name: "Коллекции", path: "/collections" },
+        title.value
+          ? { name: title.value, path: route.path }
+          : null,
+      ].filter(Boolean),
+      prev:
+        page.value > 1
+          ? shopAbsoluteUrl(
+              origin,
+              shopCanonicalPath(route.path, { page: String(page.value - 1) })
+            )
+          : "",
+      next:
+        page.value < pages.value
+          ? shopAbsoluteUrl(
+              origin,
+              shopCanonicalPath(route.path, { page: String(page.value + 1) })
+            )
+          : "",
+    })
   }
 }
 

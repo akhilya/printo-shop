@@ -1,0 +1,16 @@
+{
+  "name": "PrintO.studio",
+  "short_name": "PrintO",
+  "lang": "ru",
+  "start_url": "/",
+  "display": "browser",
+  "background_color": "#ffffff",
+  "theme_color": "#000000",
+  "icons": [
+    {
+      "src": "/favicon.webp",
+      "type": "image/webp",
+      "sizes": "any"
+    }
+  ]
+}

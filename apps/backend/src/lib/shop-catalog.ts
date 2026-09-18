@@ -31,6 +31,7 @@ type CatalogVariant = {
   sku?: string | null
   manage_inventory?: boolean | null
   inventory_quantity?: number | null
+  metadata?: Record<string, unknown> | null
   inventory_items?: CatalogInventoryItem[] | null
 }
 
@@ -41,6 +42,8 @@ export type CatalogRow = {
   thumbnail?: string | null
   collection_id?: string | null
   status?: string | null
+  metadata?: Record<string, unknown> | null
+  images?: Array<{ url?: string | null }> | null
   categories?: Array<{ id?: string | null }> | null
   variants?: CatalogVariant[] | null
 }
@@ -127,6 +130,70 @@ export function pageCatalogIds(rows: CatalogRow[], offset: number, limit: number
   }
 }
 
+function catalogMoney(value: unknown) {
+  const amount = Number(value)
+  return Number.isFinite(amount) && amount >= 0 ? amount : null
+}
+
+export function presentCatalogProduct(row: CatalogRow) {
+  const metadata = (row.metadata || {}) as Record<string, unknown>
+  const variants = row.variants || []
+  const first = variants[0]
+  const current =
+    catalogMoney(metadata.sale_price) ?? catalogMoney(metadata.price)
+  const listedOld =
+    catalogMoney(first?.metadata?.old_price) ?? catalogMoney(metadata.old_price)
+  const original =
+    listedOld != null && current != null && listedOld > current
+      ? listedOld
+      : current
+  return {
+    id: row.id,
+    title: row.title || "",
+    handle: row.handle || "",
+    thumbnail: row.thumbnail || null,
+    collection_id: row.collection_id || null,
+    metadata,
+    images: (row.images || [])
+      .map((image) => ({ url: String(image?.url || "") }))
+      .filter((image) => image.url),
+    categories: (row.categories || []).map((category) => ({
+      id: String(category.id || ""),
+    })),
+    variants: variants.map((variant) => ({
+      id: variant.id || undefined,
+      sku: variant.sku || undefined,
+      manage_inventory: variant.manage_inventory,
+      inventory_quantity: variant.inventory_quantity,
+      metadata: variant.metadata || {},
+      calculated_price:
+        current == null
+          ? null
+          : {
+              calculated_amount: current,
+              original_amount: original,
+              currency_code: "rub",
+            },
+    })),
+  }
+}
+
+export function pageCatalogProducts(
+  rows: CatalogRow[],
+  offset: number,
+  limit: number
+) {
+  const page = pageCatalogIds(rows, offset, limit)
+  const byId = new Map(rows.map((row) => [row.id, row]))
+  return {
+    products: page.ids.flatMap((id) => {
+      const row = byId.get(id)
+      return row ? [presentCatalogProduct(row)] : []
+    }),
+    count: page.count,
+  }
+}
+
 export function pickLuckyCatalogRow(rows: CatalogRow[], excludeId?: string | null) {
   const available = rows.filter(
     (row) => row.id !== excludeId && catalogProductInStock(row)
@@ -205,10 +272,13 @@ async function loadPublishedCatalogRows(container: MedusaContainer) {
         "thumbnail",
         "status",
         "collection_id",
+        "metadata",
+        "images.url",
         "categories.id",
         "variants.id",
         "variants.sku",
         "variants.manage_inventory",
+        "variants.metadata",
         "variants.inventory_items.inventory_item_id",
         "variants.inventory_items.required_quantity",
       ],
@@ -275,7 +345,7 @@ export async function listShopCatalogPage(
   if (input.in_stock) {
     rows = rows.filter(catalogProductInStock)
   }
-  return pageCatalogIds(rows, input.offset || 0, input.limit || 20)
+  return pageCatalogProducts(rows, input.offset || 0, input.limit || 20)
 }
 
 export async function listShopGroupsCatalog(container: MedusaContainer) {

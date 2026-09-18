@@ -5,6 +5,7 @@ const props = defineProps({
   src: { type: String, default: "" },
   alt: { type: String, default: "" },
   eager: { type: Boolean, default: false },
+  fetchpriority: { type: String, default: "" },
 })
 
 const loaded = ref(false)
@@ -50,6 +51,7 @@ watch(() => props.src, sync, { immediate: true })
         :src="src"
         :alt="alt"
         :loading="eager ? 'eager' : 'lazy'"
+        :fetchpriority="fetchpriority || (eager ? 'high' : undefined)"
         decoding="async"
         @load="markLoaded"
         @error="markFailed"

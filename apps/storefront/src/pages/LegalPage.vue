@@ -2,6 +2,8 @@
 import { computed, onMounted, ref, watch } from "vue"
 import { useRoute } from "vue-router"
 import { BACKEND_URL, storeHeaders } from "../lib/sdk.js"
+import { applyShopSeo } from "../lib/seo-head.js"
+import { SHOP_NAME, seoPlainText } from "../lib/seo.js"
 
 const props = defineProps({
   title: { type: String, default: "" },
@@ -28,6 +30,7 @@ async function load() {
   if (isStatic.value || !slug.value) {
     page.value = null
     error.value = ""
+    applyLegalSeo()
     return
   }
   loading.value = true
@@ -49,7 +52,43 @@ async function load() {
     page.value = null
   } finally {
     loading.value = false
+    applyLegalSeo()
   }
+}
+
+function applyLegalSeo() {
+  if (isStatic.value) {
+    applyShopSeo({
+      path: route.path,
+      title: props.title,
+      description: props.body,
+      robots: route.path === "/checkout/fail" ? "noindex, nofollow" : undefined,
+      crumbs: [
+        { name: SHOP_NAME, path: "/" },
+        { name: props.title, path: route.path },
+      ],
+    })
+    return
+  }
+  if (error.value) {
+    applyShopSeo({
+      path: route.path,
+      title: "Страница не найдена",
+      description: "Такой страницы нет.",
+      robots: "noindex, follow",
+    })
+    return
+  }
+  if (!page.value) return
+  applyShopSeo({
+    path: route.path,
+    title: page.value.title,
+    description: seoPlainText(page.value.html || page.value.body || page.value.title),
+    crumbs: [
+      { name: SHOP_NAME, path: "/" },
+      { name: page.value.title, path: route.path },
+    ],
+  })
 }
 
 onMounted(load)

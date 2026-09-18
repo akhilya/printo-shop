@@ -16,10 +16,13 @@ import {
 import { addToCart, cartState, setQty } from "../lib/cart.js"
 import { cartLineForVariant } from "../lib/cart-line.js"
 import { reportForm } from "../lib/form-valid.js"
+import { applyShopSeo } from "../lib/seo-head.js"
+import { SHOP_NAME, shopProductNode } from "../lib/seo.js"
 import {
   descriptionParagraphs,
   productFields,
   productGroup,
+  productImage,
   productSpecs,
   realVariants,
   recordProductView,
@@ -94,6 +97,7 @@ async function load() {
     active.value = 0
     lightbox.value = null
     loading.value = false
+    applyProductSeo(next)
     if (!(await allowProduct(next))) return
     recordProductView(next.id)
     await Promise.all([loadRelated(next), loadReviews(next.id), loadBanners()])
@@ -101,6 +105,12 @@ async function load() {
     product.value = null
     error.value = "Товар не найден"
     loading.value = false
+    applyShopSeo({
+      path: route.path,
+      title: "Товар не найден",
+      description: "Такого товара нет.",
+      robots: "noindex, follow",
+    })
   }
 }
 
@@ -134,6 +144,50 @@ const customOrderBanner = computed(() => {
     cta_href: `/custom-order?product=${product.value.id}`,
   }
 })
+
+function applyProductSeo(next = product.value) {
+  if (!next) return
+  const variant =
+    variants.value.find((item) => item.id === variantId.value) ||
+    next.variants?.[0]
+  const calc = variant?.calculated_price || {}
+  const amount = Number(calc.calculated_amount ?? calc.original_amount)
+  const rated = (reviews.value || []).filter((row) => Number(row.rating) > 0)
+  const ratingCount = rated.length
+  const ratingValue = ratingCount
+    ? rated.reduce((sum, row) => sum + Number(row.rating), 0) / ratingCount
+    : 0
+  const collection = productGroup(next)
+  const crumbs = [
+    { name: SHOP_NAME, path: "/" },
+    { name: "Товары", path: "/products" },
+  ]
+  if (collection) crumbs.push({ name: collection.title, path: collection.path })
+  crumbs.push({ name: next.title, path: `/p/${next.handle}` })
+  applyShopSeo({
+    path: `/p/${next.handle}`,
+    title: next.title,
+    description:
+      descriptionParagraphs(next.description).join(" ") ||
+      `${next.title} в магазине PrintO.`,
+    image: productImage(next),
+    ogType: "product",
+    crumbs,
+    product: shopProductNode({
+      origin: window.location.origin,
+      path: `/p/${next.handle}`,
+      name: next.title,
+      image: productImage(next),
+      description: descriptionParagraphs(next.description).join(" "),
+      sku: variant?.sku,
+      price: amount,
+      inStock: variantInStock(variant),
+      adult: isAdultProduct(next),
+      ratingCount,
+      ratingValue: Math.round(ratingValue * 10) / 10,
+    }),
+  })
+}
 
 async function loadRelated(p) {
   related.value = []
@@ -186,6 +240,7 @@ async function loadReviews(productId) {
     }
     const data = await res.json()
     reviews.value = data.reviews || []
+    applyProductSeo()
   } catch {
     reviews.value = []
   }
@@ -321,6 +376,7 @@ onBeforeUnmount(() => {
 })
 
 watch(() => route.params.handle, load, { immediate: true })
+watch(variantId, () => applyProductSeo())
 </script>
 
 <template>

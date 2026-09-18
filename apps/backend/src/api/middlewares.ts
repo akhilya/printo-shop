@@ -11,6 +11,7 @@ import {
   DEFAULT_ORDERS_MESSAGE,
   getShopSetting,
 } from "../lib/shop-setting"
+import { stripStoreDelegatFields } from "../lib/shop-store-category"
 import { applyStoreCors } from "../lib/store-cors"
 
 async function rejectBlockedIp(
@@ -40,6 +41,17 @@ async function warmShopSettings(
   } catch {
     // Settings load is best-effort for payment and the closed storefront.
   }
+  next()
+}
+
+function stripStoreCategoryDictionaries(
+  _req: MedusaRequest,
+  res: MedusaResponse,
+  next: MedusaNextFunction
+) {
+  const sendJson = res.json.bind(res)
+  res.json = ((body: unknown) =>
+    sendJson(stripStoreDelegatFields(body))) as typeof res.json
   next()
 }
 
@@ -78,7 +90,7 @@ export default defineMiddlewares({
   routes: [
     {
       matcher: "/store*",
-      middlewares: [warmShopSettings],
+      middlewares: [warmShopSettings, stripStoreCategoryDictionaries],
     },
     {
       matcher: "/store*",

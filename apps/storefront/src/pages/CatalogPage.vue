@@ -5,6 +5,8 @@ import CatalogNav from "../components/CatalogNav.vue"
 import Pager from "../components/Pager.vue"
 import ProductCell from "../components/ProductCell.vue"
 import { sortInStockFirst } from "../lib/product-stock.js"
+import { applyShopSeo } from "../lib/seo-head.js"
+import { SHOP_NAME, shopAbsoluteUrl, shopCanonicalPath } from "../lib/seo.js"
 import {
   PAGE_SIZE,
   listShopCatalog,
@@ -64,6 +66,48 @@ async function load() {
     count.value = 0
   } finally {
     loading.value = false
+    const origin = window.location.origin
+    const crumbs = [
+      { name: SHOP_NAME, path: "/" },
+      { name: "Товары", path: "/products" },
+    ]
+    const catTitle = categories.value.find((item) => item.id === cat.value)?.name
+    const title = q.value
+      ? `Поиск: ${q.value}`
+      : catTitle
+        ? catTitle
+        : "Товары"
+    applyShopSeo({
+      path: "/products",
+      query: { q: q.value, c: cat.value, page: page.value > 1 ? String(page.value) : "" },
+      title,
+      description: q.value
+        ? `Результаты поиска «${q.value}».`
+        : "Каталог фигурок PrintO.studio.",
+      crumbs,
+      prev:
+        page.value > 1
+          ? shopAbsoluteUrl(
+              origin,
+              shopCanonicalPath("/products", {
+                q: q.value,
+                c: cat.value,
+                page: String(page.value - 1),
+              })
+            )
+          : "",
+      next:
+        page.value < pages.value
+          ? shopAbsoluteUrl(
+              origin,
+              shopCanonicalPath("/products", {
+                q: q.value,
+                c: cat.value,
+                page: String(page.value + 1),
+              })
+            )
+          : "",
+    })
   }
 }
 

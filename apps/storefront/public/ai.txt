@@ -1,0 +1,8 @@
+User-Agent: *
+Allow: /
+Disallow: /checkout
+Disallow: /checkout/
+Disallow: /order
+Disallow: /order/
+Disallow: /custom-order/pay
+Disallow: /custom-order/pay/

@@ -1,0 +1,179 @@
+User-agent: *
+Allow: /
+Allow: /llms.txt
+Allow: /llms-full.txt
+Allow: /llm.json
+Allow: /sitemap.xml
+Disallow: /checkout
+Disallow: /checkout/
+Disallow: /order
+Disallow: /order/
+Disallow: /custom-order/pay
+Disallow: /custom-order/pay/
+
+User-agent: GPTBot
+Allow: /
+Disallow: /checkout
+Disallow: /checkout/
+Disallow: /order
+Disallow: /order/
+Disallow: /custom-order/pay
+Disallow: /custom-order/pay/
+
+User-agent: ChatGPT-User
+Allow: /
+Disallow: /checkout
+Disallow: /checkout/
+Disallow: /order
+Disallow: /order/
+Disallow: /custom-order/pay
+Disallow: /custom-order/pay/
+
+User-agent: OAI-SearchBot
+Allow: /
+Disallow: /checkout
+Disallow: /checkout/
+Disallow: /order
+Disallow: /order/
+Disallow: /custom-order/pay
+Disallow: /custom-order/pay/
+
+User-agent: ClaudeBot
+Allow: /
+Disallow: /checkout
+Disallow: /checkout/
+Disallow: /order
+Disallow: /order/
+Disallow: /custom-order/pay
+Disallow: /custom-order/pay/
+
+User-agent: Claude-User
+Allow: /
+Disallow: /checkout
+Disallow: /checkout/
+Disallow: /order
+Disallow: /order/
+Disallow: /custom-order/pay
+Disallow: /custom-order/pay/
+
+User-agent: Claude-SearchBot
+Allow: /
+Disallow: /checkout
+Disallow: /checkout/
+Disallow: /order
+Disallow: /order/
+Disallow: /custom-order/pay
+Disallow: /custom-order/pay/
+
+User-agent: anthropic-ai
+Allow: /
+Disallow: /checkout
+Disallow: /checkout/
+Disallow: /order
+Disallow: /order/
+Disallow: /custom-order/pay
+Disallow: /custom-order/pay/
+
+User-agent: PerplexityBot
+Allow: /
+Disallow: /checkout
+Disallow: /checkout/
+Disallow: /order
+Disallow: /order/
+Disallow: /custom-order/pay
+Disallow: /custom-order/pay/
+
+User-agent: Perplexity-User
+Allow: /
+Disallow: /checkout
+Disallow: /checkout/
+Disallow: /order
+Disallow: /order/
+Disallow: /custom-order/pay
+Disallow: /custom-order/pay/
+
+User-agent: Google-Extended
+Allow: /
+Disallow: /checkout
+Disallow: /checkout/
+Disallow: /order
+Disallow: /order/
+Disallow: /custom-order/pay
+Disallow: /custom-order/pay/
+
+User-agent: Googlebot
+Allow: /
+Disallow: /checkout
+Disallow: /checkout/
+Disallow: /order
+Disallow: /order/
+Disallow: /custom-order/pay
+Disallow: /custom-order/pay/
+
+User-agent: Googlebot-Image
+Allow: /
+
+User-agent: Bingbot
+Allow: /
+Disallow: /checkout
+Disallow: /checkout/
+Disallow: /order
+Disallow: /order/
+Disallow: /custom-order/pay
+Disallow: /custom-order/pay/
+
+User-agent: Applebot
+Allow: /
+Disallow: /checkout
+Disallow: /checkout/
+Disallow: /order
+Disallow: /order/
+Disallow: /custom-order/pay
+Disallow: /custom-order/pay/
+
+User-agent: Applebot-Extended
+Allow: /
+Disallow: /checkout
+Disallow: /checkout/
+Disallow: /order
+Disallow: /order/
+Disallow: /custom-order/pay
+Disallow: /custom-order/pay/
+
+User-agent: Bytespider
+Allow: /
+Disallow: /checkout
+Disallow: /checkout/
+Disallow: /order
+Disallow: /order/
+Disallow: /custom-order/pay
+Disallow: /custom-order/pay/
+
+User-agent: CCBot
+Allow: /
+Disallow: /checkout
+Disallow: /checkout/
+Disallow: /order
+Disallow: /order/
+Disallow: /custom-order/pay
+Disallow: /custom-order/pay/
+
+User-agent: meta-externalagent
+Allow: /
+Disallow: /checkout
+Disallow: /checkout/
+Disallow: /order
+Disallow: /order/
+Disallow: /custom-order/pay
+Disallow: /custom-order/pay/
+
+User-agent: Amazonbot
+Allow: /
+Disallow: /checkout
+Disallow: /checkout/
+Disallow: /order
+Disallow: /order/
+Disallow: /custom-order/pay
+Disallow: /custom-order/pay/
+
+Sitemap: https://printo.studio/sitemap.xml

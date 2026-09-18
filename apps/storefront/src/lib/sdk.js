@@ -95,7 +95,7 @@ export function visiblePages(current, total) {
 }
 
 export const productFields =
-  "id,title,handle,thumbnail,description,collection_id,*variants.calculated_price,+variants.inventory_quantity,+variants.manage_inventory,+variants.sku,+variants.metadata,*images,*collection,categories.id,categories.name,categories.handle,+categories.metadata,+metadata"
+  "id,title,handle,thumbnail,description,collection_id,*variants.calculated_price,+variants.inventory_quantity,+variants.manage_inventory,+variants.sku,+variants.metadata,*images,*collection,categories.id,categories.name,categories.handle,+metadata"
 
 export { productSpecs } from "./product-specs.js"
 
@@ -201,17 +201,8 @@ export async function listShopCatalog({
   })
   if (!res.ok) throw new Error("catalog")
   const data = await res.json()
-  const ids = data.ids || []
-  if (!ids.length) return { products: [], count: data.count || 0 }
-  const { products } = await sdk.store.product.list({
-    id: ids,
-    limit: ids.length,
-    region_id: REGION_ID,
-    fields: productFields,
-  })
-  const byId = new Map((products || []).map((item) => [item.id, item]))
   return {
-    products: ids.map((id) => byId.get(id)).filter(Boolean),
+    products: data.products || [],
     count: data.count || 0,
   }
 }

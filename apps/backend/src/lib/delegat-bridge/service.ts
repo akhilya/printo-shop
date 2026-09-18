@@ -1,4 +1,5 @@
 import { MedusaContainer } from "@medusajs/framework"
+import { slimDelegatFieldsJson } from "../shop-store-category"
 import { ContainerRegistrationKeys, Modules } from "@medusajs/framework/utils"
 import {
   batchProductVariantsWorkflow,
@@ -174,7 +175,7 @@ export async function upsertCategory(
 ) {
   const query = container.resolve(ContainerRegistrationKeys.QUERY)
   const metadata = body.fields?.length
-    ? { delegat_fields: JSON.stringify(body.fields) }
+    ? { delegat_fields: slimDelegatFieldsJson(body.fields) }
     : undefined
 
   let categoryId = body.category_id?.trim() || ""

@@ -34,6 +34,7 @@ const stackVars = computed(() => {
     class="card group-card"
     :to="group.path"
     :style="stackVars"
+    :aria-label="`${group.title}, ${ruFigures(group.count)}`"
   >
     <div class="group-stack" aria-hidden="true">
       <div
