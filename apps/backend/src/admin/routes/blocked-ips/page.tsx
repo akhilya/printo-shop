@@ -1,5 +1,4 @@
 import { defineRouteConfig } from "@medusajs/admin-sdk"
-import { XCircle } from "@medusajs/icons"
 import {
   Button,
   Container,
@@ -142,7 +141,8 @@ const BlockedIpsPage = () => {
 
 export const config = defineRouteConfig({
   label: "Блоклист IP",
-  icon: XCircle,
+  nested: "/shop-service",
+  rank: 4,
 })
 
 export default BlockedIpsPage

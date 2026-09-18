@@ -28,6 +28,9 @@ export function mailEventFromShopStatus(status: string | null | undefined) {
   }
 }
 
+const RETURN_AFTER_PICKUP =
+  "Вернуть товар можно только после получения в пункте выдачи. Форма на странице заказа появится, когда заказ заберут."
+
 export function orderMailCopy(
   event: OrderMailEvent,
   number: string,
@@ -39,6 +42,7 @@ export function orderMailCopy(
       subject: `${order} принят`,
       intro:
         "Оплата прошла. Собираем заказ и передадим его в доставку Ozon.",
+      footer: RETURN_AFTER_PICKUP,
     }
   }
   if (event === "packed") {
@@ -46,26 +50,30 @@ export function orderMailCopy(
       subject: `${order} собран`,
       intro:
         "Заказ собран. Скоро сдадим его в пункт приёма Ozon. Ниже пункт выдачи и ссылка, чтобы открыть заказ.",
+      footer: RETURN_AFTER_PICKUP,
     }
   }
   if (event === "delivering") {
     return {
       subject: `${order} в доставке`,
       intro:
-        "Заказ едет в выбранный пункт выдачи Ozon. Там он хранится 14 дней. Продлить хранение нельзя.",
+        "Заказ едет в выбранный пункт выдачи Ozon. Там он хранится 14 дней. Продлить хранение нельзя. Вернуть его, пока не забрали, нельзя.",
+      footer: RETURN_AFTER_PICKUP,
     }
   }
   if (event === "delivered") {
     return {
       subject: `${order} получен`,
       intro:
-        "Заказ забрали в пункте выдачи. Спасибо. Если брак или ошибка — напишите нам с страницы заказа. Вернуть товар одной кнопкой нельзя.",
+        "Заказ забрали в пункте выдачи. Спасибо. Если брак или ошибка — напишите формой на странице заказа. Кнопки «вернуть» нет.",
+      footer: null,
     }
   }
   if (event === "canceled") {
     return {
       subject: `${order} отменён`,
       intro: "Заказ отменён. Причина — ниже.",
+      footer: null,
     }
   }
   if (returnKind === "refused") {
@@ -73,6 +81,7 @@ export function orderMailCopy(
       subject: `${order}: отказ на пункте выдачи`,
       intro:
         "В пункте выдачи от заказа отказались. Посылка возвращается нам. Невыкуп сам по себе оплату не возвращает. Если забрать заказ было физически нельзя — напишите с страницы заказа, разберём.",
+      footer: null,
     }
   }
   if (returnKind === "unclaimed") {
@@ -80,12 +89,14 @@ export function orderMailCopy(
       subject: `${order}: не забрали на ПВЗ`,
       intro:
         "Заказ не забрали за 14 дней. Посылка возвращается нам. Невыкуп оплату не возвращает. Если забрать заказ было физически нельзя — напишите с страницы заказа, разберём.",
+      footer: null,
     }
   }
   return {
     subject: `${order} возвращается`,
     intro:
       "Отправление возвращается нам. Это ещё не возврат оплаты. Если забрать заказ было физически нельзя — напишите с страницы заказа.",
+    footer: null,
   }
 }
 

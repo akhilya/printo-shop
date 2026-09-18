@@ -1,6 +1,9 @@
 import { MedusaContainer } from "@medusajs/framework"
 import { ContainerRegistrationKeys, MedusaError, Modules } from "@medusajs/framework/utils"
-import { refundPaymentWorkflow } from "@medusajs/medusa/core-flows"
+import {
+  cancelOrderFulfillmentWorkflow,
+  refundPaymentWorkflow,
+} from "@medusajs/medusa/core-flows"
 import { cancelOzonForOrder } from "./ozon-fulfill"
 import { sendShopOrderMail } from "./order-mail"
 import { isAlreadyClosedTbankError } from "./tbank-paid"
@@ -93,6 +96,30 @@ function paymentAlreadyRefunded(payment: Record<string, unknown>) {
   return refunds.length > 0
 }
 
+async function cancelNativeFulfillments(
+  container: MedusaContainer,
+  orderId: string,
+  order: Record<string, unknown>
+) {
+  const rows = ((order.fulfillments as Array<Record<string, unknown>>) || []).filter(
+    (row) => row.id && !row.canceled_at && !row.cancelled_at
+  )
+  for (const row of rows) {
+    if (row.shipped_at || row.delivered_at) continue
+    try {
+      await cancelOrderFulfillmentWorkflow(container).run({
+        input: {
+          order_id: orderId,
+          fulfillment_id: String(row.id),
+          no_notification: true,
+        },
+      })
+    } catch {
+      // Already cancelled or Medusa will reject a shipped row.
+    }
+  }
+}
+
 export async function cancelShopOrder(
   container: MedusaContainer,
   orderId: string,
@@ -105,28 +132,13 @@ export async function cancelShopOrder(
   if ("error" in parsed) {
     throw new MedusaError(MedusaError.Types.INVALID_DATA, parsed.error)
   }
-  const query = container.resolve(ContainerRegistrationKeys.QUERY)
-  const { data } = await query.graph({
-    entity: "order",
-    fields: [
-      "id",
-      "status",
-      "metadata",
-      "payment_collections.payments.id",
-      "payment_collections.payments.amount",
-      "payment_collections.payments.captured_at",
-      "payment_collections.payments.captures.id",
-      "payment_collections.payments.captures.amount",
-      "payment_collections.payments.refunds.id",
-      "payment_collections.payments.refunds.amount",
-    ],
-    filters: { id: orderId },
-  })
-  const order = ((data ?? [])[0] || null) as Record<string, unknown> | null
+  const order = await loadShopOrderRecord(container, orderId)
   if (!order) {
     throw new MedusaError(MedusaError.Types.NOT_FOUND, "order_not_found")
   }
   if (order.status === "canceled") {
+    await cancelOzonForOrder(container, orderId)
+    await cancelNativeFulfillments(container, orderId, order)
     return { id: orderId, canceled: true, refunded: false }
   }
   const metadata = (order.metadata || {}) as Record<string, unknown>
@@ -146,6 +158,7 @@ export async function cancelShopOrder(
     },
   })
   await cancelOzonForOrder(container, orderId)
+  await cancelNativeFulfillments(container, orderId, order)
 
   let logger: { warn?: (message: string) => void } = {}
   try {
@@ -153,16 +166,79 @@ export async function cancelShopOrder(
   } catch {
     // Logging is optional during cancel.
   }
+  const refunded = await settleShopPayments(container, order, {
+    refundCaptured: parsed.refund,
+    cancelUncaptured: true,
+    logPrefix: `cancel ${orderId}`,
+  })
+
+  await orderModule.cancel([orderId])
+  try {
+    await sendShopOrderMail(container, orderId, "canceled")
+  } catch (error) {
+    logger.warn?.(
+      `Cancel mail failed for ${orderId}: ${errorText(error)}`
+    )
+  }
+  return { id: orderId, canceled: true, refunded }
+}
+
+const ORDER_PAYMENT_FIELDS = [
+  "id",
+  "status",
+  "email",
+  "metadata",
+  "payment_collections.payments.id",
+  "payment_collections.payments.amount",
+  "payment_collections.payments.captured_at",
+  "payment_collections.payments.captures.id",
+  "payment_collections.payments.captures.amount",
+  "payment_collections.payments.refunds.id",
+  "payment_collections.payments.refunds.amount",
+  "fulfillments.id",
+  "fulfillments.canceled_at",
+  "fulfillments.shipped_at",
+  "fulfillments.delivered_at",
+]
+
+export async function loadShopOrderRecord(
+  container: MedusaContainer,
+  orderId: string
+) {
+  const query = container.resolve(ContainerRegistrationKeys.QUERY)
+  const { data } = await query.graph({
+    entity: "order",
+    fields: ORDER_PAYMENT_FIELDS,
+    filters: { id: orderId },
+  })
+  return (((data ?? [])[0] || null) as Record<string, unknown> | null)
+}
+
+async function settleShopPayments(
+  container: MedusaContainer,
+  order: Record<string, unknown>,
+  input: {
+    refundCaptured: boolean
+    cancelUncaptured: boolean
+    logPrefix: string
+    throwOnRefundError?: boolean
+  }
+) {
+  let logger: { warn?: (message: string) => void } = {}
+  try {
+    logger = container.resolve(ContainerRegistrationKeys.LOGGER)
+  } catch {
+    // Logging is optional.
+  }
   const paymentModule = container.resolve(Modules.PAYMENT) as {
     cancelPayment?: (id: string) => Promise<unknown>
   }
   let refunded = false
-  const refund = parsed.refund
   for (const payment of flattenPayments(order)) {
     const id = String(payment.id || "")
     if (!id) continue
     const captured = paymentCaptured(payment)
-    if (refund && captured) {
+    if (input.refundCaptured && captured) {
       if (paymentAlreadyRefunded(payment)) {
         refunded = true
         continue
@@ -178,11 +254,12 @@ export async function cancelShopOrder(
           refunded = true
           continue
         }
-        logger.warn?.(
-          `Refund failed while canceling ${orderId} payment ${id}: ${message}`
-        )
+        logger.warn?.(`Refund failed while ${input.logPrefix} payment ${id}: ${message}`)
+        if (input.throwOnRefundError) {
+          throw new MedusaError(MedusaError.Types.UNEXPECTED_STATE, message)
+        }
       }
-    } else if (!captured && paymentModule.cancelPayment) {
+    } else if (input.cancelUncaptured && !captured && paymentModule.cancelPayment) {
       try {
         await paymentModule.cancelPayment(id)
       } catch {
@@ -190,14 +267,74 @@ export async function cancelShopOrder(
       }
     }
   }
+  return refunded
+}
 
-  await orderModule.cancel([orderId])
-  try {
-    await sendShopOrderMail(container, orderId, "canceled")
-  } catch (error) {
-    logger.warn?.(
-      `Cancel mail failed for ${orderId}: ${errorText(error)}`
+export function parseShopOrderRefund(body: unknown) {
+  const rec =
+    body && typeof body === "object" ? (body as Record<string, unknown>) : {}
+  return {
+    note: String(rec.note ?? rec.message ?? rec.text ?? "")
+      .trim()
+      .slice(0, 500),
+  }
+}
+
+export async function refundShopOrder(
+  container: MedusaContainer,
+  orderId: string,
+  note = ""
+) {
+  const order = await loadShopOrderRecord(container, orderId)
+  if (!order) {
+    throw new MedusaError(MedusaError.Types.NOT_FOUND, "order_not_found")
+  }
+  if (order.status === "canceled") {
+    throw new MedusaError(
+      MedusaError.Types.NOT_ALLOWED,
+      "Заказ уже отменён. Возврат без отмены недоступен."
     )
   }
-  return { id: orderId, canceled: true, refunded }
+  const metadata = (order.metadata || {}) as Record<string, unknown>
+  const orderModule = container.resolve(Modules.ORDER) as {
+    updateOrders: (
+      id: string,
+      data: { metadata: Record<string, unknown> }
+    ) => Promise<unknown>
+  }
+  const refunded = await settleShopPayments(container, order, {
+    refundCaptured: true,
+    cancelUncaptured: false,
+    logPrefix: `refund ${orderId}`,
+    throwOnRefundError: true,
+  })
+  await orderModule.updateOrders(orderId, {
+    metadata: {
+      ...metadata,
+      refund_without_cancel: true,
+      refund_note: note || null,
+      refunded_at: new Date().toISOString(),
+    },
+  })
+  const number = String(metadata.shop_number || "").trim()
+  const email = String(order.email || "").trim()
+  if (email) {
+    try {
+      const { sendSmtpMail } = await import("./smtp")
+      await sendSmtpMail({
+        to: email,
+        subject: number ? `Заказ ${number}: вернули оплату` : "Вернули оплату",
+        text: [
+          number ? `Вернули оплату по заказу ${number}.` : "Вернули оплату.",
+          "Сам заказ не отменяли.",
+          note ? `Комментарий: ${note}` : "",
+        ]
+          .filter(Boolean)
+          .join("\n"),
+      })
+    } catch {
+      // Mail is best-effort after a successful refund.
+    }
+  }
+  return { id: orderId, refunded, canceled: false }
 }

@@ -1,5 +1,4 @@
 import { defineRouteConfig } from "@medusajs/admin-sdk"
-import { PencilSquare } from "@medusajs/icons"
 import {
   Badge,
   Container,
@@ -149,7 +148,8 @@ const CustomOrdersPage = () => {
 
 export const config = defineRouteConfig({
   label: "Индивидуальные заказы",
-  icon: PencilSquare,
+  nested: "/shop-sales",
+  rank: 2,
 })
 
 export default CustomOrdersPage

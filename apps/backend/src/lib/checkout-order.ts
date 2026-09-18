@@ -1,7 +1,7 @@
 import { MedusaContainer } from "@medusajs/framework"
 import { ContainerRegistrationKeys, Modules } from "@medusajs/framework/utils"
 import { ozonTrackingUrl } from "./ozon-delivery"
-import { ensureMedusaShopNumber } from "./shop-order-number"
+import { ensureMedusaShopNumber, ensureShopAccessToken } from "./shop-order-number"
 import { shopLineAmounts } from "./shop-order-view"
 
 export const PAID_STORE_ORDER_FIELDS = [
@@ -50,6 +50,9 @@ export function presentPaidStoreOrder(order: Record<string, unknown>) {
     order_id: String(order.id || ""),
     display_id: order.display_id ?? null,
     shop_number: metadata.shop_number ? String(metadata.shop_number) : null,
+    access_token: metadata.shop_access_token
+      ? String(metadata.shop_access_token)
+      : null,
     email: order.email ? String(order.email) : null,
     status: order.status || null,
     total: money(order.total),
@@ -110,9 +113,9 @@ export async function loadPaidStoreOrderByCartId(
   const order = ((data ?? [])[0] || null) as Record<string, unknown> | null
   if (!order?.id) return null
   const metadata = (order.metadata || {}) as Record<string, unknown>
-  if (!metadata.shop_number) {
-    const number = await ensureMedusaShopNumber(container, String(order.id))
-    if (number) metadata.shop_number = number
-  }
+  const number = await ensureMedusaShopNumber(container, String(order.id))
+  if (number) metadata.shop_number = number
+  const token = number ? await ensureShopAccessToken(container, number) : null
+  if (token) metadata.shop_access_token = token
   return presentPaidStoreOrder({ ...order, metadata })
 }

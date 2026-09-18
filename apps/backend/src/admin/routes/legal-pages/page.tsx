@@ -1,5 +1,4 @@
 import { defineRouteConfig } from "@medusajs/admin-sdk"
-import { DocumentText } from "@medusajs/icons"
 import {
   Badge,
   Container,
@@ -82,7 +81,8 @@ const LegalPagesPage = () => {
 
 export const config = defineRouteConfig({
   label: "Документы",
-  icon: DocumentText,
+  nested: "/shop-storefront",
+  rank: 3,
 })
 
 export default LegalPagesPage

@@ -1,4 +1,4 @@
-import { isShopNumber, pickShopNumber, randomShopNumber } from "../shop-order-number"
+import { isShopNumber, pickShopNumber, randomShopNumber, shopAccessTokensMatch, shopOrderQueryToken } from "../shop-order-number"
 import {
   customerOrderStatus,
   presentShopOrderFromMedusa,
@@ -15,6 +15,16 @@ describe("randomShopNumber", () => {
   })
 })
 
+describe("shopAccessTokensMatch", () => {
+  it("rejects a missing or different token", () => {
+    expect(shopAccessTokensMatch("abc", "abc")).toBe(true)
+    expect(shopAccessTokensMatch("abc", "abd")).toBe(false)
+    expect(shopAccessTokensMatch("abc", "")).toBe(false)
+    expect(shopOrderQueryToken({ t: "abc" })).toBe("abc")
+    expect(shopOrderQueryToken({ token: ["xyz"] })).toBe("xyz")
+  })
+})
+
 describe("pickShopNumber", () => {
   it("keeps the cart number instead of allocating another", () => {
     expect(pickShopNumber("", "4347820595", "8150052298")).toBe("4347820595")
@@ -27,7 +37,9 @@ describe("shopOrderUrl", () => {
     expect(
       shopOrderUrl("1234567890", { STORE_CORS: "https://printo.studio" })
     ).toBe("https://printo.studio/order/1234567890")
-    expect(shopOrderUrl("12")).toBeNull()
+    expect(
+      shopOrderUrl("1234567890", { STORE_CORS: "https://printo.studio" }, "tok_1")
+    ).toBe("https://printo.studio/order/1234567890?t=tok_1")
     expect(shopReturnsUrl({ STORE_CORS: "https://printo.studio" })).toBe(
       "https://printo.studio/returns"
     )
@@ -206,6 +218,8 @@ describe("customerOrderStatus", () => {
       ozon_point_name: "ПВЗ Тверская",
     })
     expect(publicOrder).not.toHaveProperty("email")
+    expect(publicOrder).not.toHaveProperty("access_token")
+    expect(publicOrder).not.toHaveProperty("url")
     expect(publicOrder).not.toHaveProperty("ozon_order_number")
     expect(publicOrder).not.toHaveProperty("ozon_posting_number")
     expect(publicOrder).not.toHaveProperty("ozon_tracking")

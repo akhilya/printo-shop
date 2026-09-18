@@ -1856,6 +1856,7 @@ export function ozonOrderCreateSplits(
       sku?: number | null
     }>
     fromPlaceId?: string
+    shippingTotal?: number
   }
 ) {
   const rec = asRecord(checkout) || {}
@@ -1977,9 +1978,12 @@ export function ozonOrderCreateSplits(
         timeslot_id: slot.timeslot_id,
         logistic_date_range: slot.logistic_date_range,
       }
-      const price = asRecord(method.price)
-      if (price && (firstNumber(price.units) || 0) > 0) {
-        deliveryMethod.price = ozonCreateMoney(price)
+      const paidShipping = firstNumber(input.shippingTotal)
+      const checkoutPrice = asRecord(method.price)
+      if (paidShipping != null && paidShipping > 0) {
+        deliveryMethod.price = ozonCreateMoney(paidShipping)
+      } else if (checkoutPrice && (firstNumber(checkoutPrice.units) || 0) > 0) {
+        deliveryMethod.price = ozonCreateMoney(checkoutPrice)
       }
       return {
         warehouse_id: warehouseId,
@@ -2005,6 +2009,7 @@ async function createSellerOrder(input: {
   point: { id: string; address: string }
   items: Array<{ article: string; name: string; quantity: number; price: number }>
   paidGoods?: number
+  shippingTotal?: number
 }) {
   const contacts = ozonOrderContacts(input.buyer)
   if (!contacts.phone) {
@@ -2089,6 +2094,7 @@ async function createSellerOrder(input: {
       splits = ozonOrderCreateSplits(checkout, {
         items: cartItems,
         fromPlaceId: input.creds.fromPlaceId,
+        shippingTotal: input.shippingTotal,
       })
       const checkoutRec = asRecord(checkout)
       const firstSplit = Array.isArray(checkoutRec?.splits)
@@ -2149,10 +2155,12 @@ export async function createOzonDeliveryOrder(input: {
   items: Array<{ article: string; name: string; quantity: number; price: number }>
 }) {
   const shipping = Number(input.shippingTotal)
+  const hasShipping = Number.isFinite(shipping)
   const { json, requests } = await createSellerOrder({
     ...input,
-    paidGoods: Number.isFinite(shipping)
-      ? Math.max(0, Number(input.amount || 0) - shipping)
+    shippingTotal: hasShipping ? Math.max(0, shipping) : undefined,
+    paidGoods: hasShipping
+      ? Math.max(0, Number(input.amount || 0) - Math.max(0, shipping))
       : undefined,
   })
   const ids = await completeOzonCreateIds(input.creds, json)

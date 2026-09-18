@@ -1,6 +1,7 @@
 import { MedusaContainer } from "@medusajs/framework"
 import { shopOrderUrl } from "./custom-order"
-import { orderLogContext, recordShopEvent } from "./shop-event"
+import { recordShopEvent, shopEventJsonDetail } from "./shop-event"
+import { findShopOrderLookup } from "./shop-order-number"
 import { loadShopOrderByNumber } from "./shop-order-lookup"
 import { shopOrderCanMessage } from "./shop-order-view"
 import { parseSmtpEnv, sendSmtpMail, smtpFromAddress } from "./smtp"
@@ -33,9 +34,10 @@ export function emailsMatch(left: unknown, right: string) {
 export async function submitOrderMessage(
   container: MedusaContainer,
   number: string,
-  input: { email: string; message: string }
+  input: { email: string; message: string },
+  accessToken?: string | null
 ) {
-  const presented = await loadShopOrderByNumber(container, number)
+  const presented = await loadShopOrderByNumber(container, number, accessToken)
   if (!presented) {
     return { error: "Заказ не найден", status: 404 as const }
   }
@@ -61,13 +63,25 @@ export async function submitOrderMessage(
   const smtp = parseSmtpEnv()
   const shop = smtp ? smtpFromAddress(smtp.from) : null
   const orderUrl = presented.url || shopOrderUrl(number)
+  const lookup = await findShopOrderLookup(container, number)
+  const source = lookup && String(lookup.source) === "custom" ? "custom" : "order"
+  const medusaId =
+    source === "order" && lookup ? String(lookup.ref_id || "") : null
   await recordShopEvent(container, {
     kind: "order_message",
     level: "warn",
     title: "Письмо по заказу",
     message: input.message.slice(0, 500),
-    order_id: number,
+    order_id: medusaId || number,
     shop_number: number,
+    detail: shopEventJsonDetail({
+      email: input.email,
+      body: input.message,
+      status: "open",
+      medusa_order_id: medusaId,
+      source,
+      replies: [],
+    }),
   })
   try {
     if (shop) {

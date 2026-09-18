@@ -196,6 +196,7 @@ describe("presentPublicCustomCheckout", () => {
     expect(publicView.amount).toBe(4500)
     expect(publicView.client_picks_pvz).toBe(true)
     expect(publicView.paid).toBe(false)
+    expect(publicView.access_token).toBeNull()
     expect(publicView).not.toHaveProperty("ip")
   })
 })

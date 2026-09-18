@@ -4,7 +4,7 @@ import {
   PAID_STORE_ORDER_FIELDS,
   presentPaidStoreOrder,
 } from "../../../../lib/checkout-order"
-import { ensureMedusaShopNumber } from "../../../../lib/shop-order-number"
+import { ensureMedusaShopNumber, ensureShopAccessToken } from "../../../../lib/shop-order-number"
 
 function emailsMatch(left: unknown, right: string) {
   return String(left || "").trim().toLowerCase() === right
@@ -33,5 +33,9 @@ export async function GET(req: MedusaRequest, res: MedusaResponse) {
     const number = await ensureMedusaShopNumber(req.scope, String(order.id))
     if (number) metadata.shop_number = number
   }
+  const token = metadata.shop_number
+    ? await ensureShopAccessToken(req.scope, String(metadata.shop_number))
+    : null
+  if (token) metadata.shop_access_token = token
   res.json(presentPaidStoreOrder({ ...order, metadata }))
 }

@@ -14,6 +14,7 @@ import {
   shopEventJsonDetail,
 } from "../lib/shop-event"
 import { getShopSetting } from "../lib/shop-setting"
+import { shopOrderShipping } from "../lib/shop-order-view"
 
 function money(value: unknown) {
   if (typeof value === "number" && Number.isFinite(value)) return value
@@ -151,8 +152,7 @@ export default async function orderPlacedOzon({
         ),
       },
       amount: money(order.total),
-      shippingTotal:
-        order.shipping_total == null ? undefined : money(order.shipping_total),
+      shippingTotal: shopOrderShipping(order) ?? undefined,
       items,
     })
     const ids = extractOzonCreateIds(created)

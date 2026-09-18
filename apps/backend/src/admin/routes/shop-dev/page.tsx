@@ -1,5 +1,4 @@
 import { defineRouteConfig } from "@medusajs/admin-sdk"
-import { Trash } from "@medusajs/icons"
 import {
   Button,
   Container,
@@ -160,7 +159,8 @@ const ShopDevPage = () => {
 
 export const config = defineRouteConfig({
   label: "Разработка",
-  icon: Trash,
+  nested: "/shop-service",
+  rank: 5,
 })
 
 export default ShopDevPage

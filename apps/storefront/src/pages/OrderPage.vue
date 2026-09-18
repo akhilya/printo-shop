@@ -9,6 +9,9 @@ const route = useRoute()
 const router = useRouter()
 const numberParam = computed(() => String(route.params.number || "").trim())
 const justPaid = computed(() => String(route.query.paid || "") === "1")
+const access = computed(() =>
+  String(route.query.t || route.query.token || "").trim()
+)
 const query = ref(numberParam.value)
 const order = ref(null)
 const loading = ref(false)
@@ -40,6 +43,13 @@ function linePrice(item) {
   return price(item.total ?? item.unit_price)
 }
 
+function orderApiPath(number) {
+  const value = String(number || "").replace(/\D/g, "")
+  const token = access.value
+  const path = `${BACKEND_URL}/store/shop-orders/${encodeURIComponent(value)}`
+  return token ? `${path}?t=${encodeURIComponent(token)}` : path
+}
+
 async function load(number, quiet = false) {
   const value = String(number || "").replace(/\D/g, "")
   if (!/^\d{10}$/.test(value)) {
@@ -52,10 +62,7 @@ async function load(number, quiet = false) {
     error.value = ""
   }
   try {
-    const res = await fetch(
-      `${BACKEND_URL}/store/shop-orders/${encodeURIComponent(value)}`,
-      { headers: storeHeaders() }
-    )
+    const res = await fetch(orderApiPath(value), { headers: storeHeaders() })
     if (!res.ok) {
       if (!quiet) {
         order.value = null
@@ -98,7 +105,9 @@ async function onWrite(event) {
   writeError.value = ""
   try {
     const res = await fetch(
-      `${BACKEND_URL}/store/shop-orders/${encodeURIComponent(order.value.number)}/message`,
+      `${BACKEND_URL}/store/shop-orders/${encodeURIComponent(order.value.number)}/message${
+        access.value ? `?t=${encodeURIComponent(access.value)}` : ""
+      }`,
       {
         method: "POST",
         headers: { ...storeHeaders(), "Content-Type": "application/json" },
@@ -141,9 +150,9 @@ onMounted(async () => {
 onBeforeUnmount(() => {
   alive = false
 })
-watch(numberParam, async (value) => {
-  query.value = value
-  await load(value)
+watch([numberParam, access], async () => {
+  query.value = numberParam.value
+  await load(numberParam.value)
   if (justPaid.value && order.value) pollDelivery()
 })
 </script>
@@ -216,8 +225,8 @@ watch(numberParam, async (value) => {
       <section v-if="canWrite" class="checkout-done-block">
         <h2>Написать о заказе</h2>
         <p class="muted">
-          Вернуть товар одной кнопкой нельзя.
-          Если брак или ошибка — напишите. Разберём по почте.
+          Форма для брака и ошибки после получения. Кнопки «вернуть» нет —
+          напишите, разберём по почте.
           <router-link to="/returns">Правила возврата</router-link>
         </p>
         <p v-if="writeDone" class="muted">Письмо получили. Ответим на эту почту.</p>

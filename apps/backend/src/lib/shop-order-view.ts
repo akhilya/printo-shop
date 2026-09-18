@@ -9,10 +9,11 @@ import {
 function money(value: unknown) {
   if (typeof value === "number" && Number.isFinite(value)) return value
   if (value && typeof value === "object") {
-    const rec = value as { numeric?: unknown; value?: unknown }
-    if (typeof rec.numeric === "number") return rec.numeric
-    const fromValue = Number(rec.value)
-    if (Number.isFinite(fromValue)) return fromValue
+    const rec = value as { numeric?: unknown; value?: unknown; amount?: unknown }
+    if (typeof rec.numeric === "number" && Number.isFinite(rec.numeric)) {
+      return rec.numeric
+    }
+    return money(rec.value ?? rec.amount)
   }
   const numeric = Number(value)
   return Number.isFinite(numeric) ? numeric : null
@@ -104,7 +105,8 @@ export function shopOrderCanMessage(statusCode: unknown) {
 
 export function presentShopOrderFromMedusa(
   order: Record<string, unknown>,
-  number: string
+  number: string,
+  accessToken?: string | null
 ) {
   const metadata = (order.metadata || {}) as Record<string, unknown>
   const address = (order.shipping_address || {}) as Record<string, unknown>
@@ -121,7 +123,7 @@ export function presentShopOrderFromMedusa(
   const cancelNote = String(metadata.cancel_note || "").trim()
   return {
     number,
-    url: shopOrderUrl(number),
+    url: shopOrderUrl(number, process.env, accessToken),
     source: "order" as const,
     status,
     can_message: shopOrderCanMessage(status.code),
@@ -230,7 +232,8 @@ export function presentShopOrderFromCustom(
     title?: string | null
     thumbnail?: string | null
     handle?: string | null
-  } | null
+  } | null,
+  accessToken?: string | null
 ) {
   const paid = Boolean(order.paid_at)
   const title =
@@ -256,7 +259,7 @@ export function presentShopOrderFromCustom(
       : null
   return {
     number,
-    url: shopOrderUrl(number),
+    url: shopOrderUrl(number, process.env, accessToken),
     source: "custom" as const,
     status,
     can_message: shopOrderCanMessage(status.code),

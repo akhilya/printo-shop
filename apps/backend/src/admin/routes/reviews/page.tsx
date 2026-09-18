@@ -1,5 +1,5 @@
 import { defineRouteConfig } from "@medusajs/admin-sdk"
-import { ChatBubbleLeftRight, Star } from "@medusajs/icons"
+import { Star } from "@medusajs/icons"
 import {
   Badge,
   Container,
@@ -157,7 +157,8 @@ const ReviewsPage = () => {
 
 export const config = defineRouteConfig({
   label: "Отзывы",
-  icon: ChatBubbleLeftRight,
+  nested: "/shop-storefront",
+  rank: 4,
 })
 
 export default ReviewsPage

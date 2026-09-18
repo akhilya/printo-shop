@@ -1,5 +1,4 @@
 import { defineRouteConfig } from "@medusajs/admin-sdk"
-import { Puzzle } from "@medusajs/icons"
 import {
   Badge,
   Button,
@@ -151,7 +150,8 @@ const DelegatPage = () => {
 
 export const config = defineRouteConfig({
   label: "Делегат",
-  icon: Puzzle,
+  nested: "/shop-service",
+  rank: 2,
 })
 
 export default DelegatPage

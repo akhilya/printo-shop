@@ -418,21 +418,40 @@ export async function handOverOzonPosting(creds: OzonCreds, postingNumber: strin
   })
 }
 
+export function ozonAlreadyCancelled(error: unknown) {
+  return /ALREADY_CANCEL+ED|POSTING_IS_CANCELED|ORDER_IS_CANCELED|CANCELLED_POSTING/i.test(
+    ozonErrorCode(error)
+  )
+}
+
 export async function cancelOzonPosting(
   creds: OzonCreds,
   postingNumber: string,
   orderNumber?: string
 ) {
+  const posting = String(postingNumber || "").trim()
   const order = String(orderNumber || "").trim()
+  const errors: unknown[] = []
+  if (posting) {
+    try {
+      await sellerPost(creds, "/v2/posting/fbs/cancel", ozonFbsCancelBody(posting))
+      return
+    } catch (error) {
+      if (ozonAlreadyCancelled(error)) return
+      errors.push(error)
+    }
+  }
   if (order) {
     try {
       await sellerPost(creds, "/v1/order/cancel", ozonOrderCancelBody(order))
       return
-    } catch {
-      // Own-site cancel may already be done; try the FBS posting cancel.
+    } catch (error) {
+      if (ozonAlreadyCancelled(error)) return
+      errors.push(error)
     }
   }
-  await sellerPost(creds, "/v2/posting/fbs/cancel", ozonFbsCancelBody(postingNumber))
+  const last = errors[errors.length - 1]
+  if (last) throw last
 }
 
 export async function getOzonPackageLabel(

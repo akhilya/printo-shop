@@ -1,5 +1,4 @@
 import { defineRouteConfig } from "@medusajs/admin-sdk"
-import { CogSixTooth } from "@medusajs/icons"
 import {
   Button,
   Container,
@@ -532,7 +531,8 @@ const ShopSettingsPage = () => {
 
 export const config = defineRouteConfig({
   label: "Настройки",
-  icon: CogSixTooth,
+  nested: "/shop-service",
+  rank: 1,
 })
 
 export default ShopSettingsPage

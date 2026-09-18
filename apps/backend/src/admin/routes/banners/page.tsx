@@ -1,5 +1,4 @@
 import { defineRouteConfig } from "@medusajs/admin-sdk"
-import { Photo } from "@medusajs/icons"
 import {
   Badge,
   Container,
@@ -83,7 +82,8 @@ const BannersPage = () => {
 
 export const config = defineRouteConfig({
   label: "Баннеры",
-  icon: Photo,
+  nested: "/shop-storefront",
+  rank: 1,
 })
 
 export default BannersPage

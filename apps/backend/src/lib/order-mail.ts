@@ -11,17 +11,20 @@ import {
   type OrderMailEvent,
   withMailSent,
 } from "./order-mail-copy"
-import { customerOrderStatus } from "./shop-order-view"
+import { customerOrderStatus, shopLineAmounts } from "./shop-order-view"
 import { orderLogContext, recordShopEvent, shopEventErrorDetail } from "./shop-event"
 import { shopFulfillmentOf } from "./shop-fulfillment-status"
 import { sendSmtpMail, type OutgoingMail } from "./smtp"
-import { ensureMedusaShopNumber } from "./shop-order-number"
+import { ensureMedusaShopNumber, ensureShopAccessToken } from "./shop-order-number"
 
 function money(value: unknown) {
   if (typeof value === "number" && Number.isFinite(value)) return value
   if (value && typeof value === "object") {
-    const rec = value as { numeric?: unknown }
-    if (typeof rec.numeric === "number") return rec.numeric
+    const rec = value as { numeric?: unknown; value?: unknown; amount?: unknown }
+    if (typeof rec.numeric === "number" && Number.isFinite(rec.numeric)) {
+      return rec.numeric
+    }
+    return money(rec.numeric ?? rec.value ?? rec.amount)
   }
   const numeric = Number(value)
   return Number.isFinite(numeric) ? numeric : null
@@ -34,7 +37,8 @@ function text(value: unknown) {
 export function orderMailPayloadFromMedusa(
   order: Record<string, unknown>,
   event: OrderMailEvent,
-  number: string
+  number: string,
+  accessToken?: string | null
 ): OrderMailPayload | null {
   const email = text(order.email).toLowerCase()
   if (!email || !email.includes("@")) return null
@@ -55,7 +59,7 @@ export function orderMailPayloadFromMedusa(
   return {
     event,
     number,
-    url: shopOrderUrl(number),
+    url: shopOrderUrl(number, process.env, accessToken),
     email,
     name: name || null,
     phone: text(address.phone) || null,
@@ -64,11 +68,13 @@ export function orderMailPayloadFromMedusa(
       (item) => {
         const variant = (item.variant || {}) as Record<string, unknown>
         const product = (variant.product || {}) as Record<string, unknown>
+        const amounts = shopLineAmounts(item)
         return {
           title: String(product.title || item.title || "Товар"),
-          quantity: Number(item.quantity || 1),
+          quantity: amounts.quantity,
           sku: variant.sku ? String(variant.sku) : null,
-          unit_price: money(item.unit_price),
+          unit_price: amounts.unit_price,
+          total: amounts.total,
         }
       }
     ),
@@ -101,7 +107,8 @@ export function orderMailPayloadFromMedusa(
 export function orderMailPayloadFromCustom(
   order: Record<string, unknown>,
   event: OrderMailEvent,
-  number: string
+  number: string,
+  accessToken?: string | null
 ): OrderMailPayload | null {
   const email = text(order.email).toLowerCase()
   if (!email || !email.includes("@")) return null
@@ -115,7 +122,7 @@ export function orderMailPayloadFromCustom(
   return {
     event,
     number,
-    url: shopOrderUrl(number),
+    url: shopOrderUrl(number, process.env, accessToken),
     email,
     name: text(order.name) || null,
     phone: text(order.phone) || null,
@@ -126,6 +133,7 @@ export function orderMailPayloadFromCustom(
         quantity: 1,
         sku: null,
         unit_price: money(order.quote_amount),
+        total: money(order.quote_amount),
       },
     ],
     shipping: money(order.quote_shipping_amount),
@@ -191,6 +199,7 @@ export async function sendShopOrderMail(
   send?: SendMailFn
 ) {
   const number = await ensureMedusaShopNumber(container, orderId)
+  const token = number ? await ensureShopAccessToken(container, number) : null
   const order = await loadShopOrder(container, orderId, [
     "items.thumbnail",
     "shipping_total",
@@ -198,7 +207,7 @@ export async function sendShopOrderMail(
     "currency_code",
   ])
   if (!order || !number) return { skipped: true, reason: "order" }
-  const payload = orderMailPayloadFromMedusa(order, event, number)
+  const payload = orderMailPayloadFromMedusa(order, event, number, token)
   if (!payload) return { skipped: true, reason: "email" }
   return dispatchMail(container, {
     order,
@@ -224,7 +233,8 @@ export async function sendCustomOrderMail(
   send?: SendMailFn
 ) {
   const number = text(order.shop_number)
-  const payload = orderMailPayloadFromCustom(order, event, number)
+  const token = number ? await ensureShopAccessToken(container, number) : null
+  const payload = orderMailPayloadFromCustom(order, event, number, token)
   if (!payload) return { skipped: true, reason: "email" }
   return dispatchMail(container, {
     order: {

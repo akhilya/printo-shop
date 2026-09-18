@@ -119,11 +119,14 @@ export function shopLogoUrl(env: NodeJS.ProcessEnv = process.env) {
 
 export function shopOrderUrl(
   number?: string | null,
-  env: NodeJS.ProcessEnv = process.env
+  env: NodeJS.ProcessEnv = process.env,
+  token?: string | null
 ) {
   const value = String(number || "").trim()
   if (!/^\d{10}$/.test(value)) return null
-  return `${storefrontOrigin(env)}/order/${value}`
+  const access = String(token || "").trim()
+  const path = `${storefrontOrigin(env)}/order/${value}`
+  return access ? `${path}?t=${encodeURIComponent(access)}` : path
 }
 
 export type ParsedCustomOrderQuote = {
@@ -280,7 +283,8 @@ export function presentPublicCustomCheckout(
     title?: string | null
     handle?: string | null
     thumbnail?: string | null
-  } | null
+  } | null,
+  accessToken?: string | null
 ) {
   const presented = presentCustomOrder(row)
   const paid = Boolean(row.paid_at)
@@ -288,10 +292,11 @@ export function presentPublicCustomCheckout(
     (product?.title && String(product.title)) ||
     presented.product_title ||
     "Индивидуальный заказ"
+  const token = paid ? String(accessToken || "").trim() || null : null
   return {
     token: presented.checkout_token,
     shop_number: presented.shop_number,
-    order_url: presented.order_url,
+    order_url: shopOrderUrl(presented.shop_number, process.env, token),
     title,
     note: presented.quote_note || presented.message,
     quote_note: presented.quote_note,
@@ -319,6 +324,7 @@ export function presentPublicCustomCheckout(
     ozon_order_number: presented.ozon_order_number,
     ozon_posting_number: presented.ozon_posting_number,
     ozon_tracking: presented.ozon_tracking,
+    access_token: token,
   }
 }
 

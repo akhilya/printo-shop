@@ -470,6 +470,38 @@ describe("ozonOrderCreateSplits", () => {
     expect(splits[0]?.items[0]).not.toHaveProperty("sku")
   })
 
+  it("puts the paid shop shipping onto the delivery method", () => {
+    const splits = ozonOrderCreateSplits(
+      {
+        splits: [
+          {
+            warehouse_id: 555,
+            delivery_method: {
+              id: 42,
+              delivery_type: "PVZ",
+              timeslots: [
+                {
+                  timeslot_id: 9,
+                  logistic_date_range: {
+                    from: "2026-09-18T08:00:00Z",
+                    to: "2026-09-18T16:00:00Z",
+                  },
+                },
+              ],
+              price: { currency_code: "RUB", units: 0 },
+            },
+            items: [{ offer_id: "WA150", sku: 987, quantity: 1 }],
+          },
+        ],
+      },
+      { items: cart, fromPlaceId: "555", shippingTotal: 350 }
+    )
+    expect(splits[0]?.delivery_method).toMatchObject({
+      delivery_method_id: 42,
+      price: { currency_code: "RUB", units: 350 },
+    })
+  })
+
   it("keeps the shop paid price when checkout returns a catalog price", () => {
     const splits = ozonOrderCreateSplits(
       {
@@ -1159,7 +1191,8 @@ describe("quoteOzonDelivery", () => {
         orderNumber: "shop-1",
         buyer: { name: "Иван Петров", phone: sellerInput.phone },
         point: { id: "77", address: "Тверская 1" },
-        amount: 1500,
+        amount: 1850,
+        shippingTotal: 350,
         items: [{ article: "WA150", name: "Фигурка", quantity: 1, price: 1500 }],
       })
     ).resolves.toMatchObject({ order_number: "123-456" })
@@ -1181,6 +1214,7 @@ describe("quoteOzonDelivery", () => {
               from: "2026-09-18T08:00:00Z",
               to: "2026-09-18T16:00:00Z",
             },
+            price: { currency_code: "RUB", units: 350 },
           },
           items: [
             {

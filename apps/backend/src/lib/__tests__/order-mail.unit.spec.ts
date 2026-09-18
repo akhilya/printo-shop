@@ -59,8 +59,17 @@ describe("orderMailCopy", () => {
       "Заказ 1234567890 принят"
     )
     expect(orderMailCopy("delivering", "1234567890").intro).toMatch(/14 дней/)
+    expect(orderMailCopy("delivering", "1234567890").footer).toMatch(
+      /после получения/
+    )
+    expect(orderMailCopy("placed", "1234567890").footer).toMatch(
+      /после получения/
+    )
     expect(orderMailCopy("delivered", "1234567890").intro).toMatch(
-      /одной кнопкой нельзя/
+      /формой на странице заказа/
+    )
+    expect(orderMailCopy("delivered", "1234567890").intro).not.toMatch(
+      /одной кнопкой/
     )
     expect(orderMailCopy("returned", "1234567890", "unclaimed").intro).toMatch(
       /не забрали/
@@ -103,7 +112,7 @@ describe("buildOrderMail", () => {
     const mail = buildOrderMail({
       event: "placed",
       number: "1234567890",
-      url: "https://printo.studio/order/1234567890",
+      url: "https://printo.studio/order/1234567890?t=tok_1",
       email: "a@test.ru",
       name: "Иван Петров",
       phone: "+7999",
@@ -129,10 +138,33 @@ describe("buildOrderMail", () => {
     expect(mail.text).toMatch(/ПВЗ Тверская/)
     expect(mail.text).toMatch(/printo.studio\/order\/1234567890/)
     expect(mail.html).toMatch(/Открыть заказ/)
+    expect(mail.html).toMatch(/t=tok_1/)
     expect(mail.text).toMatch(/printo.studio\/returns/)
-    expect(mail.html).toContain("Temple Assassins")
+    expect(mail.html).toMatch(/после получения/)
+    expect(mail.html).not.toMatch(/Как написать о заказе/)
+    expect(mail.html).toMatch(/text-align:center/)
+    expect(mail.html).toMatch(/text-align:right/)
+    expect(mail.html).toMatch(/1.?500/)
+    expect(mail.html).not.toMatch(/>750\s*₽/)
     expect(escapeHtml("<b>")).toBe("&lt;b&gt;")
     expect(formatShopMoney(1850, "rub")).toMatch(/1.?850/)
+    expect(formatShopMoney({ numeric: 1850 }, "rub")).toMatch(/1.?850/)
+  })
+
+  it("boxes cancel reason and other buyer text", () => {
+    const mail = buildOrderMail({
+      event: "canceled",
+      number: "1234567890",
+      url: "https://printo.studio/order/1234567890",
+      email: "a@test.ru",
+      status_label: "Отменён",
+      items: [{ title: "Фигурка", quantity: 1, unit_price: 750, total: 750 }],
+      details: "Передумали\n\nЕсли оплата прошла, деньги вернутся на карту.",
+      logo_url: "https://printo.studio/logo-wide.webp",
+    })
+    expect(mail.html).toMatch(/padding:16px;border:1px solid #000/)
+    expect(mail.html).toMatch(/Передумали/)
+    expect(mail.html).toMatch(/text-align:right/)
   })
 })
 
@@ -160,7 +192,8 @@ describe("orderMailPayloadFromMedusa", () => {
           {
             title: "Фигурка",
             quantity: 2,
-            unit_price: 750,
+            unit_price: 800,
+            total: 1200,
             variant: { sku: "WA150", product: { title: "Temple Assassins" } },
           },
         ],
@@ -173,5 +206,7 @@ describe("orderMailPayloadFromMedusa", () => {
     expect(payload?.shipping).toBe(350)
     expect(payload?.ozon_point_name).toBe("ПВЗ Тверская")
     expect(payload?.logo_url).toMatch(/logo-wide\.webp/)
+    expect(payload?.items[0].unit_price).toBe(600)
+    expect(payload?.items[0].total).toBe(1200)
   })
 })

@@ -16,6 +16,7 @@ import {
   getOzonPosting,
   handOverOzonPosting,
   mapOzonPostingStatus,
+  ozonAlreadyCancelled,
   ozonLabelNotReady,
   ozonPostingReadyForLabel,
   ozonReturnKind,
@@ -30,6 +31,7 @@ import {
   shopEventJsonDetail,
 } from "./shop-event"
 import { getShopSetting } from "./shop-setting"
+import { shopOrderShipping } from "./shop-order-view"
 
 async function saveOrderMetadata(
   container: MedusaContainer,
@@ -199,8 +201,7 @@ async function ensureOzonIds(
       address: String(metadata.ozon_point_address || address.address_1 || ""),
     },
     amount: money(order.total),
-    shippingTotal:
-      order.shipping_total == null ? undefined : money(order.shipping_total),
+    shippingTotal: shopOrderShipping(order) ?? undefined,
     items,
   })
   const ids = extractOzonCreateIds(created)
@@ -436,14 +437,52 @@ export async function cancelOzonForOrder(
   const postingNumber = text(metadata.ozon_posting_number)
   const orderNumber = text(metadata.ozon_order_number)
   if (!postingNumber && !orderNumber) return
-  try {
-    await cancelOzonPosting(creds, postingNumber, orderNumber)
+  const markCancelled = async () => {
     await saveOrderMetadata(container, orderId, {
       ...metadata,
       ozon_posting_status: "cancelled",
     })
+  }
+  const postingCancelled = (status?: string | null) => {
+    const key = String(status || "").trim().toLowerCase().replace(/[\s-]+/g, "_")
+    return key === "cancelled" || key === "canceled"
+  }
+  try {
+    const current = await getOzonPosting(creds, postingNumber, orderNumber)
+    if (postingCancelled(current.status)) {
+      await markCancelled()
+      return
+    }
   } catch {
-    // Ozon may already have cancelled the posting.
+    // Cancel anyway if get fails.
+  }
+  try {
+    await cancelOzonPosting(creds, postingNumber, orderNumber)
+    await markCancelled()
+  } catch (error) {
+    if (ozonAlreadyCancelled(error)) {
+      await markCancelled()
+      return
+    }
+    try {
+      const fresh = await getOzonPosting(creds, postingNumber, orderNumber)
+      if (postingCancelled(fresh.status)) {
+        await markCancelled()
+        return
+      }
+    } catch {
+      // Keep the original cancel error.
+    }
+    const message = ozonPackErrorMessage(error)
+    await recordShopEvent(container, {
+      kind: "ozon_cancel",
+      level: "error",
+      title: "Отмена в Ozon не удалась",
+      message,
+      detail: shopEventErrorDetail(error),
+      ...orderLogContext(order),
+    })
+    throw new MedusaError(MedusaError.Types.UNEXPECTED_STATE, message)
   }
 }
 

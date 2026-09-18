@@ -23,6 +23,7 @@ import {
   presentPublicCustomCheckout,
   storefrontOrigin,
 } from "./custom-order"
+import { ensureShopAccessToken } from "./shop-order-number"
 import { hasLegalAccepted, LEGAL_ACCEPT_ERROR } from "./legal-accept"
 
 import {
@@ -115,6 +116,7 @@ async function createOzonForCustomOrder(
         address: text(order.ozon_point_address),
       },
       amount,
+      shippingTotal: Number(order.quote_shipping_amount) || 0,
       items: [
         {
           article: text(order.id) || "custom",
@@ -394,6 +396,15 @@ export async function startCustomOrderPayment(
   return { payment_url: String(result.PaymentURL) }
 }
 
+async function presentCustomCheckoutWithAccess(
+  container: MedusaContainer,
+  order: Record<string, unknown>
+) {
+  const number = String(order.shop_number || "").trim()
+  const token = number ? await ensureShopAccessToken(container, number) : null
+  return presentPublicCustomCheckout(order, null, token)
+}
+
 export async function confirmCustomOrderPayment(
   container: MedusaContainer,
   token: string
@@ -403,11 +414,11 @@ export async function confirmCustomOrderPayment(
     throw new MedusaError(MedusaError.Types.NOT_FOUND, "Страница не найдена")
   }
   if (order.paid_at) {
-    return presentPublicCustomCheckout(order)
+    return presentCustomCheckoutWithAccess(container, order)
   }
   const paymentId = text(order.tbank_payment_id)
   if (!paymentId) {
-    return presentPublicCustomCheckout(order)
+    return presentCustomCheckoutWithAccess(container, order)
   }
   const settings = (await getShopSetting(container)) as unknown as Record<
     string,
@@ -415,7 +426,7 @@ export async function confirmCustomOrderPayment(
   >
   const options = tbankOptionsFromRow(settings)
   if (!options) {
-    return presentPublicCustomCheckout(order)
+    return presentCustomCheckoutWithAccess(container, order)
   }
   const client = new TbankClient({
     terminalKey: options.terminalKey,
@@ -424,10 +435,10 @@ export async function confirmCustomOrderPayment(
   })
   const state = await client.getState(paymentId)
   if (!isTbankPaidStatus(state.Status)) {
-    return presentPublicCustomCheckout(order)
+    return presentCustomCheckoutWithAccess(container, order)
   }
   const paid = await markCustomOrderPaid(container, order)
-  return presentPublicCustomCheckout(paid)
+  return presentCustomCheckoutWithAccess(container, paid)
 }
 
 export async function applyTbankNotificationToCustomOrder(

@@ -12,6 +12,7 @@ describe("presentPaidStoreOrder", () => {
         currency_code: "rub",
         metadata: {
           shop_number: "4347820595",
+          shop_access_token: "tok_order",
           ozon_point_name: "ПВЗ Тверская",
           ozon_point_address: "Тверская, 1",
         },
@@ -34,6 +35,7 @@ describe("presentPaidStoreOrder", () => {
     ).toMatchObject({
       order_id: "order_1",
       shop_number: "4347820595",
+      access_token: "tok_order",
       email: "anna@test.ru",
       total: 6400,
       ozon_point_name: "ПВЗ Тверская",

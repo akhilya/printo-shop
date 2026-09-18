@@ -30,11 +30,15 @@ function shopNumberOf(row) {
 async function goToOrder(row) {
   if (!alive) return true
   const number = shopNumberOf(row)
-  if (!number) return false
+  const access = String(row?.access_token || "").trim()
+  if (!number || !access) return false
   const id = row?.order_id || row?.id
   if (id) rememberOrder(id, row.email || "")
   clearCartId()
-  await router.replace({ path: `/order/${number}`, query: { paid: "1" } })
+  await router.replace({
+    path: `/order/${number}`,
+    query: { paid: "1", t: access },
+  })
   return true
 }
 

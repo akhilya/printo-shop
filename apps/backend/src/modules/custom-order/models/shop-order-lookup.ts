@@ -5,6 +5,7 @@ const ShopOrderLookup = model.define("shop_order_lookup", {
   number: model.text().unique(),
   source: model.text(),
   ref_id: model.text(),
+  access_token: model.text().nullable(),
 })
 
 export default ShopOrderLookup

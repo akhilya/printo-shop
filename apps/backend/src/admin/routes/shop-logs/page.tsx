@@ -1,5 +1,4 @@
 import { defineRouteConfig } from "@medusajs/admin-sdk"
-import { Clock } from "@medusajs/icons"
 import {
   Badge,
   Container,
@@ -171,7 +170,8 @@ const ShopLogsPage = () => {
 
 export const config = defineRouteConfig({
   label: "Логи",
-  icon: Clock,
+  nested: "/shop-service",
+  rank: 3,
 })
 
 export default ShopLogsPage

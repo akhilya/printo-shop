@@ -1,4 +1,4 @@
-import { randomBytes } from "node:crypto"
+import { randomBytes, timingSafeEqual } from "node:crypto"
 import { MedusaContainer } from "@medusajs/framework"
 import { ContainerRegistrationKeys, Modules } from "@medusajs/framework/utils"
 import { CUSTOM_ORDER_MODULE } from "../modules/custom-order"
@@ -13,6 +13,25 @@ export function randomShopNumber() {
 
 export function isShopNumber(value: string) {
   return /^\d{10}$/.test(value)
+}
+
+export function randomShopAccessToken() {
+  return randomBytes(18).toString("base64url")
+}
+
+export function shopAccessTokensMatch(stored: unknown, given: unknown) {
+  const left = String(stored || "")
+  const right = String(given || "")
+  if (!left || left.length !== right.length) return false
+  return timingSafeEqual(Buffer.from(left), Buffer.from(right))
+}
+
+export function shopOrderQueryToken(query: unknown) {
+  const rec =
+    query && typeof query === "object" ? (query as Record<string, unknown>) : {}
+  const raw = rec.t ?? rec.token
+  const value = Array.isArray(raw) ? raw[0] : raw
+  return String(value || "").trim()
 }
 
 export function pickShopNumber(...values: unknown[]) {
@@ -72,17 +91,25 @@ export async function bindShopNumber(
   if (byNumber) {
     if (
       String(byNumber.source) !== source ||
-      String(byNumber.ref_id) !== refId
+      String(byNumber.ref_id) !== refId ||
+      !String(byNumber.access_token || "").trim()
     ) {
       await service.updateShopOrderLookups({
         id: String(byNumber.id),
         source,
         ref_id: refId,
+        access_token:
+          String(byNumber.access_token || "").trim() || randomShopAccessToken(),
       })
     }
     return number
   }
-  await service.createShopOrderLookups({ number, source, ref_id: refId })
+  await service.createShopOrderLookups({
+    number,
+    source,
+    ref_id: refId,
+    access_token: randomShopAccessToken(),
+  })
   return number
 }
 
@@ -96,7 +123,16 @@ export async function allocateShopNumber(
     { source, ref_id: refId },
     { take: 1 }
   )
-  if (existing?.number) return String(existing.number)
+  if (existing?.number) {
+    const current = String(existing.access_token || "").trim()
+    if (!current && existing.id) {
+      await service.updateShopOrderLookups({
+        id: String(existing.id),
+        access_token: randomShopAccessToken(),
+      })
+    }
+    return String(existing.number)
+  }
   for (let attempt = 0; attempt < 16; attempt++) {
     const number = randomShopNumber()
     try {
@@ -104,6 +140,7 @@ export async function allocateShopNumber(
         number,
         source,
         ref_id: refId,
+        access_token: randomShopAccessToken(),
       })
       const row = Array.isArray(created) ? created[0] : created
       return String((row as { number?: string }).number || number)
@@ -205,4 +242,22 @@ export async function ensureCustomShopNumber(
     shop_number: number,
   })
   return number
+}
+
+export async function ensureShopAccessToken(
+  container: MedusaContainer,
+  number: string
+) {
+  if (!isShopNumber(number)) return null
+  const service = await lookupService(container)
+  const [row] = await service.listShopOrderLookups({ number }, { take: 1 })
+  if (!row?.id) return null
+  const current = String(row.access_token || "").trim()
+  if (current) return current
+  const token = randomShopAccessToken()
+  await service.updateShopOrderLookups({
+    id: String(row.id),
+    access_token: token,
+  })
+  return token
 }

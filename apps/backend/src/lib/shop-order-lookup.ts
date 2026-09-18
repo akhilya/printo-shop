@@ -6,6 +6,7 @@ import {
   ensureCustomShopNumber,
   ensureMedusaShopNumber,
   findShopOrderLookup,
+  shopAccessTokensMatch,
 } from "./shop-order-number"
 import {
   presentShopOrderFromCustom,
@@ -46,10 +47,15 @@ const ORDER_FIELDS = [
 
 export async function loadShopOrderByNumber(
   container: MedusaContainer,
-  number: string
+  number: string,
+  accessToken?: string | null
 ) {
   const lookup = await findShopOrderLookup(container, number)
   if (!lookup) return null
+  const expected = String(lookup.access_token || "").trim()
+  if (!expected || !shopAccessTokensMatch(expected, accessToken)) {
+    return null
+  }
   const source = String(lookup.source || "")
   const refId = String(lookup.ref_id || "")
   if (source === "custom") {
@@ -89,7 +95,7 @@ export async function loadShopOrderByNumber(
         product = null
       }
     }
-    return presentShopOrderFromCustom(row, number, product)
+    return presentShopOrderFromCustom(row, number, product, expected)
   }
   if (source === "order") {
     const query = container.resolve(ContainerRegistrationKeys.QUERY)
@@ -100,7 +106,7 @@ export async function loadShopOrderByNumber(
     })
     const order = ((data ?? [])[0] || null) as Record<string, unknown> | null
     if (!order) return null
-    return presentShopOrderFromMedusa(order, number)
+    return presentShopOrderFromMedusa(order, number, expected)
   }
   return null
 }

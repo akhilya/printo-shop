@@ -33,9 +33,12 @@ describe("legal copy", () => {
     expect(LEGAL_COPY.offer).toMatch(/ТБанк/)
     expect(LEGAL_COPY.privacy).toMatch(/152-ФЗ/)
     expect(LEGAL_COPY.returns).toMatch(/кнопки/i)
+    expect(LEGAL_COPY.returns).toMatch(/после того, как вы забрали/)
+    expect(LEGAL_COPY.returns).toMatch(/появляется, когда статус/)
     expect(LEGAL_COPY.delivery).toMatch(/14/)
     expect(LEGAL_COPY.returns).toMatch(/физически не можете забрать/)
     expect(LEGAL_COPY.delivery).not.toMatch(/вернём, когда посылка приедет/)
+    expect(LEGAL_COPY.offer).toMatch(/только после получения/)
   })
 
   it("replaces stubs and keeps a finished text", () => {
@@ -44,6 +47,12 @@ describe("legal copy", () => {
       shouldReplaceLegalBody("Публичная оферта будет опубликована на этой странице.")
     ).toBe(true)
     expect(shouldReplaceLegalBody(LEGAL_COPY.offer)).toBe(false)
+    expect(shouldReplaceLegalBody(LEGAL_COPY.returns)).toBe(false)
+    expect(
+      shouldReplaceLegalBody(
+        "Кнопки «вернуть заказ» на сайте нет. Сдать товар в пункт выдачи Ozon после получения, как на маркетплейсе, нельзя."
+      )
+    ).toBe(true)
   })
 })
 

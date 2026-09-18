@@ -1,5 +1,4 @@
 import { defineRouteConfig } from "@medusajs/admin-sdk"
-import { ReceiptPercent } from "@medusajs/icons"
 import {
   Badge,
   Button,
@@ -259,7 +258,8 @@ const ShopPromotionsPage = () => {
 
 export const config = defineRouteConfig({
   label: "Скидки",
-  icon: ReceiptPercent,
+  nested: "/shop-storefront",
+  rank: 2,
 })
 
 export default ShopPromotionsPage

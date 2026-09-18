@@ -5,6 +5,7 @@ export type OrderMailItem = {
   quantity: number
   sku?: string | null
   unit_price?: number | null
+  total?: number | null
 }
 
 export type OrderMailPayload = {
@@ -29,17 +30,37 @@ export type OrderMailPayload = {
   logo_url?: string | null
 }
 
-export function formatShopMoney(
-  value: number | null | undefined,
-  currency = "rub"
-) {
-  if (value == null || !Number.isFinite(value)) return null
-  const code = currency.toUpperCase() === "RUB" ? "RUB" : currency.toUpperCase()
+function moneyAmount(value: unknown): number | null {
+  if (value == null || value === "") return null
+  if (typeof value === "number") return Number.isFinite(value) ? value : null
+  if (typeof value === "object") {
+    const rec = value as { numeric?: unknown; value?: unknown; amount?: unknown }
+    return moneyAmount(rec.numeric ?? rec.value ?? rec.amount)
+  }
+  const numeric = Number(value)
+  return Number.isFinite(numeric) ? numeric : null
+}
+
+export function formatShopMoney(value: unknown, currency = "rub") {
+  const parsed = moneyAmount(value)
+  if (parsed == null) return null
+  const amount = Math.round(parsed)
+  const code = String(currency || "RUB").toUpperCase()
   return new Intl.NumberFormat("ru-RU", {
     style: "currency",
-    currency: code,
+    currency: /^[A-Z]{3}$/.test(code) ? code : "RUB",
+    minimumFractionDigits: 0,
     maximumFractionDigits: 0,
-  }).format(value)
+  }).format(amount)
+}
+
+function lineMoney(item: OrderMailItem, currency: string) {
+  const quantity = Math.max(1, Number(item.quantity) || 1)
+  const total = moneyAmount(item.total)
+  if (total != null) return formatShopMoney(total, currency)
+  const unit = moneyAmount(item.unit_price)
+  if (unit == null) return null
+  return formatShopMoney(unit * quantity, currency)
 }
 
 export function escapeHtml(value: string) {
@@ -69,12 +90,8 @@ export function orderMailText(payload: OrderMailPayload) {
     "",
     "Состав",
     ...payload.items.map((item) => {
-      const price = formatShopMoney(item.unit_price, currency)
-      const sum =
-        item.unit_price != null
-          ? formatShopMoney(item.unit_price * item.quantity, currency)
-          : null
-      return `• ${lineTitle(item)} — ${item.quantity} шт.${price ? `, ${price}` : ""}${sum && item.quantity > 1 ? ` (${sum})` : ""}`
+      const sum = lineMoney(item, currency)
+      return `• ${lineTitle(item)} — ${item.quantity} шт.${sum ? `, ${sum}` : ""}`
     }),
     payload.details ? `\n${payload.details}` : "",
     payload.ozon_point_name || payload.ozon_point_address
@@ -91,9 +108,8 @@ export function orderMailText(payload: OrderMailPayload) {
       ? `Итого: ${formatShopMoney(payload.total, currency)}`
       : "",
     payload.url ? `\nОткрыть заказ: ${payload.url}` : "",
-    payload.returns_url
-      ? `Возврат только по письму: ${payload.returns_url}`
-      : "",
+    copy.footer ? `\n${copy.footer}` : "",
+    payload.returns_url ? `Правила возврата: ${payload.returns_url}` : "",
     "",
     "PrintO.studio",
   ]
@@ -105,7 +121,7 @@ export function orderMailHtml(payload: OrderMailPayload) {
   const currency = payload.currency_code || "rub"
   const rows = payload.items
     .map((item) => {
-      const price = formatShopMoney(item.unit_price, currency) || "—"
+      const price = lineMoney(item, currency) || "—"
       return `<tr>
         <td style="padding:8px 0;border-bottom:1px solid #000;font-size:14px;">${escapeHtml(lineTitle(item))}<br /><span style="color:#737373;">${item.quantity} шт.</span></td>
         <td style="padding:8px 0;border-bottom:1px solid #000;font-size:14px;text-align:right;white-space:nowrap;">${escapeHtml(price)}</td>
@@ -116,14 +132,17 @@ export function orderMailHtml(payload: OrderMailPayload) {
     .filter(Boolean)
     .join(". ")
   const button = payload.url
-    ? `<p style="margin:32px 0 0;"><a href="${escapeHtml(payload.url)}" style="display:inline-block;background:#000;color:#fff;text-decoration:none;padding:12px 20px;font-size:14px;font-weight:500;">Открыть заказ</a></p>`
+    ? `<p style="margin:32px 0 0;text-align:right;"><a href="${escapeHtml(payload.url)}" style="display:inline-block;background:#000;color:#fff;text-decoration:none;padding:12px 20px;font-size:14px;font-weight:500;">Открыть заказ</a></p>`
     : ""
   const track = payload.ozon_tracking
     ? `<p style="margin:8px 0 0;font-size:14px;"><a href="${escapeHtml(payload.ozon_tracking)}" style="color:#000;">Отследить на Ozon</a></p>`
     : ""
   const logo = payload.logo_url
-    ? `<p style="margin:0 0 24px;"><img src="${escapeHtml(payload.logo_url)}" alt="PrintO.studio" width="180" style="display:block;border:0;height:auto;max-width:180px;" /></p>`
-    : `<p style="margin:0 0 24px;font-size:12px;letter-spacing:0.08em;">PrintO.studio</p>`
+    ? `<p style="margin:0 0 24px;text-align:center;"><img src="${escapeHtml(payload.logo_url)}" alt="PrintO.studio" width="180" style="display:block;margin:0 auto;border:0;height:auto;max-width:180px;" /></p>`
+    : `<p style="margin:0 0 24px;text-align:center;font-size:12px;letter-spacing:0.08em;">PrintO.studio</p>`
+  const details = payload.details
+    ? `<div style="margin:16px 0 0;padding:16px;border:1px solid #000;"><p style="margin:0;font-size:14px;line-height:1.5;white-space:pre-wrap;">${escapeHtml(payload.details)}</p></div>`
+    : ""
   return `<!doctype html>
 <html lang="ru">
 <body style="margin:0;padding:0;background:#fff;color:#000;font-family:Arial,Helvetica,sans-serif;">
@@ -135,14 +154,14 @@ export function orderMailHtml(payload: OrderMailPayload) {
     ${payload.name ? `<p style="margin:0 0 4px;font-size:14px;">Получатель: ${escapeHtml(payload.name)}</p>` : ""}
     ${payload.phone ? `<p style="margin:0 0 16px;font-size:14px;">Телефон: ${escapeHtml(payload.phone)}</p>` : "<p style=\"margin:0 0 16px;\"></p>"}
     <table style="width:100%;border-collapse:collapse;">${rows}</table>
-    ${payload.details ? `<p style="margin:16px 0 0;font-size:14px;line-height:1.5;white-space:pre-wrap;">${escapeHtml(payload.details)}</p>` : ""}
+    ${details}
     ${pvz ? `<p style="margin:24px 0 0;font-size:14px;"><strong>Пункт выдачи Ozon</strong><br />${escapeHtml(pvz)}</p>` : ""}
     ${payload.ozon_posting_number ? `<p style="margin:8px 0 0;font-size:14px;">Отправление: ${escapeHtml(payload.ozon_posting_number)}</p>` : ""}
     ${track}
     ${payload.shipping != null ? `<p style="margin:16px 0 0;font-size:14px;">Доставка: ${escapeHtml(formatShopMoney(payload.shipping, currency) || "")}</p>` : ""}
     ${payload.total != null ? `<p style="margin:4px 0 0;font-size:16px;font-weight:500;">Итого: ${escapeHtml(formatShopMoney(payload.total, currency) || "")}</p>` : ""}
     ${button}
-    ${payload.returns_url ? `<p style="margin:24px 0 0;font-size:12px;line-height:1.4;color:#737373;">Вернуть товар одной кнопкой нельзя. <a href="${escapeHtml(payload.returns_url)}" style="color:#000;">Как написать о заказе</a></p>` : ""}
+    ${copy.footer ? `<p style="margin:24px 0 0;font-size:12px;line-height:1.4;color:#737373;">${escapeHtml(copy.footer)}${payload.returns_url ? ` <a href="${escapeHtml(payload.returns_url)}" style="color:#000;">Правила возврата</a>` : ""}</p>` : payload.returns_url ? `<p style="margin:24px 0 0;font-size:12px;line-height:1.4;color:#737373;"><a href="${escapeHtml(payload.returns_url)}" style="color:#000;">Правила возврата</a></p>` : ""}
   </div>
 </body>
 </html>`

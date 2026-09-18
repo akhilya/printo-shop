@@ -1,6 +1,7 @@
 import {
   extractOzonPostingStatus,
   mapOzonPostingStatus,
+  ozonAlreadyCancelled,
   ozonFbsCancelBody,
   ozonLabelNotReady,
   ozonOrderCancelBody,
@@ -147,5 +148,10 @@ describe("ozon cancel payloads", () => {
       cancel_reason_id: 402,
       cancel_reason_message: "Отмена заказа магазином",
     })
+    expect(
+      ozonAlreadyCancelled({
+        message: '{"code":"POSTING_ALREADY_CANCELLED"}',
+      })
+    ).toBe(true)
   })
 })
