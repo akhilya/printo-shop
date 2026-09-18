@@ -48,7 +48,6 @@ export async function POST(
       const auth: IAuthModuleService = req.scope.resolve(Modules.AUTH)
       const result = await auth.authenticate("emailpass", {
         body: { email, password },
-        authScope: "user",
       })
       return result.success === true
     },
