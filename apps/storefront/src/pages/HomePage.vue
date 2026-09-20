@@ -57,35 +57,44 @@ onMounted(async () => {
   if (redirectLegacyCatalog()) return
   loading.value = true
   error.value = ""
-  try {
-    const [groupsResult, productsResult, bannersResult] = await Promise.allSettled([
-      listShopGroups(),
-      listShopCatalog({ limit: HOME_PRODUCTS, offset: 0, inStock: true }),
-      loadBanners(),
-    ])
-    groups.value =
-      groupsResult.status === "fulfilled"
-        ? (groupsResult.value || []).slice(0, HOME_GROUPS)
-        : []
-    products.value =
-      productsResult.status === "fulfilled"
-        ? (productsResult.value.products || []).filter(productInStock)
-        : []
-    banners.value =
-      bannersResult.status === "fulfilled" ? bannersResult.value : []
-    if (
-      groupsResult.status === "rejected" &&
-      productsResult.status === "rejected"
-    ) {
-      error.value = "Не удалось загрузить каталог."
-    }
-  } catch {
+  const groupsTask = listShopGroups()
+    .then((rows) => {
+      groups.value = (rows || []).slice(0, HOME_GROUPS)
+      if (groups.value.length) loading.value = false
+    })
+    .catch(() => {
+      groups.value = []
+    })
+  const productsTask = listShopCatalog({
+    limit: HOME_PRODUCTS,
+    offset: 0,
+    inStock: true,
+  })
+    .then((result) => {
+      products.value = (result.products || []).filter(productInStock)
+      loading.value = false
+    })
+    .catch(() => {
+      products.value = []
+    })
+  const bannersTask = loadBanners()
+    .then((rows) => {
+      banners.value = rows
+    })
+    .catch(() => {
+      banners.value = []
+    })
+  const [groupsResult, productsResult] = await Promise.allSettled([
+    groupsTask,
+    productsTask,
+    bannersTask,
+  ])
+  loading.value = false
+  if (
+    groupsResult.status === "rejected" &&
+    productsResult.status === "rejected"
+  ) {
     error.value = "Не удалось загрузить каталог."
-    groups.value = []
-    products.value = []
-    banners.value = []
-  } finally {
-    loading.value = false
   }
 })
 </script>

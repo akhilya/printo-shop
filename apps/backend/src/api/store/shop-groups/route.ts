@@ -6,7 +6,7 @@ export async function GET(req: MedusaRequest, res: MedusaResponse) {
     const groups = await listShopGroupsCatalog(req.scope)
     res.setHeader(
       "Cache-Control",
-      "public, max-age=15, stale-while-revalidate=120"
+      "public, max-age=60, stale-while-revalidate=600"
     )
     res.json({ groups })
   } catch {

@@ -24,6 +24,10 @@ export async function GET(req: MedusaRequest, res: MedusaResponse) {
         ],
       }
     )
+    res.setHeader(
+      "Cache-Control",
+      "public, max-age=60, stale-while-revalidate=600"
+    )
     res.json({
       sales: presentCatalogSales(rows as unknown as Record<string, unknown>[]),
     })

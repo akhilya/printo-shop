@@ -1,14 +1,17 @@
 import {
   applyInventoryItemQuantities,
+  attachVariantInventoryLinks,
   catalogProductInStock,
   pageCatalogIds,
   pageCatalogProducts,
   pickLuckyCatalogRow,
   presentCatalogProduct,
   productMatchesCatalogQuery,
+  projectProductListRows,
   slimCatalogMetadata,
   sortCatalogByAvailability,
   canPreviewInStockPage,
+  presentShopGroups,
 } from "../shop-catalog"
 
 const inStock = {
@@ -185,5 +188,64 @@ describe("shop catalog", () => {
         limit: 16,
       })
     ).toBe(false)
+  })
+
+  it("builds collection cards from a product sample and cover metadata", () => {
+    const groups = presentShopGroups(
+      [
+        {
+          id: "c1",
+          title: "Стражи",
+          metadata: { shop_cover_image_url: "https://img/cover.webp" },
+        },
+        { id: "c2", title: "Пусто" },
+      ],
+      [{ id: "p1", collection_id: "c1", thumbnail: "https://img/p1.webp" }]
+    )
+    expect(groups.map((group) => group.id)).toEqual(["c1"])
+    expect(groups[0].images[0]).toBe("https://img/cover.webp")
+  })
+
+  it("projects module rows without fat metadata or category payloads", () => {
+    const rows = projectProductListRows([
+      {
+        id: "p1",
+        title: "Страж",
+        handle: "strazh",
+        metadata: {
+          price: "1500",
+          specs: "[]",
+          image_keys: "[1,2,3]",
+          delegat_product_id: "9",
+        },
+        categories: [{ id: "c1" }],
+        variants: [
+          {
+            id: "v1",
+            sku: "WA150",
+            manage_inventory: true,
+            metadata: { old_price: "2000", extra: "nope" },
+          },
+        ],
+      },
+    ])
+    expect(rows[0].metadata).toEqual({ price: "1500" })
+    expect(rows[0].categories).toEqual([{ id: "c1" }])
+    expect(rows[0].variants?.[0].metadata).toEqual({ old_price: "2000" })
+  })
+
+  it("attaches inventory links by variant id then applies quantities", () => {
+    const rows = projectProductListRows([
+      {
+        id: "p1",
+        variants: [{ id: "v1", manage_inventory: true }],
+      },
+    ])
+    attachVariantInventoryLinks(rows, [
+      { variant_id: "v1", inventory_item_id: "item_1", required_quantity: 1 },
+    ])
+    applyInventoryItemQuantities(rows, { item_1: 4 })
+    expect(catalogProductInStock(rows[0])).toBe(true)
+    expect(rows[0].variants?.[0].inventory_quantity).toBe(4)
   })
 })

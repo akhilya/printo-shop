@@ -9,5 +9,9 @@ export async function GET(req: MedusaRequest, res: MedusaResponse) {
     .filter((row) => row.enabled !== false)
     .filter((row) => (slot ? row.slot === slot : true))
     .map((row) => presentBanner(row as unknown as Record<string, unknown>))
+  res.setHeader(
+    "Cache-Control",
+    "public, max-age=60, stale-while-revalidate=600"
+  )
   res.json({ banners })
 }
