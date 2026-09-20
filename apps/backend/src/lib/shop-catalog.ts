@@ -580,6 +580,6 @@ export async function bumpProductViews(
   }
   const current = Number(metadata[SHOP_VIEWS_KEY] || 0)
   metadata[SHOP_VIEWS_KEY] = Number.isFinite(current) ? current + 1 : 1
-  await productModule.updateProducts({ id, metadata })
+  await productModule.updateProducts(id, { metadata })
   return true
 }
