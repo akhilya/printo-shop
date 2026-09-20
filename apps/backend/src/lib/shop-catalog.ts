@@ -1,6 +1,6 @@
 import { MedusaContainer } from "@medusajs/framework"
+import type { IProductModuleService } from "@medusajs/framework/types"
 import { ContainerRegistrationKeys, Modules } from "@medusajs/framework/utils"
-import { updateProductsWorkflow } from "@medusajs/medusa/core-flows"
 import {
   applyShopGroupCoverImages,
   readShopCollectionCover,
@@ -270,15 +270,6 @@ export function pickLuckyCatalogRow(rows: CatalogRow[], excludeId?: string | nul
     : rows.filter((row) => row.id !== excludeId)
   if (!pool.length) return null
   return pool[Math.floor(Math.random() * pool.length)] || null
-}
-
-function presentLucky(row: CatalogRow) {
-  return {
-    id: row.id,
-    handle: String(row.handle || ""),
-    title: String(row.title || ""),
-    thumbnail: row.thumbnail ? String(row.thumbnail) : null,
-  }
 }
 
 let catalogCache: { at: number; rows: CatalogRow[] } = { at: 0, rows: [] }
@@ -567,7 +558,7 @@ export async function getLuckyShopProduct(
     await listPublishedCatalogRows(container),
     excludeId
   )
-  return row ? presentLucky(row) : null
+  return row ? presentCatalogProduct(row) : null
 }
 
 export async function bumpProductViews(
@@ -576,24 +567,19 @@ export async function bumpProductViews(
 ) {
   const id = String(productId || "").trim()
   if (!id) return false
-  const query = container.resolve(ContainerRegistrationKeys.QUERY)
-  const { data } = await query.graph({
-    entity: "product",
-    fields: ["id", "metadata"],
-    filters: { id },
-  })
-  const product = (data?.[0] || null) as Record<string, unknown> | null
+  const productModule = container.resolve(
+    Modules.PRODUCT
+  ) as IProductModuleService
+  const [product] = await productModule.listProducts(
+    { id },
+    { take: 1, select: ["id", "metadata"] }
+  )
   if (!product?.id) return false
   const metadata = {
     ...((product.metadata || {}) as Record<string, unknown>),
   }
   const current = Number(metadata[SHOP_VIEWS_KEY] || 0)
   metadata[SHOP_VIEWS_KEY] = Number.isFinite(current) ? current + 1 : 1
-  await updateProductsWorkflow(container).run({
-    input: {
-      selector: { id },
-      update: { metadata },
-    },
-  })
+  await productModule.updateProducts({ id, metadata })
   return true
 }

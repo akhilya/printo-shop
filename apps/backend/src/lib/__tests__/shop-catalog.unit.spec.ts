@@ -131,6 +131,37 @@ describe("shop catalog", () => {
     expect(presentCatalogProduct({ id: "z" }).variants).toEqual([])
   })
 
+  it("gives lucky the same card payload as the catalog", () => {
+    const row = {
+      id: "a",
+      title: "Страж",
+      handle: "strazh",
+      thumbnail: "https://img/a.webp",
+      metadata: { price: "1500" },
+      variants: [
+        {
+          id: "v1",
+          sku: "WA150",
+          manage_inventory: true,
+          inventory_quantity: 2,
+        },
+      ],
+    }
+    expect(presentCatalogProduct(row)).toMatchObject({
+      id: "a",
+      handle: "strazh",
+      thumbnail: "https://img/a.webp",
+      variants: [
+        {
+          calculated_price: {
+            calculated_amount: 1500,
+            currency_code: "rub",
+          },
+        },
+      ],
+    })
+  })
+
   it("keeps only listing metadata on catalog cards", () => {
     expect(
       slimCatalogMetadata({

@@ -244,24 +244,21 @@ export async function loadLuckyProduct(excludeId) {
   )
   if (!res.ok) return null
   const data = await res.json()
-  const slim = data.product
-  if (!slim?.id && !slim?.handle) return null
-  const { products } = await sdk.store.product.list({
-    id: slim.id ? [slim.id] : undefined,
-    handle: slim.handle || undefined,
-    limit: 1,
-    region_id: REGION_ID,
-    fields: productFields,
-  })
-  return products?.[0] || null
+  const product = data.product
+  if (!product?.id && !product?.handle) return null
+  return product
 }
 
-export async function recordProductView(productId) {
+export function recordProductView(productId) {
   if (!productId) return
   try {
-    await fetch(
+    void fetch(
       `${BACKEND_URL}/store/shop-products/${encodeURIComponent(productId)}/view`,
-      { method: "POST", headers: storeHeaders() }
+      {
+        method: "POST",
+        headers: storeHeaders(),
+        keepalive: true,
+      }
     )
   } catch {
     // Views are internal; a failed ping must not affect the page.

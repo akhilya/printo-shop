@@ -12,6 +12,7 @@ import {
   getShopSetting,
 } from "../lib/shop-setting"
 import { stripStoreDelegatFields } from "../lib/shop-store-category"
+import { applyStaticCache } from "../lib/static-cache"
 import { applyStoreCors } from "../lib/store-cors"
 
 async function rejectBlockedIp(
@@ -92,6 +93,11 @@ async function rejectClosedOrders(
  */
 export default defineMiddlewares({
   routes: [
+    {
+      matcher: "/static*",
+      methods: ["GET", "HEAD"],
+      middlewares: [applyStaticCache],
+    },
     {
       matcher: "/store*",
       methods: ["OPTIONS"],
