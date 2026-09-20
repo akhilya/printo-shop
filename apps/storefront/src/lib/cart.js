@@ -2,9 +2,23 @@ import { reactive } from "vue"
 import { REGION_ID, sdk, shopError } from "./sdk.js"
 
 const KEY = "shop_cart_id"
+const COUNT_KEY = "shop_cart_count"
+
+function readSavedCount() {
+  try {
+    const n = Number(
+      localStorage.getItem(COUNT_KEY) || sessionStorage.getItem(COUNT_KEY) || 0
+    )
+    return Number.isFinite(n) && n > 0 ? Math.floor(n) : 0
+  } catch {
+    return 0
+  }
+}
 
 export const cartState = reactive({
   cart: null,
+  count: readSavedCount(),
+  priced: false,
   open: false,
   busy: false,
   error: "",
@@ -27,13 +41,44 @@ function writeCartId(id) {
   }
 }
 
+function writeSavedCount(n) {
+  const count = Number.isFinite(n) && n > 0 ? Math.floor(n) : 0
+  cartState.count = count
+  try {
+    localStorage.setItem(COUNT_KEY, String(count))
+    sessionStorage.setItem(COUNT_KEY, String(count))
+  } catch {
+    /* private mode */
+  }
+}
+
+function countItems(cart) {
+  return (
+    cart?.items?.reduce((n, item) => n + (Number(item.quantity) || 0), 0) ?? 0
+  )
+}
+
+function applyCart(cart, priced) {
+  cartState.cart = cart
+  cartState.priced = priced
+  writeCartId(cart.id)
+  writeSavedCount(countItems(cart))
+}
+
+const CART_BOOT_FIELDS =
+  "id,email,currency_code,region_id,completed_at,metadata,items.id,items.title,items.thumbnail,items.quantity,items.variant_id,+items.product.handle,+items.variant.id,+items.variant.metadata,+items.variant.product.handle"
+
 const CART_FIELDS =
-  "id,email,currency_code,region_id,completed_at,total,subtotal,discount_total,item_total,item_subtotal,original_item_total,original_item_subtotal,item_discount_total,shipping_total,shipping_subtotal,metadata,*items,+items.variant.id,+items.variant.metadata,+items.variant.product.handle,+items.product.handle,*promotions,*shipping_methods"
+  `${CART_BOOT_FIELDS},total,subtotal,discount_total,item_total,item_subtotal,original_item_total,original_item_subtotal,item_discount_total,shipping_total,shipping_subtotal,+items.total,+items.subtotal,+items.unit_price,+items.original_total,+items.original_subtotal,+items.compare_at_unit_price,*promotions,*shipping_methods`
 
 export const CART_QUERY = { fields: CART_FIELDS }
+const CART_BOOT_QUERY = { fields: CART_BOOT_FIELDS }
 
-export async function retrieveCart(id) {
-  const { cart } = await sdk.store.cart.retrieve(id, CART_QUERY)
+export async function retrieveCart(id, priced = true) {
+  const { cart } = await sdk.store.cart.retrieve(
+    id,
+    priced ? CART_QUERY : CART_BOOT_QUERY
+  )
   return cart
 }
 
@@ -41,9 +86,13 @@ function forgetCartId() {
   try {
     localStorage.removeItem(KEY)
     sessionStorage.removeItem(KEY)
+    localStorage.removeItem(COUNT_KEY)
+    sessionStorage.removeItem(COUNT_KEY)
   } catch {
     /* private mode */
   }
+  cartState.count = 0
+  cartState.priced = false
 }
 
 function isMissingCart(error) {
@@ -54,22 +103,26 @@ function isMissingCart(error) {
 
 export function openCart() {
   cartState.open = true
+  if (!cartState.priced) void loadCart({ totals: true })
 }
 
 export function closeCart() {
   cartState.open = false
 }
 
-export async function loadCart() {
+export async function loadCart(options = {}) {
+  const totals = options.totals !== false
   const id = currentCartId()
   if (!id) {
     cartState.cart = null
+    cartState.priced = false
+    writeSavedCount(0)
     return
   }
+  if (cartState.cart?.id === id && (cartState.priced || !totals)) return
   try {
-    const cart = await retrieveCart(id)
-    cartState.cart = cart
-    writeCartId(cart.id)
+    const cart = await retrieveCart(id, totals)
+    applyCart(cart, totals)
   } catch (error) {
     if (isMissingCart(error)) {
       forgetCartId()
@@ -78,14 +131,25 @@ export async function loadCart() {
   }
 }
 
+export function hydrateCartLater() {
+  if (!currentCartId()) return
+  const run = () => {
+    void loadCart({ totals: false })
+  }
+  if (typeof requestIdleCallback === "function") {
+    requestIdleCallback(run, { timeout: 8000 })
+    return
+  }
+  window.setTimeout(run, 4000)
+}
+
 async function ensureCart() {
-  if (cartState.cart?.id) return cartState.cart
+  if (cartState.cart?.id && cartState.priced) return cartState.cart
   const existing = currentCartId()
   if (existing) {
     try {
-      const cart = await retrieveCart(existing)
-      cartState.cart = cart
-      writeCartId(cart.id)
+      const cart = await retrieveCart(existing, true)
+      applyCart(cart, true)
       return cart
     } catch (error) {
       if (isMissingCart(error)) forgetCartId()
@@ -96,8 +160,7 @@ async function ensureCart() {
     { region_id: REGION_ID },
     CART_QUERY
   )
-  writeCartId(cart.id)
-  cartState.cart = cart
+  applyCart(cart, true)
   return cart
 }
 
@@ -114,7 +177,7 @@ export async function addToCart(variantId, quantity = 1) {
       },
       CART_QUERY
     )
-    cartState.cart = next
+    applyCart(next, true)
     openCart()
   } catch (error) {
     cartState.error = shopError(error, "Не удалось добавить товар")
@@ -138,7 +201,7 @@ export async function setQty(lineId, quantity) {
       { quantity },
       CART_QUERY
     )
-    cartState.cart = cart
+    applyCart(cart, true)
   } catch (error) {
     cartState.error = shopError(error, "Не удалось изменить количество")
   } finally {
@@ -156,7 +219,7 @@ export async function removeLine(lineId) {
       lineId,
       CART_QUERY
     )
-    cartState.cart = cart ?? (await retrieveCart(cartState.cart.id))
+    applyCart(cart ?? (await retrieveCart(cartState.cart.id, true)), true)
   } catch (error) {
     cartState.error = shopError(error, "Не удалось удалить товар")
   } finally {
@@ -176,7 +239,8 @@ if (import.meta.hot) {
 }
 
 export function itemCount() {
-  return cartState.cart?.items?.reduce((n, i) => n + i.quantity, 0) ?? 0
+  if (cartState.cart?.items) return countItems(cartState.cart)
+  return cartState.count
 }
 
 export function cartMoney(value) {
@@ -256,7 +320,7 @@ export async function applyPromo(code) {
       },
       CART_QUERY
     )
-    cartState.cart = cart
+    applyCart(cart, true)
   } catch (error) {
     const raw = String(error.message || "")
     cartState.error = /invalid|not found/i.test(raw)
@@ -280,7 +344,7 @@ export async function removePromo(code) {
       },
       CART_QUERY
     )
-    cartState.cart = cart
+    applyCart(cart, true)
   } catch (error) {
     cartState.error = shopError(error, "Не удалось убрать промокод")
   } finally {

@@ -8,7 +8,7 @@ import {
   adultPrompt,
   declineAdult,
 } from "./lib/adult-gate.js"
-import { loadCart } from "./lib/cart.js"
+import { hydrateCartLater } from "./lib/cart.js"
 import {
   legalDocumentPages,
   legalPages,
@@ -29,7 +29,7 @@ onMounted(async () => {
   }
   ready.value = true
   if (shopState.closed) return
-  loadCart()
+  hydrateCartLater()
   loadLegalPages()
   loadCatalogSales()
 })
