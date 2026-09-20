@@ -1,31 +1,39 @@
 <script setup>
-import { onMounted, ref, watch } from "vue"
+import { ref, watch } from "vue"
 import ProductCell from "./ProductCell.vue"
 import { loadLuckyProduct } from "../lib/sdk.js"
 
 const props = defineProps({
   banner: { type: Object, required: true },
   excludeId: { type: String, default: "" },
+  product: { type: Object, default: null },
 })
 
-const product = ref(null)
+const card = ref(null)
 
 async function load() {
-  product.value = await loadLuckyProduct(props.excludeId)
+  if (props.product?.id || props.product?.handle) {
+    card.value = props.product
+    return
+  }
+  card.value = await loadLuckyProduct(props.excludeId)
 }
 
-onMounted(load)
-watch(() => [props.excludeId, props.banner?.id], load)
+watch(
+  () => [props.excludeId, props.banner?.id, props.product?.id],
+  load,
+  { immediate: true }
+)
 </script>
 
 <template>
-  <section v-if="product" class="banner banner-lucky">
+  <section v-if="card" class="banner banner-lucky">
     <div class="banner-copy">
       <h2 class="banner-title">{{ banner.title }}</h2>
       <p class="banner-body">{{ banner.body }}</p>
     </div>
     <div class="banner-lucky-card">
-      <ProductCell :product="product" />
+      <ProductCell :product="card" />
     </div>
   </section>
 </template>

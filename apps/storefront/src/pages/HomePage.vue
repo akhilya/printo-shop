@@ -21,6 +21,7 @@ const router = useRouter()
 const groups = ref([])
 const products = ref([])
 const banners = ref([])
+const luckySeed = ref(null)
 const loading = ref(true)
 const error = ref("")
 
@@ -72,6 +73,10 @@ onMounted(async () => {
   })
     .then((result) => {
       products.value = (result.products || []).filter(productInStock)
+      if (!luckySeed.value && products.value.length) {
+        luckySeed.value =
+          products.value[Math.floor(Math.random() * products.value.length)]
+      }
       loading.value = false
     })
     .catch(() => {
@@ -132,6 +137,7 @@ onMounted(async () => {
       <LuckyBanner
         v-if="bannerBySlot('home_lucky')"
         :banner="bannerBySlot('home_lucky')"
+        :product="luckySeed"
       />
       <SiteBanner
         v-if="bannerBySlot('home_catalog')"

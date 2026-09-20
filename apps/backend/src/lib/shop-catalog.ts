@@ -715,6 +715,7 @@ async function loadPublishedCatalogRows(container: MedusaContainer) {
       )
       rows.push(...(batch as ProductListRow[]))
       if (batch.length < CATALOG_PAGE) break
+      await new Promise((resolve) => setImmediate(resolve))
     }
     return rows
   }
@@ -727,6 +728,7 @@ async function loadPublishedCatalogRows(container: MedusaContainer) {
     listAllVariantInventoryLinks(container).catch(() => []),
     listAllInventoryQty(container).catch(() => ({})),
   ])
+  await new Promise((resolve) => setImmediate(resolve))
   const rows = catalogRowsFromProducts(
     products,
     variants as Array<{
@@ -905,19 +907,69 @@ export async function listShopGroupsCatalog(container: MedusaContainer) {
   return loadShopGroupsLite(container)
 }
 
+function randomCatalogSkip(count: number, random = Math.random) {
+  if (count < 1) return 0
+  return Math.min(count - 1, Math.floor(random() * count))
+}
+
+export { randomCatalogSkip }
+
+async function loadPublishedProductAt(container: MedusaContainer, skip: number) {
+  const product = productModuleOf(container)
+  const products = await product.listProducts(
+    { status: "published" },
+    {
+      skip: Math.max(0, skip),
+      take: 1,
+      select: [...PRODUCT_LIST_SELECT],
+    }
+  )
+  if (!products[0]) return null
+  const variants = await product.listProductVariants(
+    { product_id: String(products[0].id) },
+    { take: 16, select: [...VARIANT_LIST_SELECT] }
+  )
+  const rows = catalogRowsFromProducts(
+    products as ProductListRow[],
+    variants as Array<{
+      id?: string
+      sku?: string | null
+      manage_inventory?: boolean | null
+      metadata?: Record<string, unknown> | null
+      product_id?: string | null
+    }>
+  )
+  const hydrated = await hydrateCatalogInventory(container, rows)
+  return hydrated[0] || null
+}
+
 export async function getLuckyShopProduct(
   container: MedusaContainer,
   excludeId?: string | null
 ) {
   if (catalogCache.rows.length) {
-    const row = pickLuckyCatalogRow(catalogCache.rows, excludeId)
-    return row ? presentCatalogProduct(row) : null
+    const cached = pickLuckyCatalogRow(catalogCache.rows, excludeId)
+    if (cached) return presentCatalogProduct(cached)
   }
-  const rows = await loadEnoughInStockRows(container, 32)
-  seedCatalogPreview(rows)
-  scheduleCatalogRefresh(container, CATALOG_REFRESH_DELAY_MS)
-  const row = pickLuckyCatalogRow(rows, excludeId)
-  return row ? presentCatalogProduct(row) : null
+  const product = productModuleOf(container)
+  const [, count] = await product.listAndCountProducts(
+    { status: "published" },
+    { skip: 0, take: 1, select: ["id"] }
+  )
+  const total = Number(count) || 0
+  if (total < 1) return null
+  let fallback: CatalogRow | null = null
+  for (let attempt = 0; attempt < 6; attempt++) {
+    const row = await loadPublishedProductAt(
+      container,
+      randomCatalogSkip(total)
+    )
+    if (!row) continue
+    if (excludeId && row.id === excludeId) continue
+    fallback = row
+    if (catalogProductInStock(row)) return presentCatalogProduct(row)
+  }
+  return fallback ? presentCatalogProduct(fallback) : null
 }
 
 export async function bumpProductViews(

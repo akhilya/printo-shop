@@ -8,6 +8,7 @@ import {
   presentCatalogProduct,
   productMatchesCatalogQuery,
   projectProductListRows,
+  randomCatalogSkip,
   slimCatalogMetadata,
   sortCatalogByAvailability,
   canPreviewInStockPage,
@@ -45,6 +46,9 @@ describe("shop catalog", () => {
     const picked = pickLuckyCatalogRow([inStock, empty], "a")
     expect(picked?.id).toBe("b")
     expect(pickLuckyCatalogRow([inStock], "a")).toBeNull()
+    expect(randomCatalogSkip(10, () => 0)).toBe(0)
+    expect(randomCatalogSkip(10, () => 0.999)).toBe(9)
+    expect(randomCatalogSkip(0)).toBe(0)
   })
 
   it("reads stock from location levels when inventory_quantity is missing", () => {
