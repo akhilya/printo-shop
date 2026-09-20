@@ -353,8 +353,14 @@ export function pickLuckyCatalogRow(rows: CatalogRow[], excludeId?: string | nul
   return pool[Math.floor(Math.random() * pool.length)] || null
 }
 
-let catalogCache: { at: number; rows: CatalogRow[] } = { at: 0, rows: [] }
+let catalogCache: { at: number; rows: CatalogRow[]; partial: boolean } = {
+  at: 0,
+  rows: [],
+  partial: false,
+}
 let catalogInflight: Promise<CatalogRow[]> | null = null
+let catalogRefreshTimer: ReturnType<typeof setTimeout> | null = null
+const CATALOG_REFRESH_DELAY_MS = 2500
 let groupsCache: {
   catalogAt: number
   groups: Array<{
@@ -367,15 +373,28 @@ let groupsCache: {
 } | null = null
 
 export function invalidateShopCatalogCache() {
-  catalogCache = { at: 0, rows: [] }
+  catalogCache = { at: 0, rows: [], partial: false }
   groupsCache = null
+  if (catalogRefreshTimer) {
+    clearTimeout(catalogRefreshTimer)
+    catalogRefreshTimer = null
+  }
+}
+
+function seedCatalogPreview(rows: CatalogRow[]) {
+  if (catalogCache.rows.length && !catalogCache.partial) return
+  catalogCache = { at: Date.now(), rows, partial: true }
 }
 
 function refreshCatalogInBackground(container: MedusaContainer) {
+  if (catalogRefreshTimer) {
+    clearTimeout(catalogRefreshTimer)
+    catalogRefreshTimer = null
+  }
   if (catalogInflight) return catalogInflight
   catalogInflight = loadPublishedCatalogRows(container)
     .then((rows) => {
-      catalogCache = { at: Date.now(), rows }
+      catalogCache = { at: Date.now(), rows, partial: false }
       groupsCache = null
       return rows
     })
@@ -386,6 +405,17 @@ function refreshCatalogInBackground(container: MedusaContainer) {
     .finally(() => {
       catalogInflight = null
     })
+  return catalogInflight
+}
+
+function scheduleCatalogRefresh(container: MedusaContainer, delayMs = 0) {
+  if (catalogInflight) return catalogInflight
+  if (!delayMs) return refreshCatalogInBackground(container)
+  if (catalogRefreshTimer) return catalogInflight
+  catalogRefreshTimer = setTimeout(() => {
+    catalogRefreshTimer = null
+    refreshCatalogInBackground(container)
+  }, delayMs)
   return catalogInflight
 }
 
@@ -729,10 +759,10 @@ async function loadPublishedCatalogRows(container: MedusaContainer) {
 
 async function listPublishedCatalogRows(container: MedusaContainer) {
   const age = Date.now() - catalogCache.at
-  if (catalogCache.rows.length && age < CATALOG_TTL_MS) {
+  if (catalogCache.rows.length && !catalogCache.partial && age < CATALOG_TTL_MS) {
     return catalogCache.rows
   }
-  if (catalogCache.rows.length && age < CATALOG_STALE_MS) {
+  if (catalogCache.rows.length && !catalogCache.partial && age < CATALOG_STALE_MS) {
     refreshCatalogInBackground(container)
     return catalogCache.rows
   }
@@ -758,7 +788,8 @@ export async function listShopCatalogPage(
   const limit = input.limit || 20
   if (canPreviewInStockPage(input) && !catalogCache.rows.length) {
     const rows = await loadEnoughInStockRows(container, offset + limit)
-    refreshCatalogInBackground(container)
+    seedCatalogPreview(rows)
+    scheduleCatalogRefresh(container, CATALOG_REFRESH_DELAY_MS)
     return pageCatalogProducts(rows, offset, limit)
   }
   let rows = sortCatalogByAvailability(
@@ -878,10 +909,14 @@ export async function getLuckyShopProduct(
   container: MedusaContainer,
   excludeId?: string | null
 ) {
-  const row = pickLuckyCatalogRow(
-    await listPublishedCatalogRows(container),
-    excludeId
-  )
+  if (catalogCache.rows.length) {
+    const row = pickLuckyCatalogRow(catalogCache.rows, excludeId)
+    return row ? presentCatalogProduct(row) : null
+  }
+  const rows = await loadEnoughInStockRows(container, 32)
+  seedCatalogPreview(rows)
+  scheduleCatalogRefresh(container, CATALOG_REFRESH_DELAY_MS)
+  const row = pickLuckyCatalogRow(rows, excludeId)
   return row ? presentCatalogProduct(row) : null
 }
 

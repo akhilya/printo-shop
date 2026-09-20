@@ -80,12 +80,27 @@ services:
       - traefik.http.routers.shop-backend.tls.certResolver=letsencrypt
       - traefik.http.routers.shop-backend.priority=10
       - traefik.http.services.shop-backend.loadbalancer.server.port=9000
+
+  static:
+    image: nginx:1.27-alpine
+    restart: unless-stopped
+    volumes:
+      - shop_uploads:/usr/share/nginx/html:ro
+      - ./deploy/nginx-static.conf:/etc/nginx/conf.d/default.conf:ro
+    expose:
+      - "80"
+    networks:
+      - default
+      - dokploy-network
+    labels:
+      - traefik.enable=true
       - traefik.http.middlewares.shop-static-cache.headers.customresponseheaders.Cache-Control=public, max-age=31536000, immutable
       - traefik.http.routers.shop-backend-static.rule=Host(`${API_HOST}`) && PathPrefix(`/static`)
       - traefik.http.routers.shop-backend-static.entrypoints=websecure
       - traefik.http.routers.shop-backend-static.tls.certResolver=letsencrypt
       - traefik.http.routers.shop-backend-static.middlewares=shop-static-cache
-      - traefik.http.routers.shop-backend-static.service=shop-backend
+      - traefik.http.routers.shop-backend-static.service=shop-static
+      - traefik.http.services.shop-static.loadbalancer.server.port=80
       - traefik.http.routers.shop-backend-static.priority=20
 
   storefront:
