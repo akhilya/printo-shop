@@ -135,7 +135,7 @@ onMounted(async () => {
       </section>
 
       <LuckyBanner
-        v-if="bannerBySlot('home_lucky')"
+        v-if="bannerBySlot('home_lucky') && luckySeed"
         :banner="bannerBySlot('home_lucky')"
         :product="luckySeed"
       />

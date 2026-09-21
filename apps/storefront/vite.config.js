@@ -33,6 +33,10 @@ export default defineConfig({
         changeOrigin: true,
         rewrite: () => "/hooks/shop-llm-json",
       },
+      "/static": {
+        target: process.env.VITE_MEDUSA_BACKEND_URL || "http://localhost:9000",
+        changeOrigin: true,
+      },
     },
   },
 })

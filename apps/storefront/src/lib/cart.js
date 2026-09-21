@@ -133,14 +133,9 @@ export async function loadCart(options = {}) {
 
 export function hydrateCartLater() {
   if (!currentCartId()) return
-  const run = () => {
+  window.setTimeout(() => {
     void loadCart({ totals: false })
-  }
-  if (typeof requestIdleCallback === "function") {
-    requestIdleCallback(run, { timeout: 8000 })
-    return
-  }
-  window.setTimeout(run, 4000)
+  }, 6000)
 }
 
 async function ensureCart() {

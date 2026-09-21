@@ -1,5 +1,6 @@
 <script setup>
-import { nextTick, onBeforeUnmount, onMounted, ref, watch } from "vue"
+import { computed, nextTick, onBeforeUnmount, onMounted, ref, watch } from "vue"
+import { hostedImage } from "../lib/sdk.js"
 
 const props = defineProps({
   src: { type: String, default: "" },
@@ -7,6 +8,8 @@ const props = defineProps({
   eager: { type: Boolean, default: false },
   fetchpriority: { type: String, default: "" },
 })
+
+const photoSrc = computed(() => hostedImage(props.src))
 
 const loaded = ref(false)
 const failed = ref(false)
@@ -54,7 +57,7 @@ function reveal() {
 
 function observe() {
   stopObserve()
-  if (!props.src) {
+  if (!photoSrc.value) {
     shown.value = false
     return
   }
@@ -75,7 +78,7 @@ function observe() {
     (entries) => {
       if (entries.some((entry) => entry.isIntersecting)) reveal()
     },
-    { root: scrollRoot(el), rootMargin: "160px" }
+    { root: scrollRoot(el), rootMargin: "80px" }
   )
   observer.observe(el)
 }
@@ -85,14 +88,14 @@ async function sync() {
   failed.value = false
   observe()
   await nextTick()
-  if (!props.src || !shown.value) return
+  if (!photoSrc.value || !shown.value) return
   if (img.value?.complete) {
     if (img.value.naturalWidth) markLoaded()
     else markFailed()
   }
 }
 
-watch(() => [props.src, props.eager], sync)
+watch(() => [photoSrc.value, props.eager], sync)
 onMounted(sync)
 onBeforeUnmount(stopObserve)
 </script>
@@ -102,16 +105,16 @@ onBeforeUnmount(stopObserve)
     ref="host"
     class="photo"
     :data-loaded="loaded ? 'true' : 'false'"
-    :data-empty="!src || failed ? 'true' : 'false'"
+    :data-empty="!photoSrc || failed ? 'true' : 'false'"
   >
-    <span v-if="!src || failed" class="matte-empty">Нет фото</span>
+    <span v-if="!photoSrc || failed" class="matte-empty">Нет фото</span>
     <template v-else>
       <span v-if="!loaded" class="photo-wait" aria-hidden="true" />
       <img
         v-if="shown"
         ref="img"
         class="photo-fit"
-        :src="src"
+        :src="photoSrc"
         :alt="alt"
         :loading="eager ? 'eager' : 'lazy'"
         :fetchpriority="fetchpriority || (eager ? 'high' : undefined)"

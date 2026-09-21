@@ -102,6 +102,12 @@ services:
       - traefik.http.routers.shop-backend-static.service=shop-static
       - traefik.http.services.shop-static.loadbalancer.server.port=80
       - traefik.http.routers.shop-backend-static.priority=20
+      - traefik.http.routers.shop-store-static.rule=Host(`${STORE_HOST}`) && PathPrefix(`/static`)
+      - traefik.http.routers.shop-store-static.entrypoints=websecure
+      - traefik.http.routers.shop-store-static.tls.certResolver=letsencrypt
+      - traefik.http.routers.shop-store-static.middlewares=shop-static-cache
+      - traefik.http.routers.shop-store-static.service=shop-static
+      - traefik.http.routers.shop-store-static.priority=20
 
   storefront:
     image: ${STOREFRONT_IMAGE:-ghcr.io/akhilya/printo-shop/storefront:latest}
@@ -120,6 +126,7 @@ services:
       - traefik.http.routers.shop-storefront.rule=Host(`${STORE_HOST}`)
       - traefik.http.routers.shop-storefront.entrypoints=websecure
       - traefik.http.routers.shop-storefront.tls.certResolver=letsencrypt
+      - traefik.http.routers.shop-storefront.priority=10
       - traefik.http.services.shop-storefront.loadbalancer.server.port=80
 
 volumes:

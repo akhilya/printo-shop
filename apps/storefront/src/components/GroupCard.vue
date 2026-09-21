@@ -44,7 +44,8 @@ const stackVars = computed(() => {
         :class="{ 'group-page-front': i === 0 }"
         :style="{ '--i': i }"
       >
-        <ProductPhoto v-if="src" :src="src" alt="" />
+        <ProductPhoto v-if="i === 0 && src" :src="src" alt="" eager />
+        <div v-else class="photo" />
       </div>
     </div>
     <div class="card-copy">
