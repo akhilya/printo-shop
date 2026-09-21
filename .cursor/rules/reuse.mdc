@@ -1,0 +1,12 @@
+---
+description: Reuse existing UI and logic; do not duplicate it
+alwaysApply: true
+---
+
+# Reuse, do not duplicate
+
+Before adding a section, component, style, or helper, look for the one that already does the job and use it.
+
+- The same block on two pages is one component. Home and the product page share `LuckyBanner` for «Мне повезёт». Do not copy that markup or its layout into a page.
+- Shared layout (horizontal product strip, photo strip) is one CSS class. Do not restyle the same row in a second rule.
+- If a change belongs in the shared piece, edit that piece so every caller gets it.

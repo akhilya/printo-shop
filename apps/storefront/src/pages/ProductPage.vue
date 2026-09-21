@@ -49,6 +49,7 @@ const related = ref([])
 const reviews = ref([])
 const banners = ref([])
 const active = ref(0)
+const thumbsEl = ref(null)
 const variantId = ref("")
 const loading = ref(true)
 const allowed = ref(false)
@@ -228,6 +229,7 @@ function bannerBySlot(slot) {
 }
 
 async function loadReviews(productId) {
+  reviewsOpen.value = false
   try {
     const res = await fetch(
       `${BACKEND_URL}/store/reviews?product_id=${encodeURIComponent(productId)}`,
@@ -244,6 +246,39 @@ async function loadReviews(productId) {
     reviews.value = []
   }
 }
+
+function reviewRank(review) {
+  return [
+    Number(review?.rating) === 5 ? 1 : 0,
+    reviewImages(review).length,
+    String(review?.body || "").length,
+  ]
+}
+
+const leadReview = computed(() => {
+  const rows = reviews.value || []
+  if (!rows.length) return null
+  const marked = rows.find((row) => row.pinned)
+  if (marked) return marked
+  return [...rows].sort((a, b) => {
+    const left = reviewRank(a)
+    const right = reviewRank(b)
+    return right[0] - left[0] || right[1] - left[1] || right[2] - left[2]
+  })[0]
+})
+
+const otherReviews = computed(() =>
+  (reviews.value || []).filter((row) => row.id !== leadReview.value?.id)
+)
+
+const reviewsOpen = ref(false)
+
+const visibleReviews = computed(() => {
+  const lead = leadReview.value
+  if (!lead) return []
+  if (!reviewsOpen.value) return [lead]
+  return [lead, ...otherReviews.value]
+})
 
 function reviewImages(review) {
   if (Array.isArray(review?.image_urls) && review.image_urls.length) {
@@ -376,6 +411,13 @@ onBeforeUnmount(() => {
 
 watch(() => route.params.handle, load, { immediate: true })
 watch(variantId, () => applyProductSeo())
+watch(active, (index) => {
+  const strip = thumbsEl.value
+  const thumb = strip?.children?.[index]
+  if (!strip || !thumb) return
+  const left = thumb.offsetLeft - (strip.clientWidth - thumb.offsetWidth) / 2
+  strip.scrollTo({ left: Math.max(0, left), behavior: "auto" })
+})
 </script>
 
 <template>
@@ -397,7 +439,7 @@ watch(variantId, () => applyProductSeo())
             eager
           />
         </button>
-        <div v-if="images.length > 1" class="thumbs">
+        <div v-if="images.length > 1" ref="thumbsEl" class="thumbs">
           <button
             v-for="(img, i) in images"
             :key="img.id || i"
@@ -493,10 +535,16 @@ watch(variantId, () => applyProductSeo())
     />
 
     <section class="section reviews-section">
-      <h2>Отзывы</h2>
+      <button
+        type="button"
+        class="reviews-toggle"
+        :aria-expanded="reviewsOpen"
+        @click="reviewsOpen = !reviewsOpen"
+      >
+        <h2>Отзывы<span v-if="reviews.length">, {{ reviews.length }}</span></h2>
+      </button>
       <div class="reviews">
-        <p v-if="!reviews.length" class="empty">Отзывов пока нет</p>
-        <div v-for="r in reviews" :key="r.id" class="review">
+        <article v-for="r in visibleReviews" :key="r.id" class="review">
           <div class="review-head">
             <strong>{{ r.author }}</strong>
             <p
@@ -514,7 +562,16 @@ watch(variantId, () => applyProductSeo())
               />
             </p>
           </div>
-          <p>{{ r.body }}</p>
+          <p class="review-body">{{ r.body }}</p>
+          <a
+            v-if="r.source_url"
+            class="review-source"
+            :href="r.source_url"
+            target="_blank"
+            rel="noopener noreferrer"
+          >
+            Отзыв на Ozon
+          </a>
           <div v-if="reviewImages(r).length" class="review-photos">
             <button
               v-for="(url, i) in reviewImages(r)"
@@ -527,85 +584,88 @@ watch(variantId, () => applyProductSeo())
               <img :src="url" alt="" />
             </button>
           </div>
-        </div>
-        <p v-if="reviewSent" class="empty">
-          Отзыв отправили на модерацию. Он появится после проверки.
-        </p>
-        <form v-else class="form" @submit="submitReview">
-          <label>
-            Имя
-            <input v-model="reviewForm.author" type="text" required />
-          </label>
-          <fieldset class="stars-field">
-            <legend>Оценка</legend>
-            <div class="stars stars-input">
-              <button
-                v-for="n in 5"
-                :key="n"
-                type="button"
-                :aria-label="`${n} из 5`"
-                :aria-pressed="reviewForm.rating === n"
-                @click="reviewForm.rating = n"
-              >
-                <Star
-                  :size="22"
-                  :stroke-width="1.5"
-                  :fill="n <= reviewForm.rating ? 'currentColor' : 'none'"
-                />
-              </button>
-            </div>
-          </fieldset>
-          <label>
-            Отзыв
-            <textarea v-model="reviewForm.body" rows="4" required minlength="10" />
-          </label>
-          <label class="file">
-            Фото
-            <span class="file-pick">
-              Выбрать фото
-              <input
-                type="file"
-                accept="image/jpeg,image/png,image/webp,image/gif"
-                multiple
-                @change="onReviewPhotos"
-              />
-            </span>
-          </label>
-          <div v-if="reviewPhotos.length" class="review-picked">
-            <div class="review-photos">
-              <div
-                v-for="(item, i) in reviewPhotos"
-                :key="item.preview"
-                class="review-picked-item"
-              >
+        </article>
+        <template v-if="reviewsOpen">
+          <p v-if="!reviews.length" class="empty">Отзывов пока нет</p>
+          <p v-if="reviewSent" class="empty">
+            Отзыв отправили на модерацию. Он появится после проверки.
+          </p>
+          <form v-else class="form review-form" @submit="submitReview">
+            <label>
+              Имя
+              <input v-model="reviewForm.author" type="text" required />
+            </label>
+            <fieldset class="stars-field">
+              <legend>Оценка</legend>
+              <div class="stars stars-input">
                 <button
+                  v-for="n in 5"
+                  :key="n"
                   type="button"
-                  class="review-photo-btn"
-                  aria-label="Открыть фото"
-                  @click="
-                    openReviewLightbox(
-                      reviewPhotos.map((p) => p.preview),
-                      i
-                    )
-                  "
+                  :aria-label="`${n} из 5`"
+                  :aria-pressed="reviewForm.rating === n"
+                  @click="reviewForm.rating = n"
                 >
-                  <img :src="item.preview" alt="" />
-                </button>
-                <button
-                  type="button"
-                  class="btn-ghost"
-                  @click="removeReviewPhoto(i)"
-                >
-                  Удалить
+                  <Star
+                    :size="22"
+                    :stroke-width="1.5"
+                    :fill="n <= reviewForm.rating ? 'currentColor' : 'none'"
+                  />
                 </button>
               </div>
+            </fieldset>
+            <label>
+              Отзыв
+              <textarea v-model="reviewForm.body" rows="4" required minlength="10" />
+            </label>
+            <label class="file">
+              Фото
+              <span class="file-pick">
+                Выбрать фото
+                <input
+                  type="file"
+                  accept="image/jpeg,image/png,image/webp,image/gif"
+                  multiple
+                  @change="onReviewPhotos"
+                />
+              </span>
+            </label>
+            <div v-if="reviewPhotos.length" class="review-picked">
+              <div class="review-photos">
+                <div
+                  v-for="(item, i) in reviewPhotos"
+                  :key="item.preview"
+                  class="review-picked-item"
+                >
+                  <button
+                    type="button"
+                    class="review-photo-btn"
+                    aria-label="Открыть фото"
+                    @click="
+                      openReviewLightbox(
+                        reviewPhotos.map((p) => p.preview),
+                        i
+                      )
+                    "
+                  >
+                    <img :src="item.preview" alt="" />
+                  </button>
+                  <button
+                    type="button"
+                    class="btn-ghost"
+                    @click="removeReviewPhoto(i)"
+                  >
+                    Удалить
+                  </button>
+                </div>
+              </div>
             </div>
-          </div>
-          <p v-if="reviewError" class="err">{{ reviewError }}</p>
-          <button class="btn" type="submit" :disabled="reviewBusy">
-            {{ reviewBusy ? "Отправка" : "Отправить отзыв" }}
-          </button>
-        </form>
+            <p v-if="reviewError" class="err">{{ reviewError }}</p>
+            <button class="btn" type="submit" :disabled="reviewBusy">
+              {{ reviewBusy ? "Отправка" : "Отправить отзыв" }}
+            </button>
+          </form>
+        </template>
       </div>
     </section>
 

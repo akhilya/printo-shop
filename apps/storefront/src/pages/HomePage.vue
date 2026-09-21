@@ -21,7 +21,7 @@ const router = useRouter()
 const groups = ref([])
 const products = ref([])
 const banners = ref([])
-const luckySeed = ref(null)
+const luckySeeds = ref([])
 const loading = ref(true)
 const error = ref("")
 
@@ -73,9 +73,15 @@ onMounted(async () => {
   })
     .then((result) => {
       products.value = (result.products || []).filter(productInStock)
-      if (!luckySeed.value && products.value.length) {
-        luckySeed.value =
-          products.value[Math.floor(Math.random() * products.value.length)]
+      if (!luckySeeds.value.length && products.value.length) {
+        const pool = products.value.slice()
+        for (let i = pool.length - 1; i > 0; i--) {
+          const swap = Math.floor(Math.random() * (i + 1))
+          const current = pool[i]
+          pool[i] = pool[swap]
+          pool[swap] = current
+        }
+        luckySeeds.value = pool.slice(0, 3)
       }
       loading.value = false
     })
@@ -135,9 +141,9 @@ onMounted(async () => {
       </section>
 
       <LuckyBanner
-        v-if="bannerBySlot('home_lucky') && luckySeed"
+        v-if="bannerBySlot('home_lucky') && luckySeeds.length"
         :banner="bannerBySlot('home_lucky')"
-        :product="luckySeed"
+        :products="luckySeeds"
       />
       <SiteBanner
         v-if="bannerBySlot('home_catalog')"

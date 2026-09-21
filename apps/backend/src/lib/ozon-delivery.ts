@@ -131,6 +131,7 @@ export const OZON_OAUTH_SCOPES = [
   "seller-api.posting-fbo",
   "seller-api.warehouse",
   "seller-api.returns",
+  "seller-api.review",
 ].join(" ")
 export const OZON_OAUTH_CALLBACK_PATH = "/hooks/ozon/oauth"
 

@@ -342,15 +342,29 @@ export function pageCatalogProducts(
   }
 }
 
-export function pickLuckyCatalogRow(rows: CatalogRow[], excludeId?: string | null) {
+export function pickLuckyCatalogRows(
+  rows: CatalogRow[],
+  count = 1,
+  excludeId?: string | null
+) {
+  const size = Math.min(Math.max(Number(count) || 1, 1), 3)
   const available = rows.filter(
     (row) => row.id !== excludeId && catalogProductInStock(row)
   )
-  const pool = available.length
-    ? available
-    : rows.filter((row) => row.id !== excludeId)
-  if (!pool.length) return null
-  return pool[Math.floor(Math.random() * pool.length)] || null
+  const pool = (
+    available.length ? available : rows.filter((row) => row.id !== excludeId)
+  ).slice()
+  for (let i = pool.length - 1; i > 0; i--) {
+    const swap = Math.floor(Math.random() * (i + 1))
+    const current = pool[i]
+    pool[i] = pool[swap]
+    pool[swap] = current
+  }
+  return pool.slice(0, size)
+}
+
+export function pickLuckyCatalogRow(rows: CatalogRow[], excludeId?: string | null) {
+  return pickLuckyCatalogRows(rows, 1, excludeId)[0] || null
 }
 
 let catalogCache: { at: number; rows: CatalogRow[]; partial: boolean } = {
@@ -943,13 +957,16 @@ async function loadPublishedProductAt(container: MedusaContainer, skip: number) 
   return hydrated[0] || null
 }
 
-export async function getLuckyShopProduct(
+export async function getLuckyShopProducts(
   container: MedusaContainer,
-  excludeId?: string | null
+  excludeId?: string | null,
+  limit = 1
 ) {
+  const size = Math.min(Math.max(Number(limit) || 1, 1), 3)
   if (catalogCache.rows.length) {
-    const cached = pickLuckyCatalogRow(catalogCache.rows, excludeId)
-    if (cached) return presentCatalogProduct(cached)
+    return pickLuckyCatalogRows(catalogCache.rows, size, excludeId).map(
+      presentCatalogProduct
+    )
   }
   const product = productModuleOf(container)
   const [, count] = await product.listAndCountProducts(
@@ -957,19 +974,35 @@ export async function getLuckyShopProduct(
     { skip: 0, take: 1, select: ["id"] }
   )
   const total = Number(count) || 0
-  if (total < 1) return null
-  let fallback: CatalogRow | null = null
-  for (let attempt = 0; attempt < 6; attempt++) {
+  if (total < 1) return []
+  const picked: CatalogRow[] = []
+  const spare: CatalogRow[] = []
+  const seen = new Set<string>()
+  if (excludeId) seen.add(excludeId)
+  for (let attempt = 0; attempt < size * 6 && picked.length < size; attempt++) {
     const row = await loadPublishedProductAt(
       container,
       randomCatalogSkip(total)
     )
-    if (!row) continue
-    if (excludeId && row.id === excludeId) continue
-    fallback = row
-    if (catalogProductInStock(row)) return presentCatalogProduct(row)
+    if (!row || seen.has(row.id)) continue
+    seen.add(row.id)
+    if (catalogProductInStock(row)) picked.push(row)
+    else if (spare.length < size) spare.push(row)
   }
-  return fallback ? presentCatalogProduct(fallback) : null
+  const rows = picked.slice()
+  for (const row of spare) {
+    if (rows.length >= size) break
+    if (!rows.some((item) => item.id === row.id)) rows.push(row)
+  }
+  return rows.map(presentCatalogProduct)
+}
+
+export async function getLuckyShopProduct(
+  container: MedusaContainer,
+  excludeId?: string | null
+) {
+  const [product] = await getLuckyShopProducts(container, excludeId, 1)
+  return product || null
 }
 
 export async function bumpProductViews(

@@ -2,14 +2,16 @@ import { defineRouteConfig } from "@medusajs/admin-sdk"
 import { Star } from "@medusajs/icons"
 import {
   Badge,
+  Button,
   Container,
   createDataTableColumnHelper,
   DataTable,
   DataTablePaginationState,
   Heading,
+  toast,
   useDataTable,
 } from "@medusajs/ui"
-import { useQuery } from "@tanstack/react-query"
+import { useMutation, useQuery, useQueryClient } from "@tanstack/react-query"
 import { useMemo, useState } from "react"
 import { useNavigate, useSearchParams } from "react-router-dom"
 import { sdk } from "../../lib/sdk"
@@ -30,6 +32,15 @@ type AdminReview = {
 type ReviewsResponse = {
   reviews: AdminReview[]
   count: number
+}
+
+type OzonImportResponse = {
+  imported: number
+  updated: number
+  skipped_rating: number
+  skipped_existing: number
+  skipped_product: number
+  skipped_empty: number
 }
 
 const PAGE_SIZE = 20
@@ -95,6 +106,7 @@ const columns = [
 
 const ReviewsPage = () => {
   const navigate = useNavigate()
+  const queryClient = useQueryClient()
   const [params] = useSearchParams()
   const productId = params.get("product_id") || ""
   const [search, setSearch] = useState("")
@@ -106,6 +118,29 @@ const ReviewsPage = () => {
     () => pagination.pageIndex * PAGE_SIZE,
     [pagination.pageIndex]
   )
+
+  const importOzon = useMutation({
+    mutationFn: () =>
+      sdk.client.fetch<OzonImportResponse>("/admin/reviews/ozon-import", {
+        method: "POST",
+      }),
+    onSuccess: (result) => {
+      const extra = result.skipped_product
+        ? `, без товара в магазине ${result.skipped_product}`
+        : ""
+      toast.success(
+        `С Ozon: ${result.imported} новых, обновлено ${result.updated}${extra}`
+      )
+      queryClient.invalidateQueries({ queryKey: ["admin-reviews"] })
+    },
+    onError: (error) => {
+      const message =
+        error instanceof Error && error.message
+          ? error.message
+          : "Не удалось загрузить отзывы с Ozon"
+      toast.error(message)
+    },
+  })
 
   const { data, isLoading } = useQuery({
     queryFn: () =>
@@ -144,9 +179,19 @@ const ReviewsPage = () => {
   return (
     <Container className="divide-y p-0">
       <DataTable instance={table}>
-        <DataTable.Toolbar className="flex items-center justify-between px-6 py-4">
+        <DataTable.Toolbar className="flex items-center justify-between gap-x-4 px-6 py-4">
           <Heading>Отзывы</Heading>
-          <DataTable.Search placeholder="Автор или текст" />
+          <div className="flex items-center gap-x-2">
+            <Button
+              size="small"
+              variant="secondary"
+              isLoading={importOzon.isPending}
+              onClick={() => importOzon.mutate()}
+            >
+              С Ozon, 4–5 звёзд
+            </Button>
+            <DataTable.Search placeholder="Автор или текст" />
+          </div>
         </DataTable.Toolbar>
         <DataTable.Table />
         <DataTable.Pagination />

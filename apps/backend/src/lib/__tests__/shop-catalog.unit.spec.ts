@@ -5,6 +5,7 @@ import {
   pageCatalogIds,
   pageCatalogProducts,
   pickLuckyCatalogRow,
+  pickLuckyCatalogRows,
   presentCatalogProduct,
   productMatchesCatalogQuery,
   projectProductListRows,
@@ -46,6 +47,18 @@ describe("shop catalog", () => {
     const picked = pickLuckyCatalogRow([inStock, empty], "a")
     expect(picked?.id).toBe("b")
     expect(pickLuckyCatalogRow([inStock], "a")).toBeNull()
+    const many = pickLuckyCatalogRows(
+      [
+        inStock,
+        { ...inStock, id: "c" },
+        { ...inStock, id: "d" },
+        empty,
+      ],
+      3,
+      "b"
+    )
+    expect(many.map((row) => row.id).sort()).toEqual(["a", "c", "d"])
+    expect(pickLuckyCatalogRows([inStock], 3)).toHaveLength(1)
     expect(randomCatalogSkip(10, () => 0)).toBe(0)
     expect(randomCatalogSkip(10, () => 0.999)).toBe(9)
     expect(randomCatalogSkip(0)).toBe(0)

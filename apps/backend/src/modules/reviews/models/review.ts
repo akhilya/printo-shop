@@ -11,6 +11,9 @@ const Review = model.define("review", {
   enabled: model.boolean().default(true),
   status: model.text().default("moderation"),
   ip: model.text().nullable(),
+  external_id: model.text().nullable(),
+  source_url: model.text().nullable(),
+  pinned: model.boolean().default(false),
 })
 
 export default Review

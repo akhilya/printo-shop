@@ -278,6 +278,7 @@ describe("ozonAuthorizeUrl", () => {
     expect(parsed.searchParams.get("scope")).toContain("seller-api.ozon-logistics")
     expect(parsed.searchParams.get("scope")).toContain("seller-api.product")
     expect(parsed.searchParams.get("scope")).toContain("seller-api.posting-fbs")
+    expect(parsed.searchParams.get("scope")).toContain("seller-api.review")
   })
 
   it("builds the callback from the public backend url", () => {

@@ -38,11 +38,19 @@ export async function GET(req: MedusaRequest, res: MedusaResponse) {
     return
   }
   const service: ReviewModuleService = req.scope.resolve(REVIEW_MODULE)
+  const [pinnedRows] = await service.listAndCountReviews(
+    { product_id: productId, status: "published", pinned: true },
+    { take: 1 }
+  )
   const [reviews] = await service.listAndCountReviews(
     { product_id: productId, status: "published" },
     { order: { created_at: "DESC" }, take: 50 }
   )
-  res.json({ reviews: reviews.map((row) => presentReview(row as Record<string, unknown>)) })
+  const pinned = pinnedRows[0]
+  const rows = pinned
+    ? [pinned, ...reviews.filter((row) => row.id !== pinned.id)]
+    : reviews
+  res.json({ reviews: rows.map((row) => presentReview(row as Record<string, unknown>)) })
 }
 
 export async function POST(req: MedusaRequest, res: MedusaResponse) {

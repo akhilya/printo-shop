@@ -80,6 +80,8 @@ export type PresentedReview = {
   image_url: string | null
   image_urls: string[]
   status: ReviewStatus
+  source_url?: string | null
+  pinned?: boolean
   ip?: string | null
   created_at?: string
   updated_at?: string
@@ -128,6 +130,11 @@ export function presentReview(
     image_url: imageUrls[0] || null,
     image_urls: imageUrls,
     status,
+    source_url:
+      typeof review.source_url === "string" && review.source_url
+        ? review.source_url
+        : null,
+    pinned: review.pinned === true,
     ip: opts.includeIp
       ? review.ip
         ? String(review.ip)

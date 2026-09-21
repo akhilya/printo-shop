@@ -395,9 +395,9 @@ const ShopSettingsPage = () => {
         <Heading>Ozon Доставка</Heading>
         <Text size="small" className="text-ui-fg-subtle">
           Redirect URI задаётся в этом приложении, не в Delivery API. В правах
-          включите seller-api.ozon-logistics, product и posting-fbs. Затем
-          снова «Подключить кабинет» — в окне Ozon должен появиться список
-          этих прав, не пустая форма.
+          включите seller-api.ozon-logistics, product, posting-fbs и review.
+          Затем снова «Подключить кабинет» — в окне Ozon должен появиться список
+          этих прав, не пустая форма. Для отзывов нужен Premium Plus.
         </Text>
         {isLoading ? null : (
           <>

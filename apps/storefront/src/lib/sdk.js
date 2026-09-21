@@ -234,19 +234,29 @@ export async function listShopGroups() {
   return data.groups || []
 }
 
-export async function loadLuckyProduct(excludeId) {
+export async function loadLuckyProducts(excludeId, limit = 1) {
   const params = new URLSearchParams()
   if (excludeId) params.set("exclude", excludeId)
+  const size = Math.min(Math.max(Number(limit) || 1, 1), 3)
+  if (size > 1) params.set("limit", String(size))
   const query = params.toString()
   const res = await fetch(
     `${BACKEND_URL}/store/shop-lucky${query ? `?${query}` : ""}`,
     { headers: storeHeaders() }
   )
-  if (!res.ok) return null
+  if (!res.ok) return []
   const data = await res.json()
-  const product = data.product
-  if (!product?.id && !product?.handle) return null
-  return product
+  const rows = Array.isArray(data.products)
+    ? data.products
+    : data.product
+      ? [data.product]
+      : []
+  return rows.filter((product) => product?.id || product?.handle).slice(0, size)
+}
+
+export async function loadLuckyProduct(excludeId) {
+  const [product] = await loadLuckyProducts(excludeId, 1)
+  return product || null
 }
 
 export function recordProductView(productId) {

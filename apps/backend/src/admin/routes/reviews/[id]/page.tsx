@@ -11,6 +11,7 @@ type AdminReview = {
   body: string
   rating: number | null
   image_urls: string[]
+  source_url?: string | null
   status: string
   ip?: string | null
   created_at?: string
@@ -182,6 +183,16 @@ const ReviewDetailPage = () => {
             </Text>
           )}
           <Text className="whitespace-pre-wrap">{review.body}</Text>
+          {review.source_url ? (
+            <a
+              href={review.source_url}
+              target="_blank"
+              rel="noreferrer"
+              className="text-ui-fg-interactive text-sm hover:underline"
+            >
+              Отзыв на Ozon
+            </a>
+          ) : null}
         </div>
         {review.image_urls?.length ? (
           <div className="flex flex-wrap gap-3 px-6 py-4">
