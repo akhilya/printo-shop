@@ -158,22 +158,8 @@ export function variantPrice(variant) {
   return variantPriceParts(variant).current
 }
 
-export function hostedImage(url) {
-  const src = String(url || "").trim()
-  if (!src) return ""
-  try {
-    const parsed = new URL(src, "https://printo.studio")
-    if (parsed.pathname.startsWith("/static/")) {
-      return `${parsed.pathname}${parsed.search}`
-    }
-  } catch {
-    if (src.startsWith("/static/")) return src
-  }
-  return src
-}
-
 export function productImage(product) {
-  return hostedImage(product?.thumbnail || product?.images?.[0]?.url || "")
+  return product?.thumbnail || product?.images?.[0]?.url || ""
 }
 
 export function productGroup(product) {

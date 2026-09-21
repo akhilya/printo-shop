@@ -1,6 +1,5 @@
 <script setup>
-import { computed, nextTick, onBeforeUnmount, onMounted, ref, watch } from "vue"
-import { hostedImage } from "../lib/sdk.js"
+import { nextTick, onBeforeUnmount, onMounted, ref, watch } from "vue"
 
 const props = defineProps({
   src: { type: String, default: "" },
@@ -8,8 +7,6 @@ const props = defineProps({
   eager: { type: Boolean, default: false },
   fetchpriority: { type: String, default: "" },
 })
-
-const photoSrc = computed(() => hostedImage(props.src))
 
 const loaded = ref(false)
 const failed = ref(false)
@@ -57,7 +54,7 @@ function reveal() {
 
 function observe() {
   stopObserve()
-  if (!photoSrc.value) {
+  if (!props.src) {
     shown.value = false
     return
   }
@@ -88,14 +85,14 @@ async function sync() {
   failed.value = false
   observe()
   await nextTick()
-  if (!photoSrc.value || !shown.value) return
+  if (!props.src || !shown.value) return
   if (img.value?.complete) {
     if (img.value.naturalWidth) markLoaded()
     else markFailed()
   }
 }
 
-watch(() => [photoSrc.value, props.eager], sync)
+watch(() => [props.src, props.eager], sync)
 onMounted(sync)
 onBeforeUnmount(stopObserve)
 </script>
@@ -105,16 +102,16 @@ onBeforeUnmount(stopObserve)
     ref="host"
     class="photo"
     :data-loaded="loaded ? 'true' : 'false'"
-    :data-empty="!photoSrc || failed ? 'true' : 'false'"
+    :data-empty="!src || failed ? 'true' : 'false'"
   >
-    <span v-if="!photoSrc || failed" class="matte-empty">Нет фото</span>
+    <span v-if="!src || failed" class="matte-empty">Нет фото</span>
     <template v-else>
       <span v-if="!loaded" class="photo-wait" aria-hidden="true" />
       <img
         v-if="shown"
         ref="img"
         class="photo-fit"
-        :src="photoSrc"
+        :src="src"
         :alt="alt"
         :loading="eager ? 'eager' : 'lazy'"
         :fetchpriority="fetchpriority || (eager ? 'high' : undefined)"
