@@ -1,5 +1,6 @@
 <script setup>
 import { computed, onBeforeUnmount, onMounted, ref } from "vue"
+import { bindPageBusy } from "../lib/page-busy.js"
 import { useRoute, useRouter } from "vue-router"
 import { cartState, clearCartId, currentCartId, loadCart } from "../lib/cart.js"
 import {
@@ -14,6 +15,8 @@ const router = useRouter()
 const token = computed(() => String(route.params.token || ""))
 const lastOrder = persistObject("shop_last_order", { id: "", email: "" })
 const heading = ref("Проверяем оплату")
+const pageLoading = ref(true)
+bindPageBusy(pageLoading)
 const message = ref("Если вы только что заплатили, статус придёт от банка.")
 let alive = true
 
@@ -83,6 +86,7 @@ onBeforeUnmount(() => {
 })
 
 onMounted(async () => {
+  try {
   if (token.value) {
     if (await pollCustom()) return
     heading.value = "Оплата не подтверждена"
@@ -138,6 +142,9 @@ onMounted(async () => {
   heading.value = "Оплата не подтверждена"
   message.value =
     "Заказ не создан. Если вы уже заплатили, подождите минуту и обновите страницу. Если нет — вернитесь к оформлению."
+  } finally {
+    pageLoading.value = false
+  }
 })
 </script>
 

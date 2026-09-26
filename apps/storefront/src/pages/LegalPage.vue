@@ -1,5 +1,6 @@
 <script setup>
 import { computed, onMounted, ref, watch } from "vue"
+import { bindPageBusy } from "../lib/page-busy.js"
 import { useRoute } from "vue-router"
 import { BACKEND_URL, storeHeaders } from "../lib/sdk.js"
 import { applyShopSeo } from "../lib/seo-head.js"
@@ -20,6 +21,7 @@ const STATIC_SLUGS = {
 
 const route = useRoute()
 const loading = ref(false)
+bindPageBusy(loading)
 const error = ref("")
 const page = ref(null)
 
@@ -101,9 +103,8 @@ watch(() => route.path, load)
       <h1>{{ title }}</h1>
       <p>{{ body }}</p>
     </template>
-    <p v-else-if="loading" class="empty">Загрузка</p>
-    <p v-else-if="error" class="err">{{ error }}</p>
-    <template v-else-if="page">
+    <p v-else-if="!loading && error" class="err">{{ error }}</p>
+    <template v-else-if="!loading && page">
       <h1>{{ page.title }}</h1>
       <div class="legal-body" v-html="page.html" />
     </template>

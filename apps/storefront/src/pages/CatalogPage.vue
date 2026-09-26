@@ -1,5 +1,6 @@
 <script setup>
 import { computed, ref, watch } from "vue"
+import { bindPageBusy } from "../lib/page-busy.js"
 import { useRoute } from "vue-router"
 import CatalogNav from "../components/CatalogNav.vue"
 import Pager from "../components/Pager.vue"
@@ -18,6 +19,7 @@ const products = ref([])
 const categories = ref([])
 const count = ref(0)
 const loading = ref(true)
+bindPageBusy(loading)
 const error = ref("")
 
 const q = computed(() =>
@@ -118,13 +120,12 @@ watch([q, cat, page], load, { immediate: true })
   <div>
     <CatalogNav :categories="categories" />
     <h1 class="page-title">Товары</h1>
-    <p v-if="loading" class="empty">Загрузка</p>
-    <p v-else-if="error" class="err">{{ error }}</p>
-    <p v-else-if="!products.length && q" class="empty">
+    <p v-if="!loading && error" class="err">{{ error }}</p>
+    <p v-else-if="!loading && !products.length && q" class="empty">
       Ничего не нашли по запросу «{{ q }}»
     </p>
-    <p v-else-if="!products.length" class="empty">Товаров нет</p>
-    <template v-else>
+    <p v-else-if="!loading && !products.length" class="empty">Товаров нет</p>
+    <template v-else-if="!loading">
       <div class="grid">
         <ProductCell v-for="p in products" :key="p.id" :product="p" />
       </div>

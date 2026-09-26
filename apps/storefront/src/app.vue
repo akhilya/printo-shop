@@ -1,6 +1,7 @@
 <script setup>
-import { onMounted, ref } from "vue"
+import { nextTick, onMounted, ref } from "vue"
 import ConfirmDialog from "./components/ConfirmDialog.vue"
+import PageScrim from "./components/PageScrim.vue"
 import SiteHeader from "./components/SiteHeader.vue"
 import CartDrawer from "./components/CartDrawer.vue"
 import {
@@ -16,9 +17,11 @@ import {
   usefulExtraPages,
 } from "./lib/legal.js"
 import { loadCatalogSales } from "./lib/sales.js"
+import { holdPage, pageBusy } from "./lib/page-busy.js"
 import { loadShopStatus, shopState } from "./lib/shop.js"
 
 const ready = ref(false)
+const releaseBoot = holdPage()
 
 onMounted(async () => {
   try {
@@ -28,6 +31,8 @@ onMounted(async () => {
     shopState.ordersClosed = false
   }
   ready.value = true
+  await nextTick()
+  releaseBoot()
   if (shopState.closed) return
   hydrateCartLater()
   loadLegalPages()
@@ -36,11 +41,14 @@ onMounted(async () => {
 </script>
 
 <template>
+  <Teleport to="body">
+    <PageScrim v-if="pageBusy" />
+  </Teleport>
   <div v-if="!ready" class="closed" />
   <div v-else-if="shopState.closed" class="closed">
     <p>{{ shopState.message }}</p>
   </div>
-  <div v-else class="site">
+  <div v-else class="site" :inert="pageBusy">
     <SiteHeader />
     <main class="main">
       <router-view />

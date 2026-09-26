@@ -1,5 +1,6 @@
 <script setup>
 import { onMounted, ref } from "vue"
+import { bindPageBusy } from "../lib/page-busy.js"
 import { useRoute, useRouter } from "vue-router"
 import GroupCard from "../components/GroupCard.vue"
 import ProductCell from "../components/ProductCell.vue"
@@ -24,6 +25,7 @@ const banners = ref([])
 const luckySeeds = ref([])
 const loading = ref(true)
 const error = ref("")
+bindPageBusy(loading)
 
 function bannerBySlot(slot) {
   return banners.value.find((item) => item.slot === slot) || null
@@ -61,7 +63,6 @@ onMounted(async () => {
   const groupsTask = listShopGroups()
     .then((rows) => {
       groups.value = (rows || []).slice(0, HOME_GROUPS)
-      if (groups.value.length) loading.value = false
     })
     .catch(() => {
       groups.value = []
@@ -83,7 +84,6 @@ onMounted(async () => {
         }
         luckySeeds.value = pool.slice(0, 3)
       }
-      loading.value = false
     })
     .catch(() => {
       products.value = []
@@ -113,8 +113,7 @@ onMounted(async () => {
 <template>
   <div class="home">
     <h1 class="visually-hidden">PrintO.studio</h1>
-    <p v-if="loading" class="empty">Загрузка</p>
-    <template v-else>
+    <template v-if="!loading">
       <SiteBanner
         v-if="bannerBySlot('home_hero')"
         :banner="bannerBySlot('home_hero')"

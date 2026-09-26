@@ -2,6 +2,7 @@
 import { ChevronLeft, ChevronRight, X } from "@lucide/vue"
 import { computed, onBeforeUnmount, onMounted, watch } from "vue"
 import { shopPhotoSrc } from "../lib/photo-url.js"
+import ImgWait from "./ImgWait.vue"
 
 const props = defineProps({
   images: { type: Array, default: () => [] },
@@ -73,7 +74,7 @@ onBeforeUnmount(() => {
       >
         <ChevronLeft :size="24" :stroke-width="1.5" />
       </button>
-      <img :src="currentSrc" :alt="alt" />
+      <ImgWait :src="currentSrc" :alt="alt" />
       <button
         v-if="images.length > 1"
         type="button"

@@ -1,5 +1,6 @@
 <script setup>
 import { computed, onBeforeUnmount, onMounted, ref, watch } from "vue"
+import { bindPageBusy } from "../lib/page-busy.js"
 import { useRoute, useRouter } from "vue-router"
 import LineProduct from "../components/LineProduct.vue"
 import { BACKEND_URL, formatPrice, storeHeaders } from "../lib/sdk.js"
@@ -15,6 +16,7 @@ const access = computed(() =>
 const query = ref(numberParam.value)
 const order = ref(null)
 const loading = ref(false)
+bindPageBusy(loading)
 const error = ref("")
 const writeEmail = ref("")
 const writeMessage = ref("")
@@ -175,7 +177,6 @@ watch([numberParam, access], async () => {
       </label>
       <button class="btn" type="submit">Найти</button>
     </form>
-    <p v-if="loading" class="muted">Загрузка</p>
     <p v-else-if="error" class="err">{{ error }}</p>
     <template v-else-if="order">
       <p v-if="justPaid" class="checkout-done-id">{{ order.number }}</p>

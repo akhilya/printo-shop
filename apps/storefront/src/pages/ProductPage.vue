@@ -1,7 +1,9 @@
 <script setup>
 import { Star } from "@lucide/vue"
 import { computed, onBeforeUnmount, ref, watch } from "vue"
+import { bindPageBusy } from "../lib/page-busy.js"
 import { useRoute, useRouter } from "vue-router"
+import ImgWait from "../components/ImgWait.vue"
 import LuckyBanner from "../components/LuckyBanner.vue"
 import PhotoLightbox from "../components/PhotoLightbox.vue"
 import ProductPhoto from "../components/ProductPhoto.vue"
@@ -53,6 +55,7 @@ const active = ref(0)
 const thumbsEl = ref(null)
 const variantId = ref("")
 const loading = ref(true)
+bindPageBusy(loading)
 const allowed = ref(false)
 const error = ref("")
 const reviewForm = ref({ author: "", body: "", rating: 0 })
@@ -412,19 +415,30 @@ onBeforeUnmount(() => {
 
 watch(() => route.params.handle, load, { immediate: true })
 watch(variantId, () => applyProductSeo())
+const gallerySlides = computed(() =>
+  images.value.length ? images.value : [{ url: "" }]
+)
+
+const galleryShift = computed(
+  () => `translate3d(-${active.value * 100}%, 0, 0)`
+)
+
 watch(active, (index) => {
   const strip = thumbsEl.value
   const thumb = strip?.children?.[index]
   if (!strip || !thumb) return
+  const reduce = window.matchMedia("(prefers-reduced-motion: reduce)").matches
   const left = thumb.offsetLeft - (strip.clientWidth - thumb.offsetWidth) / 2
-  strip.scrollTo({ left: Math.max(0, left), behavior: "auto" })
+  strip.scrollTo({
+    left: Math.max(0, left),
+    behavior: reduce ? "auto" : "smooth",
+  })
 })
 </script>
 
 <template>
-  <p v-if="loading" class="empty">Загрузка</p>
-  <p v-else-if="error" class="err">{{ error }}</p>
-  <article v-else-if="product && allowed">
+  <p v-if="!loading && error" class="err">{{ error }}</p>
+  <article v-else-if="!loading && product && allowed">
     <div class="product" :class="{ 'is-oos': !inStock }">
       <div class="gallery">
         <button
@@ -434,11 +448,18 @@ watch(active, (index) => {
           aria-label="Увеличить фото"
           @click="openZoom"
         >
-          <ProductPhoto
-            :src="images[active]?.url || ''"
-            :alt="product.title"
-            eager
-          />
+          <div class="gallery-track" :style="{ transform: galleryShift }">
+            <ProductPhoto
+              v-for="(img, i) in gallerySlides"
+              :key="img.id || i"
+              class="gallery-slide"
+              :src="img.url || ''"
+              :alt="i === active ? product.title : ''"
+              :eager="Math.abs(i - active) < 2"
+              :fetchpriority="i === active ? 'high' : ''"
+              fill
+            />
+          </div>
         </button>
         <div v-if="images.length > 1" ref="thumbsEl" class="thumbs">
           <button
@@ -582,7 +603,7 @@ watch(active, (index) => {
               aria-label="Открыть фото"
               @click="openReviewLightbox(reviewImages(r), i)"
             >
-              <img :src="shopPhotoSrc(url)" alt="" />
+              <ImgWait :src="shopPhotoSrc(url)" alt="" />
             </button>
           </div>
         </article>
@@ -649,7 +670,7 @@ watch(active, (index) => {
                       )
                     "
                   >
-                    <img :src="item.preview" alt="" />
+                    <ImgWait :src="item.preview" alt="" />
                   </button>
                   <button
                     type="button"

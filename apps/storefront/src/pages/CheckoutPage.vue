@@ -1,5 +1,6 @@
 <script setup>
 import { computed, onBeforeUnmount, onMounted, ref, watch } from "vue"
+import { bindPageBusy } from "../lib/page-busy.js"
 import { useRoute } from "vue-router"
 import ProductPhoto from "../components/ProductPhoto.vue"
 import PromoField from "../components/PromoField.vue"
@@ -48,6 +49,8 @@ let quoteTimer = 0
 let statusTimer = 0
 const custom = ref(null)
 const customLoading = ref(false)
+const pageLoading = ref(true)
+bindPageBusy(pageLoading)
 const confirmOpen = ref(false)
 const form = persistObject("shop_checkout", {
   email: "",
@@ -162,6 +165,7 @@ const details = computed(() => {
 })
 
 onMounted(async () => {
+  try {
   await loadShopStatus()
   statusTimer = window.setInterval(() => {
     loadShopStatus()
@@ -197,6 +201,9 @@ onMounted(async () => {
     custom.value = null
   } finally {
     customLoading.value = false
+  }
+  } finally {
+    pageLoading.value = false
   }
 })
 
@@ -469,7 +476,7 @@ const empty = computed(() => {
 <template>
   <div class="checkout">
     <h1 class="product-title">Оформление</h1>
-    <p v-if="customLoading" class="muted">Загрузка</p>
+    <template v-if="customLoading" />
     <p v-else-if="empty" class="empty">
       {{ isCustom ? "Ссылка недействительна или ещё не сформирована." : "Корзина пуста" }}
     </p>

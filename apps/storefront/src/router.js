@@ -1,4 +1,6 @@
+import { nextTick } from "vue"
 import { createRouter, createWebHistory } from "vue-router"
+import { holdPage } from "./lib/page-busy.js"
 import HomePage from "./pages/HomePage.vue"
 import CatalogPage from "./pages/CatalogPage.vue"
 import ProductPage from "./pages/ProductPage.vue"
@@ -130,6 +132,19 @@ export const router = createRouter({
   scrollBehavior() {
     return { top: 0 }
   },
+})
+
+let releaseNav = null
+
+router.beforeEach(() => {
+  releaseNav?.()
+  releaseNav = holdPage()
+})
+
+router.afterEach(() => {
+  const release = releaseNav
+  releaseNav = null
+  nextTick(() => release?.())
 })
 
 router.afterEach((to) => {

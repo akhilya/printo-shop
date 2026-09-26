@@ -1,6 +1,8 @@
 <script setup>
 import { computed, onMounted, ref, toRef } from "vue"
+import { bindPageBusy } from "../lib/page-busy.js"
 import { useRoute } from "vue-router"
+import ImgWait from "../components/ImgWait.vue"
 import SelectField from "../components/SelectField.vue"
 import ConfirmDialog from "../components/ConfirmDialog.vue"
 import { customOrderConfirmFields } from "../lib/checkout-confirm.js"
@@ -18,6 +20,8 @@ const route = useRoute()
 const product = ref(null)
 const sent = ref(false)
 const busy = ref(false)
+const pageLoading = ref(true)
+bindPageBusy(pageLoading)
 const error = ref("")
 const confirmOpen = ref(false)
 const form = persistObject("shop_custom_order", {
@@ -92,6 +96,7 @@ const confirmFields = computed(() =>
 
 onMounted(async () => {
   const raw = typeof route.query.product === "string" ? route.query.product.trim() : ""
+  try {
   if (!raw) return
   try {
     const query = raw.startsWith("prod_")
@@ -106,6 +111,9 @@ onMounted(async () => {
     product.value = products?.[0] || null
   } catch {
     product.value = null
+  }
+  } finally {
+    pageLoading.value = false
   }
 })
 
@@ -298,7 +306,7 @@ async function confirmSend() {
             class="review-picked-item"
           >
             <div class="review-photo-btn">
-              <img :src="item.preview" alt="" />
+              <ImgWait :src="item.preview" alt="" />
             </div>
             <button type="button" class="btn-ghost" @click="removePhoto(i)">
               Удалить
@@ -332,7 +340,7 @@ async function confirmSend() {
         </dl>
         <div v-if="photos.length" class="confirm-photos">
           <div v-for="item in photos" :key="item.preview" class="matte">
-            <img :src="item.preview" alt="" />
+            <ImgWait :src="item.preview" alt="" />
           </div>
         </div>
       </ConfirmDialog>
