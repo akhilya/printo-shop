@@ -156,14 +156,14 @@ export async function listDelegatOrders(
   const remote = container.resolve(ContainerRegistrationKeys.QUERY)
   const filters: Record<string, unknown> = {}
   if (query.status === "cancelled") filters.status = "canceled"
-  else if (query.status === "delivered") filters.status = "archived"
+  else if (query.status === "delivered") filters.status = ["archived", "completed", "pending"]
   else if (
     query.status === "awaiting_pack" ||
     query.status === "awaiting_deliver" ||
     query.status === "delivering" ||
     query.status === "returned"
   ) {
-    filters.status = ["completed", "pending"]
+    filters.status = ["completed", "pending", "archived"]
   } else if (query.status === "unpaid") filters.status = "pending"
   const { data, metadata } = await remote.graph({
     entity: "order",
@@ -181,6 +181,7 @@ export async function listDelegatOrders(
     query.status === "awaiting_pack" ||
     query.status === "awaiting_deliver" ||
     query.status === "returned" ||
+    query.status === "delivered" ||
     query.status === "unpaid"
   ) {
     items = items.filter((item) => item.status === query.status)

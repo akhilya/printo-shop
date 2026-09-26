@@ -16,9 +16,23 @@ export async function downloadUrl(url: string): Promise<Buffer> {
   return Buffer.from(await response.arrayBuffer())
 }
 
-/** Same conversion as the `2webp` CLI (`sharp().webp({ quality: 80 })`). */
+/** Longest side of a shop photo. 1600×2134 is heavier than the gallery needs. */
+export const SHOP_PHOTO_MAX_EDGE = 1280
+
+/**
+ * WebP for storage. Fits inside 1280×1280, keeps aspect ratio, does not enlarge.
+ */
 export function convertToWebp(input: Buffer): Promise<Buffer> {
-  return sharp(input).webp({ quality: WEBP_QUALITY }).toBuffer()
+  return sharp(input)
+    .rotate()
+    .resize({
+      width: SHOP_PHOTO_MAX_EDGE,
+      height: SHOP_PHOTO_MAX_EDGE,
+      fit: "inside",
+      withoutEnlargement: true,
+    })
+    .webp({ quality: WEBP_QUALITY })
+    .toBuffer()
 }
 
 function staticDir() {

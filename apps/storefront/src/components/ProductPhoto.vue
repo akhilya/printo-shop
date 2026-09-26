@@ -1,13 +1,16 @@
 <script setup>
-import { nextTick, onBeforeUnmount, onMounted, ref, watch } from "vue"
+import { computed, nextTick, onBeforeUnmount, onMounted, ref, watch } from "vue"
+import { shopPhotoSrc } from "../lib/photo-url.js"
 
 const props = defineProps({
   src: { type: String, default: "" },
   alt: { type: String, default: "" },
   eager: { type: Boolean, default: false },
   fetchpriority: { type: String, default: "" },
+  fill: { type: Boolean, default: false },
 })
 
+const photoSrc = computed(() => shopPhotoSrc(props.src))
 const loaded = ref(false)
 const failed = ref(false)
 const shown = ref(false)
@@ -108,10 +111,17 @@ onBeforeUnmount(stopObserve)
     <template v-else>
       <span v-if="!loaded" class="photo-wait" aria-hidden="true" />
       <img
+        v-if="shown && fill"
+        class="photo-fill"
+        :src="photoSrc"
+        alt=""
+        aria-hidden="true"
+      />
+      <img
         v-if="shown"
         ref="img"
         class="photo-fit"
-        :src="src"
+        :src="photoSrc"
         :alt="alt"
         :loading="eager ? 'eager' : 'lazy'"
         :fetchpriority="fetchpriority || (eager ? 'high' : undefined)"

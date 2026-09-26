@@ -17,6 +17,7 @@ import { addToCart, cartState, setQty } from "../lib/cart.js"
 import { cartLineForVariant } from "../lib/cart-line.js"
 import { reportForm } from "../lib/form-valid.js"
 import { applyShopSeo } from "../lib/seo-head.js"
+import { shopPhotoSrc } from "../lib/photo-url.js"
 import { SHOP_NAME, shopProductNode } from "../lib/seo.js"
 import {
   descriptionParagraphs,
@@ -581,7 +582,7 @@ watch(active, (index) => {
               aria-label="Открыть фото"
               @click="openReviewLightbox(reviewImages(r), i)"
             >
-              <img :src="url" alt="" />
+              <img :src="shopPhotoSrc(url)" alt="" />
             </button>
           </div>
         </article>

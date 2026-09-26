@@ -111,6 +111,19 @@ describe("ingest-images", () => {
     expect(webp.subarray(8, 12).toString("ascii")).toBe("WEBP")
   })
 
+  it("fits a 1600×2134 photo inside 1280px", async () => {
+    const png = await sharp({
+      create: { width: 1600, height: 2134, channels: 3, background: "#cccccc" },
+    })
+      .png()
+      .toBuffer()
+    const webp = await convertToWebp(png)
+    const meta = await sharp(webp).metadata()
+    expect(meta.width).toBeLessThanOrEqual(1280)
+    expect(meta.height).toBeLessThanOrEqual(1280)
+    expect(meta.height).toBe(1280)
+  })
+
   it("skips a photo that fails to download", async () => {
     const urls = await ingestImageUrls(
       [TEMP_DASHBOARD, "http://localhost:9000/static/ok.webp"],

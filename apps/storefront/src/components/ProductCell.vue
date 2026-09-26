@@ -38,7 +38,7 @@ async function onOpen(event) {
     @click="onOpen"
   >
     <div class="matte" :class="{ 'is-blurred': blurPhoto }">
-      <ProductPhoto :src="productImage(product)" :alt="product.title" />
+      <ProductPhoto :src="productImage(product)" :alt="product.title" fill />
     </div>
     <div class="card-copy">
       <div class="card-title">{{ product.title }}</div>

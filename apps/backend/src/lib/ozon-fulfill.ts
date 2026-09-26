@@ -15,11 +15,13 @@ import {
   getOzonPackageLabel,
   getOzonPosting,
   handOverOzonPosting,
+  listOzonReturns,
   mapOzonPostingStatus,
   ozonAlreadyCancelled,
   ozonLabelNotReady,
   ozonPostingReadyForLabel,
   ozonReturnKind,
+  pickAgreedOzonReturn,
   shipOzonPosting,
   waitForOzonAwaitingDeliver,
   type OzonPackageLabel,
@@ -500,19 +502,29 @@ export async function syncOzonPostingForOrder(
   const orderNumber = text(metadata.ozon_order_number)
   if (!postingNumber && !orderNumber) return null
   const posting = await getOzonPosting(creds, postingNumber, orderNumber)
+  const returns = posting.postingNumber
+    ? await listOzonReturns(creds, posting.postingNumber)
+    : []
+  const agreed = pickAgreedOzonReturn(returns)
   const previousRaw = text(metadata.ozon_posting_status) || null
-  const mapped = mapOzonPostingStatus(posting.status, previousRaw)
   const storedKind = text(metadata.ozon_return_kind)
   const kind: OzonReturnKind | null =
-    ozonReturnKind(posting.status, previousRaw) ||
+    agreed?.kind ||
+    ozonReturnKind(posting.status, previousRaw, posting.cancelReason) ||
     (storedKind === "unclaimed" ||
     storedKind === "refused" ||
     storedKind === "returned"
       ? storedKind
       : null)
+  const mapped = kind
+    ? "returned"
+    : mapOzonPostingStatus(posting.status, previousRaw)
+  const visual = agreed?.visual || ""
   const unchanged =
     text(posting.status) === text(previousRaw) &&
-    text(kind) === storedKind
+    text(kind) === storedKind &&
+    text(visual) === text(metadata.ozon_return_visual) &&
+    text(posting.substatus) === text(metadata.ozon_posting_substatus)
   if (unchanged) {
     return {
       order,
@@ -528,7 +540,10 @@ export async function syncOzonPostingForOrder(
     ozon_posting_number: posting.postingNumber || postingNumber,
     ozon_order_number: posting.orderNumber || metadata.ozon_order_number,
     ozon_posting_status: posting.status,
-    ozon_return_kind: kind || metadata.ozon_return_kind || null,
+    ozon_posting_substatus: posting.substatus,
+    ozon_return_kind: kind || null,
+    ozon_return_visual: visual || null,
+    ozon_return_type: agreed?.type || null,
   }
   await saveOrderMetadata(container, orderId, next)
   return {

@@ -19,10 +19,18 @@ export type OzonPostingInfo = {
   postingNumber: string | null
   orderNumber: string | null
   status: string | null
+  substatus: string | null
+  cancelReason: string | null
   products: Array<{ productId: number; quantity: number }>
 }
 
 export type OzonReturnKind = "unclaimed" | "refused" | "returned"
+
+export type OzonReturnRow = {
+  postingNumber: string | null
+  type: string | null
+  visual: string | null
+}
 
 function normOzonStatus(raw?: string | null) {
   return String(raw || "")
@@ -56,10 +64,90 @@ function wasHandedToOzon(previous?: string | null) {
   )
 }
 
+const DELIVERED_SUBSTATUS = new Set([
+  "posting_received",
+  "posting_delivered",
+  "posting_conditionally_delivered",
+])
+
+const PICKUP_SUBSTATUS = new Set([
+  "posting_in_pickup_point",
+  "posting_on_way_to_pickup_point",
+  "posting_in_courier_service",
+  "posting_on_way_to_city",
+  "posting_transferred_to_courier_service",
+])
+
+/** Return is agreed or already on the way back, not merely waiting for a decision. */
+const AGREED_RETURN_VISUAL = new Set([
+  "approved",
+  "approvedbyozon",
+  "movingtoseller",
+  "arrivedatreturnplace",
+  "returningtosellerbycourier",
+  "receivedbyseller",
+  "moneyreturned",
+  "moneyreturnedbysystem",
+  "returncompensated",
+  "partialcompensationinprocess",
+  "waitingshipment",
+  "utilizing",
+  "utilized",
+  "returnedtoozon",
+  "movingtoozon",
+  "согласован",
+  "согласовано",
+  "одобрен",
+  "одобрено",
+])
+
+function compactStatus(raw?: string | null) {
+  return normOzonStatus(raw).replace(/_/g, "")
+}
+
+export function unclaimedCancelReason(reason?: string | null) {
+  return /не забрал|невостреб|срок хранен|ист[её]к.*хранен|не получил заказ/i.test(
+    String(reason || "")
+  )
+}
+
+/** Substatus carries pickup and receipt when the main status stays on delivering. */
+export function signalOzonPostingStatus(
+  status?: string | null,
+  substatus?: string | null
+) {
+  const sub = normOzonStatus(substatus)
+  if (DELIVERED_SUBSTATUS.has(sub)) return "delivered"
+  if (sub === "posting_in_pickup_point") return "in_pickup_point"
+  if (PICKUP_SUBSTATUS.has(sub)) return "delivering"
+  return status || null
+}
+
+export function ozonAgreedReturn(
+  type?: string | null,
+  visual?: string | null
+): OzonReturnKind | null {
+  if (!AGREED_RETURN_VISUAL.has(compactStatus(visual))) return null
+  const kind = compactStatus(type)
+  if (kind === "cancellation") return "unclaimed"
+  if (kind === "fullreturn" || kind === "partialreturn") return "refused"
+  return "returned"
+}
+
+export function pickAgreedOzonReturn(rows: OzonReturnRow[]) {
+  for (const row of rows) {
+    const kind = ozonAgreedReturn(row.type, row.visual)
+    if (kind) return { ...row, kind }
+  }
+  return null
+}
+
 export function ozonReturnKind(
   raw?: string | null,
-  previous?: string | null
+  previous?: string | null,
+  cancelReason?: string | null
 ): OzonReturnKind | null {
+  if (unclaimedCancelReason(cancelReason)) return "unclaimed"
   const key = normOzonStatus(raw)
   if (key === "not_accepted") return "refused"
   if (isCancelStatus(key) && wasHandedToOzon(previous)) return "unclaimed"
@@ -134,13 +222,29 @@ export function extractOzonPostingStatus(raw: unknown): string | null {
   const rec = asRecord(raw) || {}
   const result = asRecord(rec.result) || rec
   const tracking = asRecord(result.tracking) || asRecord(rec.tracking)
-  return (
+  const status =
     firstText(
       result.status,
       rec.status,
       result.tracking_status,
       tracking?.status,
       tracking?.event
+    ) || null
+  const substatus = firstText(result.substatus, rec.substatus)
+  return signalOzonPostingStatus(status, substatus)
+}
+
+function postingCancelReason(raw: unknown) {
+  const rec = asRecord(raw) || {}
+  const result = asRecord(rec.result) || rec
+  const cancellation =
+    asRecord(result.cancellation) || asRecord(rec.cancellation) || {}
+  return (
+    firstText(
+      cancellation.cancel_reason,
+      cancellation.cancellation_reason,
+      result.cancel_reason,
+      rec.cancel_reason
     ) || null
   )
 }
@@ -184,7 +288,47 @@ export function parseOzonPosting(raw: unknown): OzonPostingInfo {
     postingNumber,
     orderNumber,
     status: extractOzonPostingStatus(raw),
+    substatus:
+      firstText(
+        asRecord(result)?.substatus,
+        asRecord(rec)?.substatus
+      ) || null,
+    cancelReason: postingCancelReason(raw),
     products: postingProducts(raw),
+  }
+}
+
+export function parseOzonReturns(raw: unknown): OzonReturnRow[] {
+  const rec = asRecord(raw) || {}
+  const rows = Array.isArray(rec.returns) ? rec.returns : []
+  return rows
+    .map((row) => {
+      const item = asRecord(row) || {}
+      const visual = asRecord(item.visual) || {}
+      const visualStatus = asRecord(visual.status) || {}
+      return {
+        postingNumber: firstText(item.posting_number) || null,
+        type: firstText(item.type) || null,
+        visual: firstText(visualStatus.sys_name, visualStatus.display_name) || null,
+      }
+    })
+    .filter((row) => row.postingNumber || row.visual || row.type)
+}
+
+export async function listOzonReturns(
+  creds: OzonCreds,
+  postingNumber: string
+): Promise<OzonReturnRow[]> {
+  const number = String(postingNumber || "").trim()
+  if (!number) return []
+  try {
+    const raw = await sellerPost(creds, "/v1/returns/list", {
+      filter: { posting_numbers: [number] },
+      limit: 50,
+    })
+    return parseOzonReturns(raw)
+  } catch {
+    return []
   }
 }
 

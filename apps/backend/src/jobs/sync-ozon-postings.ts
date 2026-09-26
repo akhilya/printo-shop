@@ -7,12 +7,16 @@ import { applyOzonStatusToFulfillment } from "../lib/shop-fulfillment"
 export default async function syncOzonPostingsJob(container: MedusaContainer) {
   const query = container.resolve(ContainerRegistrationKeys.QUERY)
   const pageSize = 100
-  for (let page = 0; page < 5; page++) {
+  for (let page = 0; page < 10; page++) {
     const { data } = await query.graph({
       entity: "order",
       fields: ["id", "status", "metadata"],
-      filters: { status: ["pending", "completed"] },
-      pagination: { skip: page * pageSize, take: pageSize },
+      filters: { status: ["pending", "completed", "archived"] },
+      pagination: {
+        skip: page * pageSize,
+        take: pageSize,
+        order: { created_at: "DESC" },
+      },
     })
     const rows = (data ?? []) as Array<Record<string, unknown>>
     if (!rows.length) break

@@ -1,5 +1,6 @@
 <script setup>
 import { computed } from "vue"
+import { shopPhotoSrc } from "../lib/photo-url.js"
 import LinkArrow from "./LinkArrow.vue"
 
 const props = defineProps({
@@ -55,7 +56,7 @@ const ctaClass = computed(() => {
       </router-link>
     </div>
     <div v-if="banner.image_url" class="banner-media">
-      <img :src="banner.image_url" :alt="banner.title" />
+      <img :src="shopPhotoSrc(banner.image_url)" :alt="banner.title" />
     </div>
   </section>
 </template>

@@ -1,6 +1,7 @@
 <script setup>
 import { ChevronLeft, ChevronRight, X } from "@lucide/vue"
-import { onBeforeUnmount, onMounted, watch } from "vue"
+import { computed, onBeforeUnmount, onMounted, watch } from "vue"
+import { shopPhotoSrc } from "../lib/photo-url.js"
 
 const props = defineProps({
   images: { type: Array, default: () => [] },
@@ -9,6 +10,7 @@ const props = defineProps({
 })
 
 const emit = defineEmits(["close", "update:index"])
+const currentSrc = computed(() => shopPhotoSrc(props.images[props.index]))
 
 function close() {
   emit("close")
@@ -71,7 +73,7 @@ onBeforeUnmount(() => {
       >
         <ChevronLeft :size="24" :stroke-width="1.5" />
       </button>
-      <img :src="images[index]" :alt="alt" />
+      <img :src="currentSrc" :alt="alt" />
       <button
         v-if="images.length > 1"
         type="button"

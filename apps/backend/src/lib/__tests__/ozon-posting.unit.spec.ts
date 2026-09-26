@@ -1,6 +1,7 @@
 import {
   extractOzonPostingStatus,
   mapOzonPostingStatus,
+  ozonAgreedReturn,
   ozonAlreadyCancelled,
   ozonFbsCancelBody,
   ozonLabelNotReady,
@@ -36,7 +37,14 @@ describe("ozonReturnKind", () => {
     expect(ozonReturnKind("cancelled", "delivering")).toBe("unclaimed")
     expect(ozonReturnKind("cancelled", "in_pickup_point")).toBe("unclaimed")
     expect(ozonReturnKind("cancelled", "awaiting_packaging")).toBeNull()
+    expect(
+      ozonReturnKind("cancelled", "awaiting_packaging", "Покупатель не забрал заказ")
+    ).toBe("unclaimed")
     expect(ozonReturnKind("returned", "delivering")).toBe("returned")
+    expect(ozonAgreedReturn("ClientReturn", "Approved")).toBe("returned")
+    expect(ozonAgreedReturn("Cancellation", "MovingToSeller")).toBe("unclaimed")
+    expect(ozonAgreedReturn("FullReturn", "ArrivedAtReturnPlace")).toBe("refused")
+    expect(ozonAgreedReturn("ClientReturn", "OnSellerApproval")).toBeNull()
     expect(ozonReturnMessage("unclaimed")).toMatch(/не забрал/i)
     expect(ozonReturnMessage("refused")).toMatch(/отказался/i)
   })
@@ -59,11 +67,32 @@ describe("parseOzonPosting", () => {
       postingNumber: "111-1",
       orderNumber: "111",
       status: "awaiting_packaging",
+      substatus: null,
+      cancelReason: null,
       products: [
         { productId: 55, quantity: 2 },
         { productId: 9, quantity: 1 },
       ],
     })
+  })
+
+  it("reads receipt from substatus and an unclaimed cancel reason", () => {
+    const parsed = parseOzonPosting({
+      result: {
+        status: "delivering",
+        substatus: "posting_received",
+        cancellation: { cancel_reason: "" },
+      },
+    })
+    expect(parsed.status).toBe("delivered")
+    expect(
+      parseOzonPosting({
+        result: {
+          status: "cancelled",
+          cancellation: { cancel_reason: "Покупатель не забрал заказ" },
+        },
+      }).cancelReason
+    ).toMatch(/не забрал/)
   })
 })
 
