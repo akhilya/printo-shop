@@ -514,6 +514,7 @@ a.btn:hover .link-arrow,
   display: flex;
   flex-direction: column;
   align-items: flex-start;
+  align-self: stretch;
   gap: var(--space-4);
 }
 
@@ -527,18 +528,15 @@ a.btn:hover .link-arrow,
 }
 
 .lucky-roll {
-  display: grid;
-  place-items: center;
-  width: 44px;
-  height: 44px;
-  padding: 0;
-  background: var(--ink);
-  color: var(--paper);
+  width: max-content;
+  margin-top: var(--space-6);
+  gap: var(--space-3);
 }
 
 .lucky-roll svg {
-  width: 22px;
-  height: 22px;
+  width: 18px;
+  height: 18px;
+  flex: none;
   fill: none;
   stroke: currentColor;
   stroke-width: 1.5;
@@ -566,6 +564,10 @@ a.btn:hover .link-arrow,
   .banner-lucky {
     grid-template-columns: minmax(16rem, 22rem) minmax(0, 1fr);
     column-gap: var(--space-7);
+  }
+
+  .lucky-roll {
+    margin-top: auto;
   }
 
   .banner-lucky-cards {

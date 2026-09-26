@@ -58,7 +58,7 @@ watch(
       <p v-if="banner.body" class="banner-body">{{ banner.body }}</p>
       <button
         type="button"
-        class="lucky-roll"
+        class="btn lucky-roll"
         :disabled="rolling"
         @click="roll"
       >
@@ -66,7 +66,7 @@ watch(
           <rect x="3" y="3" width="18" height="18" />
           <path d="M9 3v18M15 3v18M3 9h18M3 15h18" />
         </svg>
-        <span class="visually-hidden">Случайный товар</span>
+        Случайный товар
       </button>
     </div>
     <div class="banner-lucky-cards">

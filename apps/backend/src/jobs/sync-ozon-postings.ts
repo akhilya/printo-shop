@@ -1,10 +1,27 @@
 import { MedusaContainer } from "@medusajs/framework/types"
 import { ContainerRegistrationKeys } from "@medusajs/framework/utils"
 import { ozonAdminErrorMessage } from "../lib/ozon-delivery"
+import { ozonCreds } from "../lib/ozon-fulfill"
+import { alignOzonReturnPoints } from "../lib/ozon-return-point"
 import { recordShopEvent, shopEventErrorDetail } from "../lib/shop-event"
 import { applyOzonStatusToFulfillment } from "../lib/shop-fulfillment"
 
+async function alignReturnPoint(container: MedusaContainer) {
+  const logger = container.resolve(ContainerRegistrationKeys.LOGGER)
+  try {
+    const creds = await ozonCreds(container)
+    if (!creds) return
+    const { updated } = await alignOzonReturnPoints(creds)
+    if (updated) {
+      logger.info(`Ozon return point set to the drop-off on ${updated} warehouse(s)`)
+    }
+  } catch (error) {
+    logger.warn(`Ozon return point sync failed: ${shopEventErrorDetail(error)}`)
+  }
+}
+
 export default async function syncOzonPostingsJob(container: MedusaContainer) {
+  await alignReturnPoint(container)
   const query = container.resolve(ContainerRegistrationKeys.QUERY)
   const pageSize = 100
   for (let page = 0; page < 10; page++) {
