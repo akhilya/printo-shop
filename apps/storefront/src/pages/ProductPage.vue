@@ -53,6 +53,11 @@ const reviews = ref([])
 const banners = ref([])
 const active = ref(0)
 const thumbsEl = ref(null)
+const galleryMain = ref(null)
+const dragPx = ref(0)
+const galleryDragging = ref(false)
+let gallerySwipe = null
+let gallerySwiped = false
 const variantId = ref("")
 const loading = ref(true)
 bindPageBusy(loading)
@@ -419,9 +424,67 @@ const gallerySlides = computed(() =>
   images.value.length ? images.value : [{ url: "" }]
 )
 
-const galleryShift = computed(
-  () => `translate3d(-${active.value * 100}%, 0, 0)`
-)
+const galleryShift = computed(() => {
+  const base = `-${active.value * 100}%`
+  if (!galleryDragging.value) return `translate3d(${base}, 0, 0)`
+  return `translate3d(calc(${base} + ${dragPx.value}px), 0, 0)`
+})
+
+function onGalleryPointerDown(event) {
+  gallerySwiped = false
+  if (event.pointerType === "mouse" || images.value.length < 2) return
+  const frame = galleryMain.value?.getBoundingClientRect()
+  if (!frame?.width) return
+  gallerySwipe = {
+    id: event.pointerId,
+    x: event.clientX,
+    y: event.clientY,
+    width: frame.width,
+    axis: "",
+  }
+  galleryMain.value.setPointerCapture?.(event.pointerId)
+}
+
+function onGalleryPointerMove(event) {
+  if (!gallerySwipe || event.pointerId !== gallerySwipe.id) return
+  const dx = event.clientX - gallerySwipe.x
+  const dy = event.clientY - gallerySwipe.y
+  if (!gallerySwipe.axis) {
+    if (Math.hypot(dx, dy) < 8) return
+    gallerySwipe.axis = Math.abs(dx) > Math.abs(dy) ? "x" : "y"
+  }
+  if (gallerySwipe.axis !== "x") return
+  const last = images.value.length - 1
+  let next = dx
+  if ((active.value <= 0 && next > 0) || (active.value >= last && next < 0)) {
+    next *= 0.3
+  }
+  galleryDragging.value = true
+  dragPx.value = next
+}
+
+function onGalleryPointerUp(event) {
+  if (!gallerySwipe || event.pointerId !== gallerySwipe.id) return
+  const { width, axis } = gallerySwipe
+  const dx = dragPx.value
+  const last = images.value.length - 1
+  gallerySwipe = null
+  galleryDragging.value = false
+  dragPx.value = 0
+  if (axis !== "x") return
+  gallerySwiped = true
+  const pass = Math.abs(dx) > Math.max(28, width * 0.18)
+  if (pass && dx < 0 && active.value < last) active.value += 1
+  else if (pass && dx > 0 && active.value > 0) active.value -= 1
+}
+
+function onGalleryClick() {
+  if (gallerySwiped) {
+    gallerySwiped = false
+    return
+  }
+  openZoom()
+}
 
 watch(active, (index) => {
   const strip = thumbsEl.value
@@ -442,13 +505,22 @@ watch(active, (index) => {
     <div class="product" :class="{ 'is-oos': !inStock }">
       <div class="gallery">
         <button
+          ref="galleryMain"
           type="button"
           class="matte gallery-main"
           :disabled="!images[active]?.url"
           aria-label="Увеличить фото"
-          @click="openZoom"
+          @pointerdown="onGalleryPointerDown"
+          @pointermove="onGalleryPointerMove"
+          @pointerup="onGalleryPointerUp"
+          @pointercancel="onGalleryPointerUp"
+          @click="onGalleryClick"
         >
-          <div class="gallery-track" :style="{ transform: galleryShift }">
+          <div
+            class="gallery-track"
+            :class="{ 'is-dragging': galleryDragging }"
+            :style="{ transform: galleryShift }"
+          >
             <ProductPhoto
               v-for="(img, i) in gallerySlides"
               :key="img.id || i"

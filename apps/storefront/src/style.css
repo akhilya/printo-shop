@@ -1050,6 +1050,7 @@ a.btn:active {
   aspect-ratio: var(--photo);
   position: relative;
   overflow: hidden;
+  touch-action: pan-y;
 }
 
 .gallery-track {
@@ -1059,6 +1060,10 @@ a.btn:active {
   width: 100%;
   height: 100%;
   transition: transform 280ms var(--ease-drawer);
+}
+
+.gallery-track.is-dragging {
+  transition: none;
 }
 
 .gallery-slide {
