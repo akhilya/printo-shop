@@ -1,5 +1,6 @@
 import {
   applyInventoryItemQuantities,
+  applyVariantPrices,
   attachVariantInventoryLinks,
   catalogProductInStock,
   pageCatalogIds,
@@ -180,6 +181,48 @@ describe("shop catalog", () => {
         },
       ],
     })
+  })
+
+  it("shows the selling price, not a leftover sale price", () => {
+    const card = presentCatalogProduct({
+      id: "a",
+      title: "Удзумэ",
+      handle: "uzume",
+      metadata: { price: "2100", sale_price: "315", old_price: "2600" },
+      variants: [
+        {
+          id: "v1",
+          metadata: { old_price: "2600" },
+        },
+      ],
+    })
+    expect(card.variants[0].calculated_price).toMatchObject({
+      calculated_amount: 2100,
+      original_amount: 2600,
+    })
+  })
+
+  it("prefers the live variant price over metadata", () => {
+    const rows = applyVariantPrices(
+      [
+        {
+          id: "a",
+          variants: [{ id: "v1" }],
+          metadata: { price: "2100", sale_price: "315" },
+        },
+      ],
+      { v1: 2500 }
+    )
+    expect(presentCatalogProduct(rows[0]).variants[0].calculated_price).toMatchObject({
+      calculated_amount: 2500,
+    })
+    expect(
+      presentCatalogProduct({
+        id: "b",
+        metadata: { price: "2100" },
+        variants: [{ id: "v2", amount: null }],
+      }).variants[0].calculated_price
+    ).toMatchObject({ calculated_amount: 2100 })
   })
 
   it("keeps only listing metadata on catalog cards", () => {

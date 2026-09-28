@@ -57,6 +57,7 @@ type CatalogVariant = {
   sku?: string | null
   manage_inventory?: boolean | null
   inventory_quantity?: number | null
+  amount?: number | null
   metadata?: Record<string, unknown> | null
   inventory_items?: CatalogInventoryItem[] | null
 }
@@ -178,12 +179,43 @@ function catalogMoney(value: unknown) {
   return Number.isFinite(amount) && amount >= 0 ? amount : null
 }
 
+export function catalogSellingAmount(
+  metadata: Record<string, unknown> | null | undefined,
+  variant?: CatalogVariant | null
+) {
+  if (variant?.amount != null) {
+    const live = catalogMoney(variant.amount)
+    if (live != null) return live
+  }
+  const source = metadata || {}
+  const price = catalogMoney(source.price)
+  const sale = catalogMoney(source.sale_price)
+  const old =
+    catalogMoney(variant?.metadata?.old_price) ?? catalogMoney(source.old_price)
+  if (price != null && old != null) return price
+  if (sale != null && sale > 0 && (price == null || sale < price)) return sale
+  return price ?? sale
+}
+
+export function applyVariantPrices(
+  rows: CatalogRow[],
+  amountByVariant: Record<string, number>
+) {
+  for (const row of rows) {
+    for (const variant of row.variants || []) {
+      const id = String(variant.id || "")
+      if (!id || amountByVariant[id] == null) continue
+      variant.amount = amountByVariant[id]
+    }
+  }
+  return rows
+}
+
 export function presentCatalogProduct(row: CatalogRow) {
   const metadata = (row.metadata || {}) as Record<string, unknown>
   const variants = row.variants || []
   const first = variants[0]
-  const current =
-    catalogMoney(metadata.sale_price) ?? catalogMoney(metadata.price)
+  const current = catalogSellingAmount(metadata, first)
   const listedOld =
     catalogMoney(first?.metadata?.old_price) ?? catalogMoney(metadata.old_price)
   const original =
@@ -244,6 +276,7 @@ function slimCatalogRow(row: CatalogRow): CatalogRow {
       sku: variant.sku,
       manage_inventory: variant.manage_inventory,
       inventory_quantity: variant.inventory_quantity,
+      amount: catalogMoney(variant.amount),
       metadata: slimCatalogMetadata(variant.metadata),
     })),
   }
@@ -546,6 +579,99 @@ async function listVariantInventoryLinks(
   return links
 }
 
+function priceLinkService(container: MedusaContainer) {
+  const remoteLink = container.resolve(ContainerRegistrationKeys.LINK) as {
+    getLinkModule: (
+      from: string,
+      fromKey: string,
+      to: string,
+      toKey: string
+    ) => {
+      list: (
+        filters: Record<string, unknown>,
+        config?: Record<string, unknown>
+      ) => Promise<Array<{ variant_id?: string; price_set_id?: string }>>
+    }
+  }
+  return remoteLink.getLinkModule(
+    Modules.PRODUCT,
+    "variant_id",
+    Modules.PRICING,
+    "price_set_id"
+  )
+}
+
+async function listVariantPriceAmounts(
+  container: MedusaContainer,
+  variantIds: string[]
+) {
+  const chunks = chunkIds(variantIds)
+  if (!chunks.length) return {}
+  const linkService = priceLinkService(container)
+  const pricing = container.resolve(Modules.PRICING) as {
+    listPrices: (
+      filters: Record<string, unknown>,
+      config?: Record<string, unknown>
+    ) => Promise<
+      Array<{
+        price_set_id?: string
+        amount?: number | null
+        currency_code?: string | null
+        price_list_id?: string | null
+      }>
+    >
+  }
+  const amountByVariant: Record<string, number> = {}
+  for (const chunk of chunks) {
+    const links = await linkService.list(
+      { variant_id: chunk },
+      {
+        take: Math.min(chunk.length * 4, CATALOG_CAP),
+        select: ["variant_id", "price_set_id"],
+      }
+    )
+    const setToVariant = new Map<string, string>()
+    for (const link of links) {
+      const variantId = String(link.variant_id || "")
+      const setId = String(link.price_set_id || "")
+      if (variantId && setId) setToVariant.set(setId, variantId)
+    }
+    const setIds = [...setToVariant.keys()]
+    if (!setIds.length) continue
+    const prices = await pricing.listPrices(
+      { price_set_id: setIds },
+      {
+        take: Math.min(setIds.length * 8, CATALOG_CAP),
+        select: ["price_set_id", "amount", "currency_code", "price_list_id"],
+      }
+    )
+    const ranked = [...prices].sort((a, b) => {
+      return Number(Boolean(a.price_list_id)) - Number(Boolean(b.price_list_id))
+    })
+    for (const price of ranked) {
+      const variantId = setToVariant.get(String(price.price_set_id || ""))
+      if (!variantId || amountByVariant[variantId] != null) continue
+      const code = String(price.currency_code || "rub").toLowerCase()
+      if (code !== "rub") continue
+      const amount = catalogMoney(price.amount)
+      if (amount == null) continue
+      amountByVariant[variantId] = amount
+    }
+  }
+  return amountByVariant
+}
+
+async function attachLiveVariantPrices(
+  container: MedusaContainer,
+  rows: CatalogRow[]
+) {
+  const amounts = await listVariantPriceAmounts(
+    container,
+    variantIdsFromRows(rows)
+  ).catch(() => ({}))
+  return applyVariantPrices(rows, amounts)
+}
+
 async function listQtyForInventoryItems(
   container: MedusaContainer,
   itemIds: string[]
@@ -667,6 +793,7 @@ async function hydrateCatalogInventory(
     inventoryItemIdsFromRows(rows)
   ).catch(() => ({}))
   applyInventoryItemQuantities(rows, qty)
+  await attachLiveVariantPrices(container, rows)
   return rows.map(slimCatalogRow)
 }
 
@@ -770,6 +897,7 @@ async function loadPublishedCatalogRows(container: MedusaContainer) {
     }
   }
   applyInventoryItemQuantities(rows, resolvedQty)
+  await attachLiveVariantPrices(container, rows)
   return rows.map(slimCatalogRow)
 }
 
