@@ -7,6 +7,8 @@ import type { IPromotionModuleService } from "@medusajs/framework/types"
 import {
   parseShopPromotionCreate,
   presentShopPromotion,
+  promotionPageFromRow,
+  promotionPageKey,
 } from "../../../lib/shop-promotion"
 import { loadShopPromotionUsage } from "../../../lib/shop-promotion-usage"
 
@@ -28,6 +30,20 @@ export async function GET(
     ),
     loadShopPromotionUsage(req.scope),
   ])
+  for (const row of rows as unknown as Record<string, unknown>[]) {
+    if (row.is_automatic === true || !String(row.code || "").trim()) continue
+    if (promotionPageFromRow(row)) continue
+    const page = promotionPageKey(String(row.code || ""))
+    const metadata = {
+      ...(row.metadata && typeof row.metadata === "object" ? row.metadata : {}),
+      page,
+    }
+    await promotion.updatePromotions({
+      id: String(row.id),
+      metadata,
+    })
+    row.metadata = metadata
+  }
   res.json({
     promotions: (rows as unknown as Record<string, unknown>[]).map((row) =>
       presentShopPromotion(row, usageByCode)

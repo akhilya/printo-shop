@@ -1,7 +1,10 @@
 import {
   parseShopPromotionCreate,
   parseShopPromotionUpdate,
+  presentPublicPromo,
   presentShopPromotion,
+  promotionPageFromRow,
+  promotionPageKey,
   promotionCodesFromOrder,
   promotionDiscountAmount,
   promotionIsExhausted,
@@ -111,6 +114,65 @@ describe("presentShopPromotion", () => {
         { LETO10: 3 }
       )
     ).toMatchObject({ used_count: 3, max_uses: 5 })
+  })
+})
+
+describe("promotion page", () => {
+  it("generates an address that is not the promo code", () => {
+    const created = parseShopPromotionCreate({
+      code: "LETO10",
+      type: "percentage",
+      value: 10,
+    })
+    if ("error" in created) throw new Error(created.error)
+    expect(created.metadata?.page).toMatch(/^[a-z0-9]{10}$/)
+    expect(created.metadata?.page).not.toBe("leto10")
+    expect(promotionPageKey("LETO10")).not.toBe("leto10")
+  })
+
+  it("hides a page address that repeats the code", () => {
+    expect(
+      promotionPageFromRow({
+        code: "summer2024",
+        metadata: { page: "summer2024" },
+      })
+    ).toBe("")
+    expect(
+      promotionPageFromRow({
+        code: "LETO10",
+        metadata: { page: "k7m2qx9pab" },
+      })
+    ).toBe("k7m2qx9pab")
+  })
+})
+
+describe("presentPublicPromo", () => {
+  const row = {
+    code: "leto10",
+    status: "active",
+    is_automatic: false,
+    limit: 5,
+    application_method: {
+      type: "percentage",
+      value: 10,
+      target_type: "items",
+    },
+  }
+
+  it("shows an active code for the storefront", () => {
+    expect(presentPublicPromo(row, 1)).toEqual({
+      ended: false,
+      code: "LETO10",
+      type: "percentage",
+      value: 10,
+      include_shipping: false,
+    })
+  })
+
+  it("hides automatic, inactive, and exhausted promotions", () => {
+    expect(presentPublicPromo({ ...row, is_automatic: true }, 0)).toBeNull()
+    expect(presentPublicPromo({ ...row, status: "inactive" }, 0)).toBeNull()
+    expect(presentPublicPromo(row, 5)).toEqual({ ended: true })
   })
 })
 

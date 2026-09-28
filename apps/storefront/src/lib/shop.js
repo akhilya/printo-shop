@@ -9,6 +9,8 @@ export const shopState = reactive({
   ozonConfigured: false,
   ozonQuoteMode: "ozon",
   ozonFixedAmount: 0,
+  redirectPath: "",
+  redirectTarget: "",
 })
 
 export async function loadShopStatus() {
@@ -29,4 +31,6 @@ export async function loadShopStatus() {
   const fixed = Number(data.shop?.ozon_fixed_amount)
   shopState.ozonFixedAmount =
     Number.isFinite(fixed) && fixed > 0 ? Math.round(fixed) : 0
+  shopState.redirectPath = String(data.shop?.redirect_path || "")
+  shopState.redirectTarget = String(data.shop?.redirect_target || "")
 }

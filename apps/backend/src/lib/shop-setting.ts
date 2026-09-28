@@ -142,6 +142,8 @@ export type ShopSettingPublic = {
   ozon_from_place_id: string
   ozon_quote_mode: OzonQuoteMode
   ozon_fixed_amount: number
+  redirect_path: string
+  redirect_target: string
 }
 
 export type ShopSettingAdmin = ShopSettingPublic & {
@@ -187,6 +189,8 @@ export function presentShopSetting(
     ozon_from_place_id: text(row, "ozon_from_place_id"),
     ozon_quote_mode: parseOzonQuoteMode(row.ozon_quote_mode),
     ozon_fixed_amount: parseOzonFixedAmount(row.ozon_fixed_amount) || 0,
+    redirect_path: text(row, "redirect_path"),
+    redirect_target: text(row, "redirect_target"),
   }
   if (!opts.admin) return base
   const urls = defaultTbankUrls()

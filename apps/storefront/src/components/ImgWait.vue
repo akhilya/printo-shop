@@ -1,5 +1,6 @@
 <script setup>
 import { nextTick, ref, watch } from "vue"
+import WaitIcon from "./WaitIcon.vue"
 
 const props = defineProps({
   src: { type: String, default: "" },
@@ -27,7 +28,7 @@ watch(() => props.src, sync, { immediate: true })
 
 <template>
   <span class="img-wait" :data-loaded="loaded ? 'true' : 'false'">
-    <span v-if="!loaded" class="photo-wait" aria-hidden="true" />
+    <span v-if="!loaded" class="photo-wait" aria-hidden="true"><WaitIcon /></span>
     <img
       ref="img"
       :class="imgClass"

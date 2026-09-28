@@ -20,6 +20,8 @@ const canPrev = ref(false)
 const canNext = ref(false)
 let observer = null
 let timer = 0
+let handed = false
+let scrollToken = 0
 
 function reducedMotion() {
   return window.matchMedia("(prefers-reduced-motion: reduce)").matches
@@ -67,28 +69,60 @@ function stepSize() {
   return cell.getBoundingClientRect().width + gap
 }
 
+function moveTo(left) {
+  const el = track.value
+  if (!el) return
+  const token = ++scrollToken
+  el.scrollTo({
+    left,
+    behavior: reducedMotion() ? "auto" : "smooth",
+  })
+  const finish = () => {
+    if (token !== scrollToken) return
+    scrollToken = 0
+  }
+  el.addEventListener("scrollend", finish, { once: true })
+  window.setTimeout(finish, 900)
+  scheduleMeasure()
+}
+
 function scrollByDir(dir) {
   const el = track.value
   const step = stepSize()
   if (!el || !step) return
   const max = maxScroll()
   const target = Math.min(max, Math.max(0, el.scrollLeft + dir * step))
-  el.scrollTo({
-    left: target,
-    behavior: reducedMotion() ? "auto" : "smooth",
-  })
-  scheduleMeasure()
+  moveTo(target)
+}
+
+function handOff() {
+  if (handed) return
+  handed = true
+  stopAuto()
+  const el = track.value
+  const moving = scrollToken !== 0
+  scrollToken += 1
+  if (!el || !moving) return
+  el.scrollTo({ left: el.scrollLeft, behavior: "auto" })
+}
+
+function onWheel(event) {
+  if (Math.abs(event.deltaX) <= Math.abs(event.deltaY) || !event.deltaX) return
+  handOff()
+}
+
+function onScroll() {
+  measure()
+  if (handed || scrollToken) return
+  handOff()
 }
 
 function advance() {
   const el = track.value
-  if (!el || paused.value) return
+  if (!el || handed || paused.value) return
   measure()
   if (!canNext.value) {
-    el.scrollTo({
-      left: 0,
-      behavior: reducedMotion() ? "auto" : "smooth",
-    })
+    moveTo(0)
     return
   }
   scrollByDir(1)
@@ -103,20 +137,22 @@ function stopAuto() {
 
 function startAuto() {
   stopAuto()
-  if (reducedMotion()) return
+  if (handed || reducedMotion()) return
   timer = window.setInterval(advance, AUTO_MS)
 }
 
 function onUserNav(dir) {
+  handOff()
   scrollByDir(dir)
-  startAuto()
 }
 
 onMounted(() => {
   measure()
   const el = track.value
-  el?.addEventListener("scroll", measure, { passive: true })
+  el?.addEventListener("scroll", onScroll, { passive: true })
   el?.addEventListener("scrollend", measure)
+  el?.addEventListener("pointerdown", handOff)
+  el?.addEventListener("wheel", onWheel, { passive: true })
   observer = new ResizeObserver(measure)
   if (el) observer.observe(el)
   startAuto()
@@ -131,8 +167,10 @@ watch(listed, () => {
 
 onBeforeUnmount(() => {
   stopAuto()
-  track.value?.removeEventListener("scroll", measure)
+  track.value?.removeEventListener("scroll", onScroll)
   track.value?.removeEventListener("scrollend", measure)
+  track.value?.removeEventListener("pointerdown", handOff)
+  track.value?.removeEventListener("wheel", onWheel)
   observer?.disconnect()
 })
 </script>

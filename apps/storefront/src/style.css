@@ -898,28 +898,14 @@ a.btn:active {
   position: absolute;
   inset: 0;
   z-index: 2;
+  display: grid;
+  place-items: center;
   background: rgb(128 128 128 / 0.45);
 }
 
-.photo-wait::after,
 .wait-spin {
-  content: "";
-  position: absolute;
-  left: 50%;
-  top: 50%;
-  width: 1.75rem;
-  height: 1.75rem;
-  margin: -0.875rem 0 0 -0.875rem;
-  border: 2px solid rgb(255 255 255 / 0.35);
-  border-top-color: #fff;
-  animation: wait-spin 700ms linear infinite;
-}
-
-.wait-spin {
-  position: relative;
-  left: auto;
-  top: auto;
-  margin: 0;
+  color: #fff;
+  animation: wait-spin 800ms linear infinite;
 }
 
 .page-scrim {
@@ -2185,6 +2171,36 @@ a.btn:active {
   padding-inline: var(--space-4);
 }
 
+.promo-page {
+  display: flex;
+  flex-direction: column;
+  align-items: stretch;
+  gap: var(--space-4);
+  max-width: 28rem;
+}
+
+.promo-page h1,
+.promo-page p {
+  margin: 0;
+}
+
+.promo-page h1 {
+  font-size: var(--fs-display);
+  font-weight: var(--fw-semibold);
+  letter-spacing: -0.03em;
+  line-height: var(--lh-display);
+}
+
+.promo-code {
+  padding: var(--space-5) var(--space-4);
+  border: 1px solid var(--ink);
+  font-size: var(--fs-display);
+  font-weight: var(--fw-semibold);
+  letter-spacing: 0.06em;
+  line-height: var(--lh-display);
+  text-align: center;
+}
+
 .legal {
   max-width: 65ch;
   font-size: var(--fs-body);
@@ -2418,7 +2434,6 @@ a.btn:active {
     transform: none;
   }
 
-  .photo-wait::after,
   .wait-spin,
   .gallery-track {
     animation: none;

@@ -26,12 +26,38 @@ function text(value: unknown) {
   return String(value || "").trim()
 }
 
+const PAGE_ALPHABET = "abcdefghjkmnpqrstuvwxyz23456789"
+
+export function promotionPageKey(code = "") {
+  const blocked = String(code || "").trim().toLowerCase()
+  for (let attempt = 0; attempt < 8; attempt++) {
+    let key = ""
+    for (let i = 0; i < 10; i++) {
+      key += PAGE_ALPHABET[Math.floor(Math.random() * PAGE_ALPHABET.length)]
+    }
+    if (key !== blocked) return key
+  }
+  return `p${Date.now().toString(36)}`
+}
+
+export function promotionPageFromRow(row: Record<string, unknown> | null | undefined) {
+  const meta = row?.metadata
+  const page =
+    meta && typeof meta === "object"
+      ? String((meta as Record<string, unknown>).page || "").trim().toLowerCase()
+      : ""
+  const code = text(row?.code).toLowerCase()
+  if (!/^[a-z0-9]{8,16}$/.test(page) || page === code) return ""
+  return page
+}
+
 export type ShopPromotionCreate = {
   code: string
   type: "standard"
   status: "active"
   is_automatic: boolean
   limit: number | null
+  metadata?: { page: string }
   application_method: {
     type: "percentage" | "fixed"
     value: number
@@ -99,6 +125,9 @@ export function parseShopPromotionCreate(
       currency_code: "rub",
       allocation: "across",
     },
+    ...(rec.is_automatic === true
+      ? {}
+      : { metadata: { page: promotionPageKey(code) } }),
   }
 }
 
@@ -191,6 +220,32 @@ export function promotionUsesLabel(used: number, max = 0) {
   return `${n}/${cap}`
 }
 
+export function presentPublicPromo(
+  row: Record<string, unknown> | null | undefined,
+  used = 0
+) {
+  if (!row || row.is_automatic === true) return null
+  if (String(row.status || "") !== "active") return null
+  const code = text(row.code).toUpperCase()
+  if (!/^[A-Z0-9_-]{3,32}$/.test(code)) return null
+  const method = (row.application_method || {}) as Record<string, unknown>
+  const type = String(method.type || "").toLowerCase().includes("fixed")
+    ? "fixed"
+    : "percentage"
+  const value = Number(method.value)
+  if (!Number.isFinite(value) || value <= 0) return null
+  if (promotionIsExhausted(used, shopPromotionMaxUses(row))) {
+    return { ended: true as const }
+  }
+  return {
+    ended: false as const,
+    code,
+    type: type as "fixed" | "percentage",
+    value: type === "percentage" ? value : Math.round(value),
+    include_shipping: promotionIncludesShipping(method.target_type),
+  }
+}
+
 export function presentShopPromotion(
   row: Record<string, unknown>,
   usageByCode: Record<string, number> = {}
@@ -209,5 +264,6 @@ export function presentShopPromotion(
     application_method_id: String(method.id || ""),
     max_uses: shopPromotionMaxUses(row),
     used_count: usageByCode[code.toUpperCase()] || 0,
+    page: promotionPageFromRow(row),
   }
 }

@@ -12,7 +12,7 @@ import {
   toast,
 } from "@medusajs/ui"
 import { useMutation, useQuery, useQueryClient } from "@tanstack/react-query"
-import { useState } from "react"
+import { useEffect, useState } from "react"
 import { sdk } from "../../lib/sdk"
 import { promotionUsesLabel } from "../../../lib/shop-promotion"
 
@@ -26,6 +26,7 @@ type ShopPromotion = {
   include_shipping: boolean
   used_count: number
   max_uses: number
+  page: string
 }
 
 const EMPTY = {
@@ -40,6 +41,15 @@ const EMPTY = {
 const ShopPromotionsPage = () => {
   const queryClient = useQueryClient()
   const [form, setForm] = useState(EMPTY)
+  const [link, setLink] = useState({ path: "", target: "" })
+
+  const linkQuery = useQuery({
+    queryFn: () =>
+      sdk.client.fetch<{ link: { path: string; target: string } }>(
+        "/admin/shop-link"
+      ),
+    queryKey: ["admin-shop-link"],
+  })
 
   const { data, isLoading } = useQuery({
     queryFn: () =>
@@ -47,6 +57,21 @@ const ShopPromotionsPage = () => {
         "/admin/shop-promotions"
       ),
     queryKey: ["admin-shop-promotions"],
+  })
+
+  const saveLink = useMutation({
+    mutationFn: () =>
+      sdk.client.fetch("/admin/shop-link", {
+        method: "POST",
+        body: link,
+      }),
+    onSuccess: () => {
+      toast.success("Ссылка сохранена")
+      queryClient.invalidateQueries({ queryKey: ["admin-shop-link"] })
+    },
+    onError: (error: { message?: string }) => {
+      toast.error(error.message || "Не удалось сохранить ссылку")
+    },
   })
 
   const create = useMutation({
@@ -101,10 +126,58 @@ const ShopPromotionsPage = () => {
     onError: () => toast.error("Не удалось сохранить"),
   })
 
+  useEffect(() => {
+    if (!linkQuery.data?.link) return
+    setLink({
+      path: linkQuery.data.link.path || "",
+      target: linkQuery.data.link.target || "",
+    })
+  }, [linkQuery.data])
+
   const rows = data?.promotions || []
 
   return (
     <div className="flex flex-col gap-y-4">
+      <Container className="flex flex-col gap-y-4 p-6">
+        <Heading>Ссылка</Heading>
+        <Text size="small" className="text-ui-fg-subtle">
+          Один адрес для QR-кода. Открывает промокод или другую страницу магазина.
+        </Text>
+        <form
+          className="flex max-w-md flex-col gap-y-3"
+          onSubmit={(event) => {
+            event.preventDefault()
+            saveLink.mutate()
+          }}
+        >
+          <div className="flex flex-col gap-y-2">
+            <Label>Путь</Label>
+            <Input
+              value={link.path}
+              onChange={(event) =>
+                setLink((current) => ({ ...current, path: event.target.value }))
+              }
+              placeholder="/akcia"
+            />
+          </div>
+          <div className="flex flex-col gap-y-2">
+            <Label>Куда вести</Label>
+            <Input
+              value={link.target}
+              onChange={(event) =>
+                setLink((current) => ({
+                  ...current,
+                  target: event.target.value,
+                }))
+              }
+              placeholder="/products"
+            />
+          </div>
+          <Button type="submit" isLoading={saveLink.isPending}>
+            Сохранить
+          </Button>
+        </form>
+      </Container>
       <Container className="flex flex-col gap-y-4 p-6">
         <Heading>Скидки</Heading>
         <Text size="small" className="text-ui-fg-subtle">
@@ -236,6 +309,11 @@ const ShopPromotionsPage = () => {
                 >
                   <div>
                     <Text weight="plus">{row.code}</Text>
+                    {!row.is_automatic && row.page ? (
+                      <Text size="small" className="text-ui-fg-subtle">
+                        Страница /a/{row.page}
+                      </Text>
+                    ) : null}
                     <Text size="small" className="text-ui-fg-subtle">
                       {row.type === "fixed"
                         ? `${row.value} ₽`

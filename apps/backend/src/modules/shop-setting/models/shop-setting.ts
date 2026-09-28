@@ -25,6 +25,8 @@ const ShopSetting = model.define("shop_setting", {
   ozon_from_place_id: model.text().nullable(),
   ozon_quote_mode: model.text().default("fixed"),
   ozon_fixed_amount: model.number().default(350),
+  redirect_path: model.text().nullable(),
+  redirect_target: model.text().nullable(),
 })
 
 export default ShopSetting

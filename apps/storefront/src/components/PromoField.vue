@@ -1,6 +1,12 @@
 <script setup>
-import { computed, ref } from "vue"
-import { applyPromo, cartState, removePromo } from "../lib/cart.js"
+import { computed, onMounted, onUnmounted, ref } from "vue"
+import {
+  applyPromo,
+  cartState,
+  forgetShopPromo,
+  removePromo,
+  savedShopPromo,
+} from "../lib/cart.js"
 import { BACKEND_URL, shopError, storeHeaders } from "../lib/sdk.js"
 
 const props = defineProps({
@@ -10,7 +16,19 @@ const props = defineProps({
 
 const emit = defineEmits(["applied"])
 
-const code = ref("")
+const code = ref(props.promoCode ? "" : savedShopPromo())
+
+function fillSavedPromo() {
+  if (props.promoCode || code.value) return
+  const saved = savedShopPromo()
+  if (saved) code.value = saved
+}
+
+onMounted(() => {
+  fillSavedPromo()
+  window.addEventListener("shop-promo", fillSavedPromo)
+})
+onUnmounted(() => window.removeEventListener("shop-promo", fillSavedPromo))
 const localError = ref("")
 const localBusy = ref(false)
 const codes = computed(() => {
@@ -48,6 +66,7 @@ async function onApply(event) {
       const data = await res.json().catch(() => ({}))
       if (!res.ok) throw new Error(data.message || "promo_failed")
       code.value = ""
+      forgetShopPromo()
       emit("applied", data.checkout)
     } catch (error) {
       localError.value = shopError(error, "Промокод не применился")

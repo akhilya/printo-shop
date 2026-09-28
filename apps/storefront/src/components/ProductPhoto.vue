@@ -1,6 +1,7 @@
 <script setup>
 import { computed, nextTick, onBeforeUnmount, onMounted, ref, watch } from "vue"
 import { shopPhotoSrc } from "../lib/photo-url.js"
+import WaitIcon from "./WaitIcon.vue"
 
 const props = defineProps({
   src: { type: String, default: "" },
@@ -109,7 +110,7 @@ onBeforeUnmount(stopObserve)
   >
     <span v-if="!src || failed" class="matte-empty">Нет фото</span>
     <template v-else>
-      <span v-if="!loaded" class="photo-wait" aria-hidden="true" />
+      <span v-if="!loaded" class="photo-wait" aria-hidden="true"><WaitIcon /></span>
       <img
         v-if="shown && fill"
         class="photo-fill"

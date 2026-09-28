@@ -302,6 +302,25 @@ export function cartTotals(cart) {
   }
 }
 
+const PROMO_KEY = "shop_promo"
+
+export function rememberShopPromo(code) {
+  const promo = String(code || "").trim()
+  if (!promo || typeof sessionStorage === "undefined") return
+  sessionStorage.setItem(PROMO_KEY, promo)
+  window.dispatchEvent(new CustomEvent("shop-promo", { detail: promo }))
+}
+
+export function savedShopPromo() {
+  if (typeof sessionStorage === "undefined") return ""
+  return String(sessionStorage.getItem(PROMO_KEY) || "").trim()
+}
+
+export function forgetShopPromo() {
+  if (typeof sessionStorage === "undefined") return
+  sessionStorage.removeItem(PROMO_KEY)
+}
+
 export async function applyPromo(code) {
   const promo = String(code || "").trim()
   if (!promo || !cartState.cart?.id) return
@@ -316,6 +335,7 @@ export async function applyPromo(code) {
       CART_QUERY
     )
     applyCart(cart, true)
+    forgetShopPromo()
   } catch (error) {
     const raw = String(error.message || "")
     cartState.error = /invalid|not found/i.test(raw)

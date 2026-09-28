@@ -11,6 +11,8 @@ import CheckoutSuccessPage from "./pages/CheckoutSuccessPage.vue"
 import LegalPage from "./pages/LegalPage.vue"
 import CustomOrderPage from "./pages/CustomOrderPage.vue"
 import OrderPage from "./pages/OrderPage.vue"
+import PromoPage from "./pages/PromoPage.vue"
+import ShopLinkPage from "./pages/ShopLinkPage.vue"
 import { SHOP_DESCRIPTION, SHOP_NAME } from "./lib/seo.js"
 import { applyShopSeo } from "./lib/seo-head.js"
 
@@ -70,6 +72,11 @@ export const router = createRouter({
       meta: { seo: { title: "Заказ", robots: "noindex, nofollow" } },
     },
     {
+      path: "/a/:page",
+      component: PromoPage,
+      meta: { seo: { title: "Акция", robots: "noindex, nofollow" } },
+    },
+    {
       path: "/order",
       component: OrderPage,
       meta: { seo: { title: "Заказ", robots: "noindex, nofollow" } },
@@ -127,6 +134,11 @@ export const router = createRouter({
       path: "/privacy",
       component: LegalPage,
       meta: { seo: { title: "Конфиденциальность" } },
+    },
+    {
+      path: "/:pathMatch(.*)*",
+      component: ShopLinkPage,
+      meta: { seo: { title: "Страница", robots: "noindex, nofollow" } },
     },
   ],
   scrollBehavior() {
