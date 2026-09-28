@@ -38,7 +38,12 @@ export async function GET(
       ...(row.metadata && typeof row.metadata === "object" ? row.metadata : {}),
       page,
     }
-    await promotion.updatePromotions({
+    await (
+      promotion.updatePromotions as (data: {
+        id: string
+        metadata: Record<string, unknown>
+      }) => Promise<unknown>
+    )({
       id: String(row.id),
       metadata,
     })
