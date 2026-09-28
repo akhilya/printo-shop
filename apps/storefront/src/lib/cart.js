@@ -1,4 +1,8 @@
 import { reactive } from "vue"
+import {
+  isCartAlreadyCompletedError,
+  isCompletedCart,
+} from "./checkout-success.js"
 import { REGION_ID, sdk, shopError } from "./sdk.js"
 
 const KEY = "shop_cart_id"
@@ -65,14 +69,11 @@ function applyCart(cart, priced) {
   writeSavedCount(countItems(cart))
 }
 
-const CART_BOOT_FIELDS =
-  "id,email,currency_code,region_id,completed_at,metadata,items.id,items.title,items.thumbnail,items.quantity,items.variant_id,+items.product.handle,+items.variant.id,+items.variant.metadata,+items.variant.product.handle"
+const CART_EXTRA_FIELDS =
+  "+items.variant.metadata,+items.product.handle,+items.variant.product.handle"
 
-const CART_FIELDS =
-  `${CART_BOOT_FIELDS},total,subtotal,discount_total,item_total,item_subtotal,original_item_total,original_item_subtotal,item_discount_total,shipping_total,shipping_subtotal,+items.total,+items.subtotal,+items.unit_price,+items.original_total,+items.original_subtotal,+items.compare_at_unit_price,*promotions,*shipping_methods`
-
-export const CART_QUERY = { fields: CART_FIELDS }
-const CART_BOOT_QUERY = { fields: CART_BOOT_FIELDS }
+export const CART_QUERY = { fields: CART_EXTRA_FIELDS }
+const CART_BOOT_QUERY = CART_QUERY
 
 export async function retrieveCart(id, priced = true) {
   const { cart } = await sdk.store.cart.retrieve(
@@ -122,6 +123,11 @@ export async function loadCart(options = {}) {
   if (cartState.cart?.id === id && (cartState.priced || !totals)) return
   try {
     const cart = await retrieveCart(id, totals)
+    if (isCompletedCart(cart)) {
+      forgetCartId()
+      cartState.cart = null
+      return
+    }
     applyCart(cart, totals)
   } catch (error) {
     if (isMissingCart(error)) {
@@ -138,19 +144,7 @@ export function hydrateCartLater() {
   }, 6000)
 }
 
-async function ensureCart() {
-  if (cartState.cart?.id && cartState.priced) return cartState.cart
-  const existing = currentCartId()
-  if (existing) {
-    try {
-      const cart = await retrieveCart(existing, true)
-      applyCart(cart, true)
-      return cart
-    } catch (error) {
-      if (isMissingCart(error)) forgetCartId()
-      else if (cartState.cart?.id) return cartState.cart
-    }
-  }
+async function createCart() {
   const { cart } = await sdk.store.cart.create(
     { region_id: REGION_ID },
     CART_QUERY
@@ -159,19 +153,62 @@ async function ensureCart() {
   return cart
 }
 
+async function ensureCart() {
+  if (
+    cartState.cart?.id &&
+    cartState.priced &&
+    !isCompletedCart(cartState.cart)
+  ) {
+    return cartState.cart
+  }
+  const existing = currentCartId()
+  if (existing) {
+    try {
+      const cart = await retrieveCart(existing, true)
+      if (!isCompletedCart(cart)) {
+        applyCart(cart, true)
+        return cart
+      }
+      forgetCartId()
+    } catch (error) {
+      if (isMissingCart(error) || isCartAlreadyCompletedError(error)) {
+        forgetCartId()
+      } else if (cartState.cart?.id && !isCompletedCart(cartState.cart)) {
+        return cartState.cart
+      }
+    }
+  }
+  return createCart()
+}
+
 export async function addToCart(variantId, quantity = 1) {
   cartState.busy = true
   cartState.error = ""
   try {
-    const cart = await ensureCart()
-    const { cart: next } = await sdk.store.cart.createLineItem(
-      cart.id,
-      {
-        variant_id: variantId,
-        quantity,
-      },
-      CART_QUERY
-    )
+    let cart = await ensureCart()
+    let next
+    try {
+      ;({ cart: next } = await sdk.store.cart.createLineItem(
+        cart.id,
+        {
+          variant_id: variantId,
+          quantity,
+        },
+        CART_QUERY
+      ))
+    } catch (error) {
+      if (!isCartAlreadyCompletedError(error)) throw error
+      forgetCartId()
+      cart = await createCart()
+      ;({ cart: next } = await sdk.store.cart.createLineItem(
+        cart.id,
+        {
+          variant_id: variantId,
+          quantity,
+        },
+        CART_QUERY
+      ))
+    }
     applyCart(next, true)
     openCart()
   } catch (error) {
