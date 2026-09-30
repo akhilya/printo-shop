@@ -14,6 +14,7 @@ import {
   slimCatalogMetadata,
   sortCatalogByAvailability,
   canPreviewInStockPage,
+  catalogUsesMemory,
   presentShopGroups,
 } from "../shop-catalog"
 
@@ -235,6 +236,12 @@ describe("shop catalog", () => {
         attributes: "{}",
       })
     ).toEqual({ price: "1500", attributes: "{}" })
+  })
+
+  it("serves a ready catalog from memory and a cold one as a page", () => {
+    expect(catalogUsesMemory({ count: 20, partial: false })).toBe(true)
+    expect(catalogUsesMemory({ count: 20, partial: true })).toBe(false)
+    expect(catalogUsesMemory({ count: 0, partial: false })).toBe(false)
   })
 
   it("uses a short in-stock preview for the home rail", () => {

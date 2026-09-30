@@ -13,8 +13,8 @@ const CATALOG_PAGE = 1000
 const CATALOG_CAP = 10000
 const ID_CHUNK = 1000
 const CATALOG_TTL_MS = 60_000
-const CATALOG_STALE_MS = 10 * 60_000
 const IN_STOCK_PREVIEW_BATCH = 200
+const IN_STOCK_PREVIEW_CAP = IN_STOCK_PREVIEW_BATCH * 2
 const PRODUCT_LIST_SELECT = [
   "id",
   "title",
@@ -140,6 +140,10 @@ export function productMatchesCatalogQuery(row: CatalogRow, needle: string) {
     if (String(variant.sku || "").toLowerCase().includes(needle)) return true
   }
   return false
+}
+
+export function catalogUsesMemory(cache: { count: number; partial: boolean }) {
+  return cache.count > 0 && !cache.partial
 }
 
 export function canPreviewInStockPage(input: {
@@ -407,7 +411,7 @@ let catalogCache: { at: number; rows: CatalogRow[]; partial: boolean } = {
 }
 let catalogInflight: Promise<CatalogRow[]> | null = null
 let catalogRefreshTimer: ReturnType<typeof setTimeout> | null = null
-const CATALOG_REFRESH_DELAY_MS = 2500
+const CATALOG_REFRESH_DELAY_MS = 200
 let groupsCache: {
   catalogAt: number
   groups: Array<{
@@ -441,9 +445,13 @@ function refreshCatalogInBackground(container: MedusaContainer) {
   if (catalogInflight) return catalogInflight
   catalogInflight = loadPublishedCatalogRows(container)
     .then((rows) => {
-      catalogCache = { at: Date.now(), rows, partial: false }
+      catalogCache = {
+        at: Date.now(),
+        rows: sortCatalogByAvailability(rows),
+        partial: false,
+      }
       groupsCache = null
-      return rows
+      return catalogCache.rows
     })
     .catch((error) => {
       if (catalogCache.rows.length) return catalogCache.rows
@@ -800,7 +808,7 @@ async function hydrateCatalogInventory(
 async function loadEnoughInStockRows(container: MedusaContainer, needed: number) {
   const inStock: CatalogRow[] = []
   const want = Math.max(1, needed)
-  for (let skip = 0; skip < CATALOG_CAP; skip += IN_STOCK_PREVIEW_BATCH) {
+  for (let skip = 0; skip < IN_STOCK_PREVIEW_CAP; skip += IN_STOCK_PREVIEW_BATCH) {
     const batch = await listPublishedProductPage(
       container,
       skip,
@@ -901,17 +909,142 @@ async function loadPublishedCatalogRows(container: MedusaContainer) {
   return rows.map(slimCatalogRow)
 }
 
-async function listPublishedCatalogRows(container: MedusaContainer) {
-  const age = Date.now() - catalogCache.at
-  if (catalogCache.rows.length && !catalogCache.partial && age < CATALOG_TTL_MS) {
-    return catalogCache.rows
+function memoryCatalogRows() {
+  if (!catalogUsesMemory({ count: catalogCache.rows.length, partial: catalogCache.partial })) {
+    return null
   }
-  if (catalogCache.rows.length && !catalogCache.partial && age < CATALOG_STALE_MS) {
-    refreshCatalogInBackground(container)
-    return catalogCache.rows
+  return catalogCache.rows
+}
+
+function queueCatalogRefresh(container: MedusaContainer) {
+  const fresh =
+    memoryCatalogRows() && Date.now() - catalogCache.at < CATALOG_TTL_MS
+  if (fresh) return
+  scheduleCatalogRefresh(container, CATALOG_REFRESH_DELAY_MS)
+}
+
+export async function warmShopCatalog(container: MedusaContainer) {
+  if (memoryCatalogRows() && Date.now() - catalogCache.at < CATALOG_TTL_MS) return
+  await refreshCatalogInBackground(container)
+}
+
+export function catalogSitemapEntries() {
+  const rows = memoryCatalogRows()
+  if (!rows) return null
+  const extra: Array<{ path: string; changefreq: string; priority: string }> = []
+  for (const row of rows) {
+    const handle = String(row.handle || "").trim()
+    if (!handle) continue
+    extra.push({
+      path: `/p/${handle}`,
+      changefreq: "weekly",
+      priority: "0.7",
+    })
   }
-  if (catalogInflight) return catalogInflight
-  return refreshCatalogInBackground(container)
+  return extra
+}
+
+function pageReadyCatalog(
+  rows: CatalogRow[],
+  input: {
+    q?: string | null
+    category_id?: string | null
+    collection_id?: string | null
+    in_stock?: boolean
+    offset?: number
+    limit?: number
+  }
+) {
+  const needle = catalogNeedle(input.q)
+  const categoryId = String(input.category_id || "").trim()
+  const collectionId = String(input.collection_id || "").trim()
+  let matched = rows
+  if (needle || categoryId || collectionId || input.in_stock) {
+    matched = rows.filter((row) => {
+      if (needle && !productMatchesCatalogQuery(row, needle)) return false
+      if (collectionId && String(row.collection_id || "") !== collectionId) {
+        return false
+      }
+      if (categoryId) {
+        const categories = row.categories || []
+        if (!categories.some((item) => String(item.id || "") === categoryId)) {
+          return false
+        }
+      }
+      if (input.in_stock && !catalogProductInStock(row)) return false
+      return true
+    })
+  }
+  return pageCatalogProducts(matched, input.offset || 0, input.limit || 20)
+}
+
+async function loadFastCatalogPage(
+  container: MedusaContainer,
+  input: {
+    q?: string | null
+    category_id?: string | null
+    collection_id?: string | null
+    in_stock?: boolean
+    offset?: number
+    limit?: number
+  }
+) {
+  const product = productModuleOf(container)
+  const filters: {
+    status: "published"
+    q?: string
+    collection_id?: string
+    categories?: { id: string }
+  } = { status: "published" }
+  const q = String(input.q || "").trim()
+  const categoryId = String(input.category_id || "").trim()
+  const collectionId = String(input.collection_id || "").trim()
+  if (q) filters.q = q
+  if (categoryId) filters.categories = { id: categoryId }
+  if (collectionId) filters.collection_id = collectionId
+  const limit = input.limit || 20
+  const offset = input.offset || 0
+  const [products, counted] = await Promise.all([
+    product.listProducts(filters, {
+      skip: offset,
+      take: limit,
+      select: [...PRODUCT_LIST_SELECT, "categories.id"],
+      relations: PRODUCT_LIST_RELATIONS,
+    }),
+    product.listAndCountProducts(filters, {
+      skip: 0,
+      take: 1,
+      select: ["id"],
+    }),
+  ])
+  const count = Number(counted[1]) || 0
+  if (!products.length) return { products: [], count }
+  const ids = products.map((row) => String(row.id))
+  const variants = await product.listProductVariants(
+    { product_id: ids },
+    {
+      take: Math.min(Math.max(ids.length * 8, ids.length), CATALOG_CAP),
+      select: [...VARIANT_LIST_SELECT],
+    }
+  )
+  const rows = await hydrateCatalogInventory(
+    container,
+    catalogRowsFromProducts(
+      products as ProductListRow[],
+      variants as Array<{
+        id?: string
+        sku?: string | null
+        manage_inventory?: boolean | null
+        metadata?: Record<string, unknown> | null
+        product_id?: string | null
+      }>
+    )
+  )
+  const visible = input.in_stock ? rows.filter(catalogProductInStock) : rows
+  return {
+    products: visible.map(presentCatalogProduct),
+    count,
+  }
 }
 
 export async function listShopCatalogPage(
@@ -925,36 +1058,26 @@ export async function listShopCatalogPage(
     limit?: number
   }
 ) {
-  const needle = catalogNeedle(input.q)
-  const categoryId = String(input.category_id || "").trim()
-  const collectionId = String(input.collection_id || "").trim()
+  const ready = memoryCatalogRows()
+  if (ready) {
+    queueCatalogRefresh(container)
+    return pageReadyCatalog(ready, input)
+  }
   const offset = input.offset || 0
   const limit = input.limit || 20
+  if (canPreviewInStockPage(input) && catalogCache.partial && catalogCache.rows.length >= offset + limit) {
+    queueCatalogRefresh(container)
+    return pageCatalogProducts(catalogCache.rows, offset, limit)
+  }
   if (canPreviewInStockPage(input) && !catalogCache.rows.length) {
     const rows = await loadEnoughInStockRows(container, offset + limit)
     seedCatalogPreview(rows)
-    scheduleCatalogRefresh(container, CATALOG_REFRESH_DELAY_MS)
+    queueCatalogRefresh(container)
     return pageCatalogProducts(rows, offset, limit)
   }
-  let rows = sortCatalogByAvailability(
-    (await listPublishedCatalogRows(container)).filter((row) => {
-      if (!productMatchesCatalogQuery(row, needle)) return false
-      if (collectionId && String(row.collection_id || "") !== collectionId) {
-        return false
-      }
-      if (categoryId) {
-        const categories = row.categories || []
-        if (!categories.some((item) => String(item.id || "") === categoryId)) {
-          return false
-        }
-      }
-      return true
-    })
-  )
-  if (input.in_stock) {
-    rows = rows.filter(catalogProductInStock)
-  }
-  return pageCatalogProducts(rows, offset, limit)
+  const page = await loadFastCatalogPage(container, input)
+  queueCatalogRefresh(container)
+  return page
 }
 
 export function presentShopGroups(
@@ -1037,14 +1160,15 @@ async function loadShopGroupsLite(container: MedusaContainer) {
 }
 
 export async function listShopGroupsCatalog(container: MedusaContainer) {
+  const ready = memoryCatalogRows()
   if (groupsCache?.groups.length) {
-    if (catalogCache.rows.length && groupsCache.catalogAt !== catalogCache.at) {
-      void storeGroupsFromRows(container, catalogCache.rows)
+    if (ready && groupsCache.catalogAt !== catalogCache.at) {
+      void storeGroupsFromRows(container, ready)
     }
     return groupsCache.groups
   }
-  if (catalogCache.rows.length) {
-    return storeGroupsFromRows(container, catalogCache.rows)
+  if (ready) {
+    return storeGroupsFromRows(container, ready)
   }
   return loadShopGroupsLite(container)
 }
