@@ -13,6 +13,7 @@ import CustomOrderPage from "./pages/CustomOrderPage.vue"
 import OrderPage from "./pages/OrderPage.vue"
 import PromoPage from "./pages/PromoPage.vue"
 import ShopLinkPage from "./pages/ShopLinkPage.vue"
+import { recordPageView } from "./lib/analytics.js"
 import { SHOP_DESCRIPTION, SHOP_NAME } from "./lib/seo.js"
 import { applyShopSeo } from "./lib/seo-head.js"
 
@@ -160,6 +161,7 @@ router.afterEach(() => {
 })
 
 router.afterEach((to) => {
+  recordPageView(to.path)
   const seo = to.meta?.seo || {}
   applyShopSeo({
     path: to.path,

@@ -1,4 +1,5 @@
 import { reactive } from "vue"
+import { recordCartAdd } from "./analytics.js"
 import {
   isCartAlreadyCompletedError,
   isCompletedCart,
@@ -211,6 +212,7 @@ export async function addToCart(variantId, quantity = 1) {
     }
     applyCart(next, true)
     openCart()
+    recordCartAdd()
   } catch (error) {
     cartState.error = shopError(error, "Не удалось добавить товар")
   } finally {

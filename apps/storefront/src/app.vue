@@ -9,6 +9,7 @@ import {
   adultPrompt,
   declineAdult,
 } from "./lib/adult-gate.js"
+import { startShopAnalytics } from "./lib/analytics.js"
 import { hydrateCartLater } from "./lib/cart.js"
 import {
   legalDocumentPages,
@@ -34,6 +35,7 @@ onMounted(async () => {
   await nextTick()
   releaseBoot()
   if (shopState.closed) return
+  startShopAnalytics()
   hydrateCartLater()
   loadLegalPages()
   loadCatalogSales()
