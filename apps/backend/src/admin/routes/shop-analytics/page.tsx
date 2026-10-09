@@ -281,7 +281,7 @@ const ShopAnalyticsPage = () => {
             <div>
               <Heading level="h2">Откуда пришли</Heading>
               <Text size="small" className="mb-3 text-ui-fg-subtle">
-                Сайт, с которого перешли, или прямой заход.
+                Сайт, с которого перешли, ссылка для QR или прямой заход.
               </Text>
               {analytics.sources.length ? (
                 <div className="divide-y divide-ui-border-base">

@@ -57,6 +57,20 @@ describe("parseAnalyticsHit", () => {
     })
   })
 
+  it("keeps the shop link as its own source", () => {
+    expect(
+      parseAnalyticsHit(
+        {
+          visitor: VISITOR,
+          path: "/products",
+          kind: "view",
+          source: "/Akcia",
+        },
+        "Mozilla/5.0"
+      )
+    ).toMatchObject({ path: "/products", source: "/akcia" })
+  })
+
   it("drops bots and broken visitors", () => {
     expect(isAnalyticsBot("TelegramBot (like TwitterBot)")).toBe(true)
     expect(
@@ -175,11 +189,55 @@ describe("summarizeShopAnalytics", () => {
       visitors: 2,
     })
     expect(summary.pages.map((row) => row.path)).toContain("/vk")
+    expect(summary.sources.find((row) => row.source === "t.me")?.label).toBe(
+      "t.me"
+    )
     expect(summary.sources.map((row) => row.label)).toEqual(
       expect.arrayContaining(["t.me", "Прямой заход"])
     )
     const hour = summary.series.find((row) => row.key === "11")
     expect(hour?.views).toBeGreaterThan(0)
     expect(summary.series.find((row) => row.key === "0")?.views).toBe(0)
+  })
+
+  it("counts the qr link as a page and as its own source", () => {
+    const summary = summarizeShopAnalytics({
+      now,
+      period: "today",
+      active: 1,
+      views: [
+        {
+          path: "/akcia",
+          visitor: VISITOR,
+          kind: "view",
+          source: "/akcia",
+          created_at: "2026-10-02T08:00:00.000Z",
+        },
+        {
+          path: "/products",
+          visitor: VISITOR,
+          kind: "view",
+          source: "/akcia",
+          created_at: "2026-10-02T08:01:00.000Z",
+        },
+      ],
+      orders: [],
+    })
+
+    expect(summary.pages.find((row) => row.path === "/akcia")).toMatchObject({
+      label: "Ссылка /akcia",
+      views: 1,
+    })
+    expect(summary.pages.find((row) => row.path === "/products")?.label).toBe(
+      "Товары"
+    )
+    expect(summary.sources).toEqual([
+      expect.objectContaining({
+        source: "/akcia",
+        label: "Ссылка /akcia",
+        views: 2,
+        visitors: 1,
+      }),
+    ])
   })
 })

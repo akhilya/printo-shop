@@ -1,6 +1,7 @@
 <script setup>
 import { ref, watch } from "vue"
 import { useRoute, useRouter } from "vue-router"
+import { recordShopLinkVisit } from "../lib/analytics.js"
 import { bindPageBusy } from "../lib/page-busy.js"
 import { shopState } from "../lib/shop.js"
 
@@ -15,6 +16,7 @@ watch(
     const path = shopState.redirectPath
     const target = shopState.redirectTarget
     if (path && target && route.path === path) {
+      recordShopLinkVisit(path)
       router.replace(target)
       return
     }

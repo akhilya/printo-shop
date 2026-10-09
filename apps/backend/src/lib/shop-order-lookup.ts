@@ -8,6 +8,7 @@ import {
   findShopOrderLookup,
   shopAccessTokensMatch,
 } from "./shop-order-number"
+import { ensureCustomOrderOzon } from "./custom-order-pay"
 import {
   presentShopOrderFromCustom,
   presentShopOrderFromMedusa,
@@ -69,6 +70,9 @@ export async function loadShopOrderByNumber(
       >
     } catch {
       return null
+    }
+    if (row.paid_at) {
+      row = await ensureCustomOrderOzon(container, row)
     }
     let product: {
       title?: string | null

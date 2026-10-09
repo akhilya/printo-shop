@@ -138,6 +138,7 @@ export type ParsedCustomOrderQuote = {
   quote_note: string | null
   delivery_method: CustomOrderDelivery | null
   client_picks_pvz: boolean
+  pay_on_arrival: boolean
 }
 
 function moneyField(value: unknown, fallback = 0) {
@@ -190,6 +191,7 @@ export function parseCustomOrderQuote(
   const note = String(rec.quote_note || "")
     .trim()
     .slice(0, MAX_CUSTOM_ORDER_MESSAGE)
+  const clientPicksPvz = delivery === "ozon" && rec.client_picks_pvz !== false
   return {
     quote_amount: total,
     quote_items_amount: items,
@@ -198,8 +200,39 @@ export function parseCustomOrderQuote(
     quote_other_amount: other,
     quote_note: note || null,
     delivery_method: delivery,
-    client_picks_pvz: delivery === "ozon" && rec.client_picks_pvz === true,
+    client_picks_pvz: clientPicksPvz,
+    pay_on_arrival: clientPicksPvz && rec.pay_on_arrival === true,
   }
+}
+
+export function customOrderArrived(status?: unknown) {
+  const key = String(status || "")
+    .trim()
+    .toLowerCase()
+    .replace(/[\s-]+/g, "_")
+  return (
+    key === "in_pickup_point" ||
+    key === "posting_in_pickup_point" ||
+    key === "delivered" ||
+    key === "posting_delivered" ||
+    key === "posting_received" ||
+    key === "posting_conditionally_delivered" ||
+    key === "received"
+  )
+}
+
+export function customCheckoutCanPay(order: {
+  pay_on_arrival?: unknown
+  delivery_method?: unknown
+  buyer_ready_at?: unknown
+  ozon_posting_status?: unknown
+  paid_at?: unknown
+}) {
+  if (order.paid_at) return false
+  const postpay =
+    order.delivery_method === "ozon" && order.pay_on_arrival === true
+  if (!postpay) return true
+  return Boolean(order.buyer_ready_at) && customOrderArrived(order.ozon_posting_status)
 }
 
 export function parseCustomOrderStatus(body: unknown): CustomOrderStatus | { error: string } {
@@ -253,6 +286,11 @@ export function presentCustomOrder(row: Record<string, unknown>) {
     quote_note: row.quote_note ? String(row.quote_note) : null,
     delivery_method: row.delivery_method ? String(row.delivery_method) : null,
     client_picks_pvz: row.client_picks_pvz === true,
+    pay_on_arrival: row.pay_on_arrival === true,
+    buyer_ready_at: row.buyer_ready_at ? String(row.buyer_ready_at) : null,
+    ozon_posting_status: row.ozon_posting_status
+      ? String(row.ozon_posting_status)
+      : null,
     shop_number: row.shop_number ? String(row.shop_number) : null,
     order_url: shopOrderUrl(row.shop_number ? String(row.shop_number) : null),
     checkout_token: row.checkout_token ? String(row.checkout_token) : null,
@@ -318,7 +356,13 @@ export function presentPublicCustomCheckout(
     phone: presented.phone,
     client_picks_pvz:
       presented.delivery_method === "ozon" && presented.client_picks_pvz,
+    pay_on_arrival:
+      presented.delivery_method === "ozon" && presented.pay_on_arrival,
+    placed: Boolean(presented.buyer_ready_at),
+    arrived: customOrderArrived(presented.ozon_posting_status),
+    can_pay: customCheckoutCanPay(row),
     paid,
+    ozon_point_id: presented.ozon_point_id,
     ozon_point_name: presented.ozon_point_name,
     ozon_point_address: presented.ozon_point_address,
     ozon_order_number: presented.ozon_order_number,

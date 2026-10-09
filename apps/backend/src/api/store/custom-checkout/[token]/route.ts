@@ -1,11 +1,17 @@
 import type { MedusaRequest, MedusaResponse } from "@medusajs/framework/http"
 import { Modules } from "@medusajs/framework/utils"
 import { presentPublicCustomCheckout } from "../../../../lib/custom-order"
-import { findCustomOrderByToken } from "../../../../lib/custom-order-pay"
+import {
+  findCustomOrderByToken,
+  refreshCustomOrderArrival,
+} from "../../../../lib/custom-order-pay"
 
 export async function GET(req: MedusaRequest, res: MedusaResponse) {
   const token = String(req.params.token || "")
-  const order = await findCustomOrderByToken(req.scope, token)
+  const found = await findCustomOrderByToken(req.scope, token)
+  const order = found
+    ? await refreshCustomOrderArrival(req.scope, found)
+    : null
   if (!order || order.quote_amount == null || !order.checkout_token) {
     res.status(404).json({ message: "Страница не найдена" })
     return

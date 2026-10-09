@@ -1,10 +1,13 @@
 import { BACKEND_URL, storeHeaders } from "./sdk.js"
+import { shopState } from "./shop.js"
 
 const KEY = "shop_visitor"
 const SOURCE_KEY = "shop_visit_source"
 const VIEW_GAP_MS = 1500
 
 let started = false
+let shopReady = false
+let pendingPath = ""
 let lastViewPath = ""
 let lastViewAt = 0
 
@@ -38,6 +41,19 @@ function sourceHost() {
   }
 }
 
+function rememberShopLink(path) {
+  try {
+    sessionStorage.setItem(SOURCE_KEY, path)
+  } catch {
+    // A missed source must not affect the page.
+  }
+}
+
+function isShopLink(path) {
+  const link = String(shopState.redirectPath || "")
+  return Boolean(link && path === link)
+}
+
 function send(kind, path) {
   const visitor = visitorId()
   if (!visitor || !path) return
@@ -58,14 +74,39 @@ function send(kind, path) {
   }
 }
 
+function sendView(path, force = false) {
+  const now = Date.now()
+  if (!force && path === lastViewPath && now - lastViewAt < VIEW_GAP_MS) return
+  lastViewPath = path
+  lastViewAt = now
+  send("view", path)
+}
+
 export function recordPageView(path) {
   const next = String(path || "")
   if (!next.startsWith("/")) return
-  const now = Date.now()
-  if (next === lastViewPath && now - lastViewAt < VIEW_GAP_MS) return
-  lastViewPath = next
-  lastViewAt = now
-  send("view", next)
+  if (!shopReady) {
+    pendingPath = next
+    return
+  }
+  if (isShopLink(next)) rememberShopLink(next)
+  sendView(next)
+}
+
+export function recordShopLinkVisit(path) {
+  const next = String(path || "")
+  if (!next.startsWith("/")) return
+  rememberShopLink(next)
+  if (pendingPath === next) pendingPath = ""
+  sendView(next, true)
+}
+
+export function shopAnalyticsReady() {
+  shopReady = true
+  if (!pendingPath) return
+  const path = pendingPath
+  pendingPath = ""
+  recordPageView(path)
 }
 
 export function recordCartAdd() {

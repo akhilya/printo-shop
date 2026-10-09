@@ -1,6 +1,8 @@
 import { parseBannerInput } from "../banner"
 import {
   MAX_CUSTOM_ORDER_IMAGES,
+  customCheckoutCanPay,
+  customOrderArrived,
   customOrderCheckoutUrl,
   messengerHref,
   parseCustomOrderInput,
@@ -155,7 +157,29 @@ describe("parseCustomOrderQuote", () => {
       quote_shipping_amount: 0,
       delivery_method: "ozon",
       client_picks_pvz: true,
+      pay_on_arrival: false,
     })
+    expect(
+      parseCustomOrderQuote({
+        quote_amount: 4500,
+        delivery_method: "ozon",
+      })
+    ).toMatchObject({ client_picks_pvz: true, pay_on_arrival: false })
+    expect(
+      parseCustomOrderQuote({
+        quote_amount: 4500,
+        delivery_method: "ozon",
+        client_picks_pvz: false,
+        pay_on_arrival: true,
+      })
+    ).toMatchObject({ client_picks_pvz: false, pay_on_arrival: false })
+    expect(
+      parseCustomOrderQuote({
+        quote_amount: 4500,
+        delivery_method: "ozon",
+        pay_on_arrival: true,
+      })
+    ).toMatchObject({ client_picks_pvz: true, pay_on_arrival: true })
     expect(
       parseCustomOrderQuote({
         quote_amount: 4500,
@@ -195,9 +219,44 @@ describe("presentPublicCustomCheckout", () => {
     expect(publicView.message).toBe("Скрытый черновик")
     expect(publicView.amount).toBe(4500)
     expect(publicView.client_picks_pvz).toBe(true)
+    expect(publicView.pay_on_arrival).toBe(false)
+    expect(publicView.placed).toBe(false)
+    expect(publicView.can_pay).toBe(true)
     expect(publicView.paid).toBe(false)
     expect(publicView.access_token).toBeNull()
     expect(publicView).not.toHaveProperty("ip")
+  })
+})
+
+describe("customCheckoutCanPay", () => {
+  it("lets a normal quote pay immediately", () => {
+    expect(customCheckoutCanPay({ delivery_method: "ozon" })).toBe(true)
+    expect(customOrderArrived("delivering")).toBe(false)
+  })
+
+  it("opens payment only after the parcel reaches the pickup point", () => {
+    const order = {
+      delivery_method: "ozon",
+      pay_on_arrival: true,
+      buyer_ready_at: "2026-10-07T10:00:00.000Z",
+    }
+    expect(customCheckoutCanPay(order)).toBe(false)
+    expect(customCheckoutCanPay({ ...order, ozon_posting_status: "delivering" })).toBe(
+      false
+    )
+    expect(
+      customCheckoutCanPay({ ...order, ozon_posting_status: "in_pickup_point" })
+    ).toBe(true)
+    expect(customCheckoutCanPay({ ...order, ozon_posting_status: "delivered" })).toBe(
+      true
+    )
+    expect(
+      customCheckoutCanPay({
+        ...order,
+        ozon_posting_status: "delivered",
+        paid_at: "2026-10-08T10:00:00.000Z",
+      })
+    ).toBe(false)
   })
 })
 

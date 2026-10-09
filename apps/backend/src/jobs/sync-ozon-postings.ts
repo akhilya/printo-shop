@@ -4,6 +4,7 @@ import { ozonAdminErrorMessage } from "../lib/ozon-delivery"
 import { ozonCreds } from "../lib/ozon-fulfill"
 import { alignOzonReturnPoints } from "../lib/ozon-return-point"
 import { recordShopEvent, shopEventErrorDetail } from "../lib/shop-event"
+import { refreshPostpayArrivals } from "../lib/custom-order-pay"
 import { applyOzonStatusToFulfillment } from "../lib/shop-fulfillment"
 
 async function alignReturnPoint(container: MedusaContainer) {
@@ -22,6 +23,14 @@ async function alignReturnPoint(container: MedusaContainer) {
 
 export default async function syncOzonPostingsJob(container: MedusaContainer) {
   await alignReturnPoint(container)
+  try {
+    await refreshPostpayArrivals(container)
+  } catch (error) {
+    const logger = container.resolve(ContainerRegistrationKeys.LOGGER)
+    logger.warn(
+      `Custom order arrival sync failed: ${shopEventErrorDetail(error)}`
+    )
+  }
   const query = container.resolve(ContainerRegistrationKeys.QUERY)
   const pageSize = 100
   for (let page = 0; page < 10; page++) {

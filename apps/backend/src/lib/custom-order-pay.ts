@@ -2,6 +2,7 @@ import { MedusaContainer } from "@medusajs/framework"
 import {
   ContainerRegistrationKeys,
   MedusaError,
+  Modules,
 } from "@medusajs/framework/utils"
 import { tbankPublicError } from "../modules/tbank/ca"
 import { TbankClient, isPublicHttpUrl } from "../modules/tbank/client"
@@ -18,16 +19,21 @@ import {
   createOzonDeliveryOrder,
   extractOzonCreateIds,
   ozonCredsFromRow,
+  ozonOfferArticle,
 } from "./ozon-delivery"
 import { randomBytes } from "node:crypto"
 import { CUSTOM_ORDER_MODULE } from "../modules/custom-order"
 import type CustomOrderModuleService from "../modules/custom-order/service"
 import {
+  customCheckoutCanPay,
+  customOrderArrived,
   customOrderCheckoutUrl,
   customQuoteTotal,
   presentPublicCustomCheckout,
   storefrontOrigin,
 } from "./custom-order"
+import { getOzonPosting } from "./ozon-posting"
+import { recordShopEvent, shopEventErrorDetail } from "./shop-event"
 import { ensureShopAccessToken } from "./shop-order-number"
 import { hasLegalAccepted, LEGAL_ACCEPT_ERROR } from "./legal-accept"
 
@@ -90,23 +96,118 @@ async function saveCustomOrder(
   return (row || { id, ...patch }) as Record<string, unknown>
 }
 
-async function createOzonForCustomOrder(
+export function customOrderOzonArticle(
+  order: { id?: unknown },
+  variants: Array<{ sku?: unknown }>
+) {
+  const ownId = ozonOfferArticle(order.id)
+  for (const variant of variants) {
+    const article = ozonOfferArticle(variant.sku)
+    if (article && article !== ownId) return article
+  }
+  return ""
+}
+
+async function customOrderOfferArticle(
   container: MedusaContainer,
   order: Record<string, unknown>
 ) {
+  const productId = text(order.product_id)
+  if (!productId) return ""
+  try {
+    const productModule = container.resolve(Modules.PRODUCT) as {
+      listProductVariants: (
+        filters: { product_id: string },
+        config?: { select?: string[]; take?: number }
+      ) => Promise<Array<{ sku?: string | null }>>
+    }
+    const variants = await productModule.listProductVariants(
+      { product_id: productId },
+      { select: ["sku"], take: 20 }
+    )
+    return customOrderOzonArticle(order, variants)
+  } catch {
+    return ""
+  }
+}
+
+async function noteCustomOzonFailure(
+  container: MedusaContainer,
+  order: Record<string, unknown>,
+  message: string,
+  error?: unknown
+) {
+  await recordShopEvent(container, {
+    kind: "ozon_custom",
+    level: "error",
+    title: "Не удалось оформить доставку",
+    message,
+    detail: error ? shopEventErrorDetail(error) : null,
+    order_id: text(order.id) || null,
+    shop_number: text(order.shop_number) || null,
+  }).catch(() => undefined)
+}
+
+export async function ensureCustomOrderOzon(
+  container: MedusaContainer,
+  order: Record<string, unknown>
+) {
+  if (!order.paid_at) return order
+  return createOzonForCustomOrder(container, order)
+}
+
+async function createOzonForCustomOrder(
+  container: MedusaContainer,
+  order: Record<string, unknown>,
+  options?: { required?: boolean }
+) {
   const pointId = text(order.ozon_point_id)
-  if (!pointId) return order
+  if (text(order.ozon_order_number) || text(order.ozon_posting_number)) {
+    return order
+  }
+  if (!pointId) {
+    if (options?.required) {
+      throw new MedusaError(
+        MedusaError.Types.INVALID_DATA,
+        "Выберите пункт выдачи"
+      )
+    }
+    return order
+  }
   const row = (await getShopSetting(container)) as unknown as Record<
     string,
     unknown
   >
   const creds = ozonCredsFromRow(row)
-  if (!creds) return order
+  if (!creds) {
+    if (options?.required) {
+      throw new MedusaError(
+        MedusaError.Types.NOT_ALLOWED,
+        "Не удалось оформить доставку."
+      )
+    }
+    return order
+  }
   const amount = Number(order.quote_amount) || 0
   const title =
     text(order.quote_note) ||
     text(order.product_title) ||
     "Индивидуальный заказ"
+  const article = await customOrderOfferArticle(container, order)
+  if (!article) {
+    await noteCustomOzonFailure(
+      container,
+      order,
+      "У индивидуального заказа нет артикула Ozon"
+    )
+    if (options?.required) {
+      throw new MedusaError(
+        MedusaError.Types.INVALID_DATA,
+        "Не удалось оформить доставку."
+      )
+    }
+    return order
+  }
   try {
     const created = await createOzonDeliveryOrder({
       creds,
@@ -124,7 +225,7 @@ async function createOzonForCustomOrder(
       shippingTotal: Number(order.quote_shipping_amount) || 0,
       items: [
         {
-          article: text(order.id) || "custom",
+          article,
           name: title.slice(0, 128),
           quantity: 1,
           price: amount,
@@ -137,9 +238,132 @@ async function createOzonForCustomOrder(
       ozon_posting_number: ids.postingNumber,
       ozon_tracking: ids.trackingUrl,
     })
+  } catch (error) {
+    await noteCustomOzonFailure(
+      container,
+      order,
+      "Индивидуальный заказ не ушёл в доставку",
+      error
+    )
+    if (options?.required) {
+      throw new MedusaError(
+        MedusaError.Types.UNEXPECTED_STATE,
+        "Не удалось оформить доставку."
+      )
+    }
+    return order
+  }
+}
+
+export async function refreshCustomOrderArrival(
+  container: MedusaContainer,
+  order: Record<string, unknown>
+) {
+  if (order.pay_on_arrival !== true || order.paid_at || !order.buyer_ready_at) {
+    return order
+  }
+  if (customOrderArrived(order.ozon_posting_status)) return order
+  const postingNumber = text(order.ozon_posting_number)
+  const orderNumber = text(order.ozon_order_number)
+  if (!postingNumber && !orderNumber) return order
+  const row = (await getShopSetting(container)) as unknown as Record<
+    string,
+    unknown
+  >
+  const creds = ozonCredsFromRow(row)
+  if (!creds) return order
+  try {
+    const info = await getOzonPosting(creds, postingNumber, orderNumber)
+    const patch: Record<string, unknown> = {}
+    if (info.status && info.status !== text(order.ozon_posting_status)) {
+      patch.ozon_posting_status = info.status
+    }
+    if (
+      info.postingNumber &&
+      info.postingNumber !== postingNumber
+    ) {
+      patch.ozon_posting_number = info.postingNumber
+    }
+    if (!Object.keys(patch).length) return order
+    return saveCustomOrder(container, String(order.id), patch)
   } catch {
     return order
   }
+}
+
+export async function refreshPostpayArrivals(container: MedusaContainer) {
+  const service: CustomOrderModuleService = container.resolve(CUSTOM_ORDER_MODULE)
+  const rows = await service.listCustomOrders(
+    { pay_on_arrival: true },
+    { take: 100, order: { updated_at: "DESC" } }
+  )
+  for (const row of rows) {
+    const order = row as Record<string, unknown>
+    if (order.paid_at || !order.buyer_ready_at) continue
+    if (customOrderArrived(order.ozon_posting_status)) continue
+    await refreshCustomOrderArrival(container, order)
+  }
+}
+
+export async function placeCustomOrder(
+  container: MedusaContainer,
+  token: string,
+  body: unknown
+) {
+  const order = await findCustomOrderByToken(container, token)
+  if (!order || order.quote_amount == null) {
+    throw new MedusaError(MedusaError.Types.NOT_FOUND, "Страница не найдена")
+  }
+  if (order.paid_at) {
+    throw new MedusaError(MedusaError.Types.NOT_ALLOWED, "Заказ уже оплачен")
+  }
+  if (order.pay_on_arrival !== true || order.delivery_method !== "ozon") {
+    throw new MedusaError(
+      MedusaError.Types.NOT_ALLOWED,
+      "Этот заказ оплачивается сразу"
+    )
+  }
+  if (order.buyer_ready_at && text(order.ozon_order_number)) {
+    return presentPublicCustomCheckout(order)
+  }
+  const parsed = parseCustomCheckoutPay(body)
+  if ("error" in parsed) {
+    throw new MedusaError(MedusaError.Types.INVALID_DATA, parsed.error)
+  }
+  if (!parsed.ozon_point_id) {
+    throw new MedusaError(
+      MedusaError.Types.INVALID_DATA,
+      "Выберите пункт выдачи"
+    )
+  }
+  const email = parsed.email || text(order.email)
+  const phone = parsed.phone || text(order.phone)
+  if (!email) {
+    throw new MedusaError(
+      MedusaError.Types.INVALID_DATA,
+      "Укажите почту для чека"
+    )
+  }
+  if (!phone) {
+    throw new MedusaError(MedusaError.Types.INVALID_DATA, "Укажите телефон")
+  }
+  const saved = await saveCustomOrder(container, String(order.id), {
+    email,
+    phone,
+    name: parsed.name || order.name,
+    ozon_point_id: parsed.ozon_point_id,
+    ozon_point_name: parsed.ozon_point_name,
+    ozon_point_address: parsed.ozon_point_address,
+  })
+  const shipped = await createOzonForCustomOrder(
+    container,
+    { ...order, ...saved },
+    { required: true }
+  )
+  const ready = await saveCustomOrder(container, String(order.id), {
+    buyer_ready_at: order.buyer_ready_at || new Date(),
+  })
+  return presentPublicCustomCheckout({ ...shipped, ...ready })
 }
 
 export async function markCustomOrderPaid(
@@ -212,6 +436,12 @@ export async function applyCustomOrderPromo(
   if (order.paid_at) {
     throw new MedusaError(MedusaError.Types.NOT_ALLOWED, "Заказ уже оплачен")
   }
+  if (order.buyer_ready_at) {
+    throw new MedusaError(
+      MedusaError.Types.NOT_ALLOWED,
+      "Заказ уже оформлен"
+    )
+  }
   const promoCode = text(code).toUpperCase()
   if (!promoCode) {
     throw new MedusaError(MedusaError.Types.INVALID_DATA, "Введите промокод")
@@ -281,6 +511,12 @@ export async function removeCustomOrderPromo(
   if (order.paid_at) {
     throw new MedusaError(MedusaError.Types.NOT_ALLOWED, "Заказ уже оплачен")
   }
+  if (order.buyer_ready_at) {
+    throw new MedusaError(
+      MedusaError.Types.NOT_ALLOWED,
+      "Заказ уже оформлен"
+    )
+  }
   const base = customBaseAmounts(order)
   const total = customQuoteTotal(base)
   const service: CustomOrderModuleService = container.resolve(CUSTOM_ORDER_MODULE)
@@ -306,12 +542,25 @@ export async function startCustomOrderPayment(
   if (order.paid_at) {
     throw new MedusaError(MedusaError.Types.NOT_ALLOWED, "Заказ уже оплачен")
   }
+  const postpay =
+    order.delivery_method === "ozon" && order.pay_on_arrival === true
+  const current = postpay
+    ? await refreshCustomOrderArrival(container, order)
+    : order
+  if (postpay && !customCheckoutCanPay(current)) {
+    throw new MedusaError(
+      MedusaError.Types.NOT_ALLOWED,
+      current.buyer_ready_at
+        ? "Оплатить можно, когда заказ приедет в пункт выдачи."
+        : "Сначала выберите пункт выдачи"
+    )
+  }
   const parsed = parseCustomCheckoutPay(body)
   if ("error" in parsed) {
     throw new MedusaError(MedusaError.Types.INVALID_DATA, parsed.error)
   }
   const picksPvz =
-    order.delivery_method === "ozon" && order.client_picks_pvz === true
+    current.delivery_method === "ozon" && current.client_picks_pvz === true
   if (picksPvz && !parsed.ozon_point_id) {
     throw new MedusaError(
       MedusaError.Types.INVALID_DATA,
@@ -428,7 +677,8 @@ export async function confirmCustomOrderPayment(
     throw new MedusaError(MedusaError.Types.NOT_FOUND, "Страница не найдена")
   }
   if (order.paid_at) {
-    return presentCustomCheckoutWithAccess(container, order)
+    const shipped = await createOzonForCustomOrder(container, order)
+    return presentCustomCheckoutWithAccess(container, shipped)
   }
   const paymentId = text(order.tbank_payment_id)
   if (!paymentId) {

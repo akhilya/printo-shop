@@ -188,13 +188,17 @@ export function isAnalyticsBot(userAgent: string) {
 }
 
 function cleanSource(raw: unknown) {
-  const source = String(raw || "")
-    .trim()
-    .toLowerCase()
-    .replace(/^www\./, "")
-    .slice(0, 80)
-  if (!source) return ""
-  return SOURCE_RE.test(source) ? source : ""
+  const text = String(raw || "").trim().slice(0, 180)
+  if (!text) return ""
+  if (text.startsWith("/")) return normalizeAnalyticsPath(text.toLowerCase()) || ""
+  const host = text.toLowerCase().replace(/^www\./, "").slice(0, 80)
+  return SOURCE_RE.test(host) ? host : ""
+}
+
+function sourceLabel(source: string) {
+  if (!source) return "Прямой заход"
+  if (source.startsWith("/")) return `Ссылка ${source}`
+  return source
 }
 
 export function parseAnalyticsHit(
@@ -307,6 +311,7 @@ export function summarizeShopAnalytics(input: {
   const seriesByKey = new Map(series.map((row) => [row.key, row]))
   const seriesVisitors = new Map<string, Set<string>>()
   const pageViews = new Map<string, { views: number; visitors: Set<string> }>()
+  const linkPaths = new Set<string>()
   const sources = new Map<string, { views: number; visitors: Set<string> }>()
   const visitors = new Set<string>()
   let views = 0
@@ -336,6 +341,7 @@ export function summarizeShopAnalytics(input: {
     if (visitor) page.visitors.add(visitor)
     pageViews.set(path, page)
     const source = cleanSource(row.source)
+    if (source.startsWith("/") && source === path) linkPaths.add(path)
     const sourceRow = sources.get(source) || {
       views: 0,
       visitors: new Set<string>(),
@@ -396,7 +402,7 @@ export function summarizeShopAnalytics(input: {
   const pages = [...pageViews.entries()]
     .map(([path, row]) => ({
       path,
-      label: analyticsPathLabel(path),
+      label: linkPaths.has(path) ? `Ссылка ${path}` : analyticsPathLabel(path),
       views: row.views,
       visitors: row.visitors.size,
     }))
@@ -406,7 +412,7 @@ export function summarizeShopAnalytics(input: {
   const sourceRows = [...sources.entries()]
     .map(([source, row]) => ({
       source,
-      label: source || "Прямой заход",
+      label: sourceLabel(source),
       views: row.views,
       visitors: row.visitors.size,
     }))

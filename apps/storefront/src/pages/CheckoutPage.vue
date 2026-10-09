@@ -47,6 +47,7 @@ const quotedShipping = ref(null)
 const shippingQuoteFailed = ref(false)
 let quoteTimer = 0
 let statusTimer = 0
+let arrivalTimer = 0
 const custom = ref(null)
 const customLoading = ref(false)
 const pageLoading = ref(true)
@@ -116,6 +117,16 @@ const totals = computed(() => {
 
 const showPvz = computed(
   () => !isCustom.value || custom.value?.client_picks_pvz === true
+)
+const postpay = computed(
+  () => isCustom.value && custom.value?.pay_on_arrival === true
+)
+const orderPlaced = computed(() => postpay.value && custom.value?.placed === true)
+const waitingArrival = computed(
+  () => orderPlaced.value && custom.value?.can_pay !== true
+)
+const submitLabel = computed(() =>
+  postpay.value && !orderPlaced.value ? "Оформить" : "Оплатить"
 )
 
 const pvzChosen = computed(() => Boolean(form.ozon_point_id))
@@ -190,12 +201,18 @@ onMounted(async () => {
       window.location.replace(`/custom-order/pay/${token.value}/success`)
       return
     }
-    if (custom.value?.email && !form.email) form.email = custom.value.email
-    if (custom.value?.phone && !form.phone) form.phone = custom.value.phone
-    if (custom.value?.name && !form.first_name) {
+    const saved = custom.value?.placed === true
+    if (custom.value?.email && (saved || !form.email)) form.email = custom.value.email
+    if (custom.value?.phone && (saved || !form.phone)) form.phone = custom.value.phone
+    if (custom.value?.name && (saved || !form.first_name)) {
       const parts = String(custom.value.name).trim().split(/\s+/)
       form.first_name = parts[0] || ""
-      if (!form.last_name) form.last_name = parts.slice(1).join(" ")
+      if (saved || !form.last_name) form.last_name = parts.slice(1).join(" ")
+    }
+    if (saved && custom.value?.ozon_point_id) {
+      form.ozon_point_id = custom.value.ozon_point_id
+      form.ozon_point_name = custom.value.ozon_point_name || ""
+      form.ozon_point_address = custom.value.ozon_point_address || ""
     }
   } catch {
     custom.value = null
@@ -209,8 +226,33 @@ onMounted(async () => {
 
 onBeforeUnmount(() => {
   clearInterval(statusTimer)
+  clearInterval(arrivalTimer)
   window.removeEventListener("visibilitychange", loadShopStatus)
   window.removeEventListener("focus", loadShopStatus)
+})
+
+async function reloadCustomCheckout() {
+  if (!token.value) return
+  try {
+    const res = await fetch(
+      `${BACKEND_URL}/store/custom-checkout/${encodeURIComponent(token.value)}`,
+      { headers: storeHeaders() }
+    )
+    if (!res.ok) return
+    const data = await res.json()
+    if (data.checkout) custom.value = data.checkout
+  } catch {
+    /* страница останется как есть */
+  }
+}
+
+watch(waitingArrival, (wait) => {
+  clearInterval(arrivalTimer)
+  arrivalTimer = 0
+  if (!wait) return
+  arrivalTimer = window.setInterval(() => {
+    reloadCustomCheckout()
+  }, 30000)
 })
 
 watch(
@@ -390,6 +432,38 @@ async function payCart() {
   window.location.href = String(payUrl)
 }
 
+function customBuyerBody() {
+  return {
+    name: [form.first_name, form.last_name].filter(Boolean).join(" "),
+    email: form.email,
+    phone: form.phone,
+    ozon_point_id: form.ozon_point_id,
+    ozon_point_name: form.ozon_point_name,
+    ozon_point_address: form.ozon_point_address,
+    legal_accepted: true,
+  }
+}
+
+async function placeCustom() {
+  const res = await fetch(
+    `${BACKEND_URL}/store/custom-checkout/${encodeURIComponent(token.value)}/place`,
+    {
+      method: "POST",
+      headers: {
+        "Content-Type": "application/json",
+        ...storeHeaders(),
+      },
+      body: JSON.stringify(customBuyerBody()),
+    }
+  )
+  const data = await res.json().catch(() => ({}))
+  if (!res.ok || !data.checkout) {
+    throw new Error(data.message || "place_failed")
+  }
+  custom.value = data.checkout
+  confirmOpen.value = false
+}
+
 async function payCustom() {
   const res = await fetch(
     `${BACKEND_URL}/store/custom-checkout/${encodeURIComponent(token.value)}/pay`,
@@ -399,15 +473,7 @@ async function payCustom() {
         "Content-Type": "application/json",
         ...storeHeaders(),
       },
-      body: JSON.stringify({
-        name: [form.first_name, form.last_name].filter(Boolean).join(" "),
-        email: form.email,
-        phone: form.phone,
-        ozon_point_id: form.ozon_point_id,
-        ozon_point_name: form.ozon_point_name,
-        ozon_point_address: form.ozon_point_address,
-        legal_accepted: true,
-      }),
+      body: JSON.stringify(customBuyerBody()),
     }
   )
   const data = await res.json().catch(() => ({}))
@@ -420,6 +486,10 @@ async function payCustom() {
 async function submit(event) {
   event.preventDefault()
   if (!reportForm(event.currentTarget)) return
+  if (waitingArrival.value) {
+    error.value = "Оплатить можно, когда заказ приедет в пункт выдачи."
+    return
+  }
   if (shopState.ordersClosed) {
     error.value = shopState.ordersMessage
     return
@@ -457,8 +527,10 @@ async function confirmPay() {
   busy.value = true
   error.value = ""
   try {
-    if (isCustom.value) await payCustom()
-    else await payCart()
+    if (isCustom.value) {
+      if (postpay.value && !custom.value?.placed) await placeCustom()
+      else await payCustom()
+    } else await payCart()
   } catch (e) {
     error.value = shopError(e, "Не удалось оформить заказ")
     confirmOpen.value = false
@@ -542,6 +614,7 @@ const empty = computed(() => {
         </div>
         <p v-if="!isCustom && cartState.error" class="err">{{ cartState.error }}</p>
         <PromoField
+          v-if="!orderPlaced"
           :token="isCustom ? token : ''"
           :promo-code="custom?.promo_code || ''"
           @applied="custom = $event"
@@ -570,14 +643,14 @@ const empty = computed(() => {
         </div>
       </div>
       <div class="form checkout-fields">
-        <label>Email <input v-model="form.email" type="email" required autocomplete="email" /></label>
-        <label>Имя <input v-model="form.first_name" required autocomplete="given-name" /></label>
-        <label>Фамилия <input v-model="form.last_name" required autocomplete="family-name" /></label>
-        <label>Телефон <input v-model="form.phone" type="tel" required autocomplete="tel" /></label>
+        <label>Email <input v-model="form.email" type="email" required autocomplete="email" :disabled="orderPlaced" /></label>
+        <label>Имя <input v-model="form.first_name" required autocomplete="given-name" :disabled="orderPlaced" /></label>
+        <label>Фамилия <input v-model="form.last_name" required autocomplete="family-name" :disabled="orderPlaced" /></label>
+        <label>Телефон <input v-model="form.phone" type="tel" required autocomplete="tel" :disabled="orderPlaced" /></label>
       </div>
       <div class="checkout-pvz">
         <PvzPicker
-          v-if="showPvz"
+          v-if="showPvz && !orderPlaced"
           :phone="form.phone"
           :selected-id="form.ozon_point_id"
           :selected-lat="form.ozon_point_lat"
@@ -585,7 +658,10 @@ const empty = computed(() => {
           @select="onPvz"
         />
         <p v-if="showPvz && form.ozon_point_id" class="muted">
-          ПВЗ: {{ form.ozon_point_name }}. {{ form.ozon_point_address }}
+          Пункт выдачи: {{ form.ozon_point_name }}. {{ form.ozon_point_address }}
+        </p>
+        <p v-if="waitingArrival" class="muted">
+          Оплатить можно, когда заказ приедет в пункт выдачи.
         </p>
         <label class="check">
           <input v-model="legalAccepted" type="checkbox" required />
@@ -605,19 +681,20 @@ const empty = computed(() => {
         <p v-if="shopState.ordersClosed" class="muted">{{ shopState.ordersMessage }}</p>
         <p v-if="error" class="err">{{ error }}</p>
         <button
+          v-if="!waitingArrival"
           class="btn"
           type="submit"
           :disabled="busy || cartState.busy || shopState.ordersClosed"
         >
-          Оплатить
+          {{ submitLabel }}
         </button>
       </div>
     </form>
     <ConfirmDialog
       v-if="confirmOpen"
-      title="Проверьте заказ"
-      confirm-label="Оплатить"
-      busy-label="Оплата"
+      :title="postpay && !orderPlaced ? 'Проверьте данные' : 'Проверьте заказ'"
+      :confirm-label="submitLabel"
+      :busy-label="postpay && !orderPlaced ? 'Оформление' : 'Оплата'"
       :busy="busy"
       @close="confirmOpen = false"
       @confirm="confirmPay"

@@ -36,6 +36,10 @@ export async function POST(
     res.status(400).json({ message: "Заказ уже оплачен" })
     return
   }
+  if (current.buyer_ready_at) {
+    res.status(400).json({ message: "Клиент уже выбрал пункт выдачи" })
+    return
+  }
   const token = String(current.checkout_token || "").trim() || newCheckoutToken()
   const status =
     current.status === "closed" || current.status === "paid"

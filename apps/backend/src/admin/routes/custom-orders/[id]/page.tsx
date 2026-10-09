@@ -13,7 +13,7 @@ import {
 import { useMutation, useQuery, useQueryClient } from "@tanstack/react-query"
 import { useEffect, useState } from "react"
 import { Link, useNavigate, useParams } from "react-router-dom"
-import { messengerHref } from "../../../../lib/custom-order"
+import { customOrderArrived, messengerHref } from "../../../../lib/custom-order"
 import { sdk } from "../../../lib/sdk"
 
 type AdminCustomOrder = {
@@ -38,6 +38,11 @@ type AdminCustomOrder = {
   quote_note: string | null
   delivery_method: string | null
   client_picks_pvz: boolean
+  pay_on_arrival: boolean
+  buyer_ready_at: string | null
+  ozon_posting_status: string | null
+  ozon_point_name: string | null
+  ozon_point_address: string | null
   shop_number: string | null
   order_url: string | null
   checkout_token: string | null
@@ -108,7 +113,8 @@ const CustomOrderDetailPage = () => {
   const [otherAmount, setOtherAmount] = useState("")
   const [note, setNote] = useState("")
   const [delivery, setDelivery] = useState("")
-  const [picksPvz, setPicksPvz] = useState(false)
+  const [picksPvz, setPicksPvz] = useState(true)
+  const [payOnArrival, setPayOnArrival] = useState(false)
 
   const quoteTotal = (() => {
     const items = Number(itemsAmount.replace(",", ".")) || 0
@@ -132,6 +138,7 @@ const CustomOrderDetailPage = () => {
             quote_note: note,
             delivery_method: delivery,
             client_picks_pvz: picksPvz,
+            pay_on_arrival: payOnArrival,
           },
         }
       ),
@@ -178,7 +185,8 @@ const CustomOrderDetailPage = () => {
     )
     setNote(order.quote_note || "")
     setDelivery(order.delivery_method || "")
-    setPicksPvz(order.client_picks_pvz === true)
+    setPicksPvz(order.delivery_method === "ozon" ? order.client_picks_pvz !== false : false)
+    setPayOnArrival(order.pay_on_arrival === true && order.client_picks_pvz !== false)
   }, [order])
 
   if (isLoading) {
@@ -339,7 +347,10 @@ const CustomOrderDetailPage = () => {
         <Heading level="h2">Оформление для клиента</Heading>
         <Text size="small" className="text-ui-fg-subtle">
           Страница как после корзины: состав, цена
-          {delivery === "ozon" && picksPvz ? ", выбор ПВЗ Ozon" : ""} и оплата.
+          {delivery === "ozon" && picksPvz ? ", выбор пункта выдачи" : ""}
+          {delivery === "ozon" && payOnArrival
+            ? ". Оплатить можно, когда заказ приедет в пункт выдачи."
+            : " и оплата."}{" "}
           Ссылку можно отправить клиенту.
         </Text>
         {order.paid_at ? (
@@ -352,7 +363,7 @@ const CustomOrderDetailPage = () => {
             min={1}
             step={1}
             value={itemsAmount}
-            disabled={Boolean(order.paid_at)}
+            disabled={Boolean(order.paid_at) || Boolean(order.buyer_ready_at)}
             onChange={(event) => setItemsAmount(event.target.value)}
           />
         </div>
@@ -363,7 +374,7 @@ const CustomOrderDetailPage = () => {
             min={0}
             step={1}
             value={discountAmount}
-            disabled={Boolean(order.paid_at)}
+            disabled={Boolean(order.paid_at) || Boolean(order.buyer_ready_at)}
             onChange={(event) => setDiscountAmount(event.target.value)}
           />
         </div>
@@ -374,7 +385,7 @@ const CustomOrderDetailPage = () => {
             min={0}
             step={1}
             value={shippingAmount}
-            disabled={Boolean(order.paid_at)}
+            disabled={Boolean(order.paid_at) || Boolean(order.buyer_ready_at)}
             onChange={(event) => setShippingAmount(event.target.value)}
           />
         </div>
@@ -385,7 +396,7 @@ const CustomOrderDetailPage = () => {
             min={0}
             step={1}
             value={otherAmount}
-            disabled={Boolean(order.paid_at)}
+            disabled={Boolean(order.paid_at) || Boolean(order.buyer_ready_at)}
             onChange={(event) => setOtherAmount(event.target.value)}
           />
         </div>
@@ -395,7 +406,7 @@ const CustomOrderDetailPage = () => {
           <Textarea
             rows={4}
             value={note}
-            disabled={Boolean(order.paid_at)}
+            disabled={Boolean(order.paid_at) || Boolean(order.buyer_ready_at)}
             placeholder={order.message || "Описание заказа"}
             onChange={(event) => setNote(event.target.value)}
           />
@@ -407,10 +418,11 @@ const CustomOrderDetailPage = () => {
               size="small"
               type="button"
               variant={delivery === "" ? "primary" : "secondary"}
-              disabled={Boolean(order.paid_at)}
+              disabled={Boolean(order.paid_at) || Boolean(order.buyer_ready_at)}
               onClick={() => {
                 setDelivery("")
                 setPicksPvz(false)
+                setPayOnArrival(false)
               }}
             >
               Не в ссылке
@@ -419,8 +431,11 @@ const CustomOrderDetailPage = () => {
               size="small"
               type="button"
               variant={delivery === "ozon" ? "primary" : "secondary"}
-              disabled={Boolean(order.paid_at)}
-              onClick={() => setDelivery("ozon")}
+              disabled={Boolean(order.paid_at) || Boolean(order.buyer_ready_at)}
+              onClick={() => {
+                setDelivery("ozon")
+                setPicksPvz(true)
+              }}
             >
               Ozon Доставка
             </Button>
@@ -431,15 +446,47 @@ const CustomOrderDetailPage = () => {
             <Label>Клиент сам выберет ПВЗ</Label>
             <Switch
               checked={picksPvz}
-              disabled={Boolean(order.paid_at)}
-              onCheckedChange={(checked) => setPicksPvz(Boolean(checked))}
+              disabled={Boolean(order.paid_at) || Boolean(order.buyer_ready_at)}
+              onCheckedChange={(checked) => {
+                const next = Boolean(checked)
+                setPicksPvz(next)
+                if (!next) setPayOnArrival(false)
+              }}
             />
           </div>
+        ) : null}
+        {delivery === "ozon" && picksPvz ? (
+          <div className="flex items-center justify-between gap-4">
+            <div className="flex flex-col gap-y-1">
+              <Label>Оплата после доставки</Label>
+              <Text size="small" className="text-ui-fg-subtle">
+                Клиент сначала выбирает пункт и оставляет контакты. Оплатить
+                сможет, когда заказ приедет в пункт выдачи.
+              </Text>
+            </div>
+            <Switch
+              checked={payOnArrival}
+              disabled={Boolean(order.paid_at) || Boolean(order.buyer_ready_at)}
+              onCheckedChange={(checked) => setPayOnArrival(Boolean(checked))}
+            />
+          </div>
+        ) : null}
+        {order.buyer_ready_at && !order.paid_at ? (
+          <Text>
+            {customOrderArrived(order.ozon_posting_status)
+              ? "Заказ в пункте выдачи. Клиент может оплатить по ссылке."
+              : "Клиент выбрал пункт выдачи. Оплата откроется, когда заказ приедет."}
+            {order.ozon_point_name || order.ozon_point_address
+              ? ` ${[order.ozon_point_name, order.ozon_point_address].filter(Boolean).join(". ")}`
+              : ""}
+          </Text>
         ) : null}
         <Button
           onClick={() => checkoutMutation.mutate()}
           isLoading={checkoutMutation.isPending}
-          disabled={Boolean(order.paid_at) || quoteTotal < 1}
+          disabled={
+            Boolean(order.paid_at) || Boolean(order.buyer_ready_at) || quoteTotal < 1
+          }
         >
           Сформировать ссылку
         </Button>
