@@ -152,6 +152,7 @@ export type ShopSettingAdmin = ShopSettingPublic & {
   ozon_connected: boolean
   ozon_oauth_redirect_uri: string
   ozon_fixed_amount: number
+  ozon_custom_article: string
   tbank_terminal_key: string
   tbank_password_set: boolean
   tbank_api_url: string
@@ -202,6 +203,7 @@ export function presentShopSetting(
     ozon_oauth_redirect_uri: ozonOAuthRedirectUri(),
     ozon_from_place_id: text(row, "ozon_from_place_id"),
     ozon_fixed_amount: parseOzonFixedAmount(row.ozon_fixed_amount) || 0,
+    ozon_custom_article: text(row, "ozon_custom_article"),
     tbank_terminal_key: text(row, "tbank_terminal_key"),
     tbank_password_set: Boolean(text(row, "tbank_password")),
     tbank_api_url: resolveTbankApiUrl(
@@ -289,6 +291,10 @@ export function parseShopSettingUpdate(
   if ("ozon_fixed_amount" in rec) {
     const amount = parseOzonFixedAmount(rec.ozon_fixed_amount)
     if (amount != null) update.ozon_fixed_amount = amount
+  }
+  if ("ozon_custom_article" in rec) {
+    update.ozon_custom_article =
+      String(rec.ozon_custom_article || "").trim() || null
   }
   return update
 }

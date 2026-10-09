@@ -175,6 +175,24 @@ describe("parseShopSettingUpdate", () => {
     expect(update.ozon_from_place_id).toBe("wh-1")
   })
 
+  it("saves the custom-order Ozon article", () => {
+    const update = parseShopSettingUpdate(
+      { ozon_custom_article: " CUSTOM-1 " },
+      {}
+    )
+    expect(update.ozon_custom_article).toBe("CUSTOM-1")
+    const cleared = parseShopSettingUpdate({ ozon_custom_article: " " }, {})
+    expect(cleared.ozon_custom_article).toBeNull()
+    const admin = presentShopSetting(
+      { ozon_custom_article: "CUSTOM-1" },
+      { admin: true }
+    )
+    expect(admin.ozon_custom_article).toBe("CUSTOM-1")
+    expect(presentShopSetting({ ozon_custom_article: "CUSTOM-1" })).not.toHaveProperty(
+      "ozon_custom_article"
+    )
+  })
+
   it("keeps the ozon oauth token when the field is empty", () => {
     const update = parseShopSettingUpdate(
       { ozon_oauth_token: "" },

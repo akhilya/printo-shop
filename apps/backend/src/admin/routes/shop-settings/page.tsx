@@ -39,6 +39,7 @@ type ShopSetting = {
   ozon_from_place_id: string
   ozon_quote_mode: "ozon" | "fixed"
   ozon_fixed_amount: number
+  ozon_custom_article: string
 }
 
 const EMPTY: ShopSetting = {
@@ -64,6 +65,7 @@ const EMPTY: ShopSetting = {
   ozon_from_place_id: "",
   ozon_quote_mode: "fixed",
   ozon_fixed_amount: 350,
+  ozon_custom_article: "",
 }
 
 const ShopSettingsPage = () => {
@@ -114,6 +116,7 @@ const ShopSettingsPage = () => {
           ozon_from_place_id: src.ozon_from_place_id,
           ozon_quote_mode: src.ozon_quote_mode,
           ozon_fixed_amount: src.ozon_fixed_amount,
+          ozon_custom_article: src.ozon_custom_article,
         },
       })
     },
@@ -510,6 +513,22 @@ const ShopSettingsPage = () => {
                 />
               </div>
             ) : null}
+            <div className="flex flex-col gap-y-2">
+              <Label>Артикул индивидуального заказа</Label>
+              <Input
+                value={form.ozon_custom_article}
+                onChange={(event) =>
+                  setForm((current) => ({
+                    ...current,
+                    ozon_custom_article: event.target.value,
+                  }))
+                }
+              />
+              <Text size="small" className="text-ui-fg-subtle">
+                Артикул товара в Ozon. Нужен, если заявка не привязана к товару
+                из каталога. Вес и габариты берутся из карточки этого товара.
+              </Text>
+            </div>
             <OzonFromPlaceMap
               selectedId={form.ozon_from_place_id}
               onSelect={(id) =>

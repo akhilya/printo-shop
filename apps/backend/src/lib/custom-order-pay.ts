@@ -98,13 +98,16 @@ async function saveCustomOrder(
 
 export function customOrderOzonArticle(
   order: { id?: unknown },
-  variants: Array<{ sku?: unknown }>
+  variants: Array<{ sku?: unknown }>,
+  fallback?: unknown
 ) {
   const ownId = ozonOfferArticle(order.id)
   for (const variant of variants) {
     const article = ozonOfferArticle(variant.sku)
     if (article && article !== ownId) return article
   }
+  const extra = ozonOfferArticle(fallback)
+  if (extra && extra !== ownId) return extra
   return ""
 }
 
@@ -112,8 +115,13 @@ async function customOrderOfferArticle(
   container: MedusaContainer,
   order: Record<string, unknown>
 ) {
+  const settings = (await getShopSetting(container)) as unknown as Record<
+    string,
+    unknown
+  >
+  const fallback = settings.ozon_custom_article
   const productId = text(order.product_id)
-  if (!productId) return ""
+  if (!productId) return customOrderOzonArticle(order, [], fallback)
   try {
     const productModule = container.resolve(Modules.PRODUCT) as {
       listProductVariants: (
@@ -125,9 +133,9 @@ async function customOrderOfferArticle(
       { product_id: productId },
       { select: ["sku"], take: 20 }
     )
-    return customOrderOzonArticle(order, variants)
+    return customOrderOzonArticle(order, variants, fallback)
   } catch {
-    return ""
+    return customOrderOzonArticle(order, [], fallback)
   }
 }
 
