@@ -1,6 +1,11 @@
 import { MedusaContainer } from "@medusajs/framework"
 import { SHOP_SETTING_MODULE } from "../modules/shop-setting"
 import type ShopSettingModuleService from "../modules/shop-setting/service"
+import {
+  customOrderChannelsFromRow,
+  parseCustomOrderChannels,
+  type CustomOrderContactChannel,
+} from "./custom-order"
 import { publicBackendUrl } from "./public-url"
 import { isOzonAccessToken, ozonOAuthRedirectUri, setOzonTokenPersist } from "./ozon-delivery"
 
@@ -144,6 +149,7 @@ export type ShopSettingPublic = {
   ozon_fixed_amount: number
   redirect_path: string
   redirect_target: string
+  custom_order_channels: CustomOrderContactChannel[]
 }
 
 export type ShopSettingAdmin = ShopSettingPublic & {
@@ -192,6 +198,7 @@ export function presentShopSetting(
     ozon_fixed_amount: parseOzonFixedAmount(row.ozon_fixed_amount) || 0,
     redirect_path: text(row, "redirect_path"),
     redirect_target: text(row, "redirect_target"),
+    custom_order_channels: customOrderChannelsFromRow(row),
   }
   if (!opts.admin) return base
   const urls = defaultTbankUrls()
@@ -295,6 +302,11 @@ export function parseShopSettingUpdate(
   if ("ozon_custom_article" in rec) {
     update.ozon_custom_article =
       String(rec.ozon_custom_article || "").trim() || null
+  }
+  if ("custom_order_channels" in rec) {
+    const channels = parseCustomOrderChannels(rec.custom_order_channels)
+    update.custom_order_telegram = channels.telegram
+    update.custom_order_max = channels.max
   }
   return update
 }

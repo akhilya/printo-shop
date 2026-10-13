@@ -238,6 +238,25 @@ describe("parseShopSettingUpdate", () => {
     expect(update.tbank_api_url).toBe("https://securepay.tinkoff.ru/v2")
   })
 
+  it("saves which custom-order contacts the buyer can pick", () => {
+    const update = parseShopSettingUpdate(
+      { custom_order_channels: ["max", "email"] },
+      {}
+    )
+    expect(update.custom_order_telegram).toBe(false)
+    expect(update.custom_order_max).toBe(true)
+    expect(
+      presentShopSetting({
+        custom_order_telegram: false,
+        custom_order_max: true,
+      }).custom_order_channels
+    ).toEqual(["max"])
+    expect(presentShopSetting({}).custom_order_channels).toEqual([
+      "telegram",
+      "max",
+    ])
+  })
+
   it("stores the orders lock separately from closed mode", () => {
     const update = parseShopSettingUpdate(
       {

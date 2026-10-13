@@ -16,6 +16,31 @@ export const MAX_CUSTOM_ORDER_NAME = 80
 export const MAX_CUSTOM_ORDER_CONTACT = 80
 export const MAX_CUSTOM_ORDER_MESSAGE = 4000
 
+export const CUSTOM_ORDER_CONTACT_CHANNELS = ["telegram", "max"] as const
+export type CustomOrderContactChannel =
+  (typeof CUSTOM_ORDER_CONTACT_CHANNELS)[number]
+
+export function customOrderChannelsFromRow(
+  row: Record<string, unknown> | null | undefined
+): CustomOrderContactChannel[] {
+  const channels: CustomOrderContactChannel[] = []
+  if (!row || row.custom_order_telegram !== false) channels.push("telegram")
+  if (!row || row.custom_order_max !== false) channels.push("max")
+  return channels
+}
+
+export function parseCustomOrderChannels(value: unknown): {
+  telegram: boolean
+  max: boolean
+} {
+  const list = Array.isArray(value) ? value : []
+  const ids = new Set(list.map((item) => String(item || "").trim()))
+  return {
+    telegram: ids.has("telegram"),
+    max: ids.has("max"),
+  }
+}
+
 export type ParsedCustomOrder = {
   name: string
   email: string | null
@@ -36,16 +61,20 @@ function clip(value: unknown, max: number): string {
 }
 
 export function parseCustomOrderInput(
-  body: unknown
+  body: unknown,
+  opts: { channels?: readonly CustomOrderContactChannel[] } = {}
 ): ParsedCustomOrder | { error: string } {
   const rec =
     body && typeof body === "object" ? (body as Record<string, unknown>) : {}
+  const channels = opts.channels ?? CUSTOM_ORDER_CONTACT_CHANNELS
   const name = clip(rec.name, MAX_CUSTOM_ORDER_NAME)
   const email = clip(rec.email, MAX_CUSTOM_ORDER_CONTACT)
   const phone = clip(rec.phone, MAX_CUSTOM_ORDER_CONTACT)
-  const telegram = clip(rec.telegram, MAX_CUSTOM_ORDER_CONTACT)
-  const maxAccount = clip(rec.max_account ?? rec.max, MAX_CUSTOM_ORDER_CONTACT)
+  const telegramRaw = clip(rec.telegram, MAX_CUSTOM_ORDER_CONTACT)
+  const maxRaw = clip(rec.max_account ?? rec.max, MAX_CUSTOM_ORDER_CONTACT)
   const vk = clip(rec.vk, MAX_CUSTOM_ORDER_CONTACT)
+  const telegram = channels.includes("telegram") ? telegramRaw : ""
+  const maxAccount = channels.includes("max") ? maxRaw : ""
   const message = String(rec.message || rec.body || "").trim().slice(
     0,
     MAX_CUSTOM_ORDER_MESSAGE
@@ -53,11 +82,11 @@ export function parseCustomOrderInput(
   if (!name || !message) {
     return { error: "Введите имя и описание заказа" }
   }
-  if (!email && !phone && !telegram && !maxAccount && !vk) {
+  if (!telegram && !maxAccount) {
+    if (email || phone || vk || telegramRaw || maxRaw) {
+      return { error: "Этот способ связи сейчас недоступен" }
+    }
     return { error: "Укажите хотя бы один способ связи" }
-  }
-  if (email && !email.includes("@")) {
-    return { error: "Проверьте адрес почты" }
   }
 
   const list = Array.isArray(rec.images) ? rec.images : []
@@ -81,11 +110,11 @@ export function parseCustomOrderInput(
 
   return {
     name,
-    email: email || null,
-    phone: phone || null,
+    email: null,
+    phone: null,
     telegram: telegram || null,
     max_account: maxAccount || null,
-    vk: vk || null,
+    vk: null,
     message,
     product_id: clip(rec.product_id, 64) || null,
     images,

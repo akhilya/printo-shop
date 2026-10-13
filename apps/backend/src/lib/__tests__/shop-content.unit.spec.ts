@@ -94,26 +94,50 @@ describe("parseCustomOrderInput", () => {
   it("keeps an optional product id", () => {
     const parsed = parseCustomOrderInput({
       name: "Анна",
-      email: "anna@test.com",
+      telegram: "@anna",
       message: "Хочу в другом масштабе",
       product_id: "prod_1",
     })
     expect("error" in parsed).toBe(false)
     if ("error" in parsed) return
     expect(parsed.product_id).toBe("prod_1")
-    expect(parsed.email).toBe("anna@test.com")
+    expect(parsed.telegram).toBe("@anna")
+    expect(parsed.email).toBeNull()
   })
 
-  it("accepts a free-form request with a phone and no product", () => {
+  it("accepts a free-form request with max and no product", () => {
     const parsed = parseCustomOrderInput({
       name: "Иван",
-      phone: "+7 900 000-00-00",
+      max_account: "ivan",
       message: "Своя модель дракона, 75 мм",
     })
     expect("error" in parsed).toBe(false)
     if ("error" in parsed) return
     expect(parsed.product_id).toBeNull()
-    expect(parsed.phone).toBe("+7 900 000-00-00")
+    expect(parsed.max_account).toBe("ivan")
+  })
+
+  it("rejects a contact method that is turned off", () => {
+    expect(
+      parseCustomOrderInput(
+        {
+          name: "Анна",
+          email: "anna@test.com",
+          message: "Хочу дракона",
+        },
+        { channels: ["telegram", "max"] }
+      )
+    ).toEqual({ error: "Этот способ связи сейчас недоступен" })
+    expect(
+      parseCustomOrderInput(
+        {
+          name: "Анна",
+          telegram: "@anna",
+          message: "Хочу дракона",
+        },
+        { channels: ["max"] }
+      )
+    ).toEqual({ error: "Этот способ связи сейчас недоступен" })
   })
 
   it("rejects more photos than allowed before reading them", () => {
@@ -122,7 +146,7 @@ describe("parseCustomOrderInput", () => {
     }))
     expect(parseCustomOrderInput({
       name: "Анна",
-      email: "a@test.com",
+      telegram: "@anna",
       message: "Модель",
       images,
     })).toEqual({

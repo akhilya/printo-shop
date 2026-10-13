@@ -28,6 +28,8 @@ const ShopSetting = model.define("shop_setting", {
   ozon_custom_article: model.text().nullable(),
   redirect_path: model.text().nullable(),
   redirect_target: model.text().nullable(),
+  custom_order_telegram: model.boolean().default(true),
+  custom_order_max: model.boolean().default(true),
 })
 
 export default ShopSetting

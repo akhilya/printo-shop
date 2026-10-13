@@ -40,6 +40,7 @@ type ShopSetting = {
   ozon_quote_mode: "ozon" | "fixed"
   ozon_fixed_amount: number
   ozon_custom_article: string
+  custom_order_channels: Array<"telegram" | "max">
 }
 
 const EMPTY: ShopSetting = {
@@ -66,6 +67,7 @@ const EMPTY: ShopSetting = {
   ozon_quote_mode: "fixed",
   ozon_fixed_amount: 350,
   ozon_custom_article: "",
+  custom_order_channels: ["telegram", "max"],
 }
 
 const ShopSettingsPage = () => {
@@ -117,6 +119,7 @@ const ShopSettingsPage = () => {
           ozon_quote_mode: src.ozon_quote_mode,
           ozon_fixed_amount: src.ozon_fixed_amount,
           ozon_custom_article: src.ozon_custom_article,
+          custom_order_channels: src.custom_order_channels,
         },
       })
     },
@@ -201,6 +204,46 @@ const ShopSettingsPage = () => {
                 }
               />
             </div>
+          </>
+        )}
+      </Container>
+
+      <Container className="flex max-w-xl flex-col gap-y-4 p-6">
+        <Heading>Индивидуальный заказ</Heading>
+        <Text size="small" className="text-ui-fg-subtle">
+          Покупатель выбирает один из включённых способов связи.
+        </Text>
+        {isLoading ? null : (
+          <>
+            {(
+              [
+                ["telegram", "Telegram"],
+                ["max", "MAX"],
+              ] as const
+            ).map(([id, label]) => (
+              <div key={id} className="flex items-center gap-x-2">
+                <Switch
+                  checked={form.custom_order_channels.includes(id)}
+                  onCheckedChange={(value) =>
+                    setForm((current) => {
+                      const enabled = new Set(current.custom_order_channels)
+                      if (value) enabled.add(id)
+                      else enabled.delete(id)
+                      return {
+                        ...current,
+                        custom_order_channels: (
+                          ["telegram", "max"] as const
+                        ).filter((item) => enabled.has(item)),
+                      }
+                    })
+                  }
+                />
+                <Label>{label}</Label>
+              </div>
+            ))}
+            <Button onClick={() => save.mutate()} isLoading={save.isPending}>
+              Сохранить
+            </Button>
           </>
         )}
       </Container>

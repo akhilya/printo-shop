@@ -5,9 +5,11 @@ import { convertToWebp } from "../../../lib/delegat-bridge/ingest-images-io"
 import { decodeReviewImageBase64 } from "../../../lib/review-image"
 import {
   MAX_CUSTOM_ORDER_IMAGE_BYTES,
+  customOrderChannelsFromRow,
   parseCustomOrderInput,
   presentCustomOrder,
 } from "../../../lib/custom-order"
+import { getShopSetting } from "../../../lib/shop-setting"
 import { clientIp } from "../../../lib/client-ip"
 import { checkSubmitLimit } from "../../../lib/submit-limit"
 import { CUSTOM_ORDER_MODULE } from "../../../modules/custom-order"
@@ -42,7 +44,12 @@ export async function POST(req: MedusaRequest, res: MedusaResponse) {
     res.status(429).json({ message: limit.error })
     return
   }
-  const parsed = parseCustomOrderInput(req.body)
+  const setting = await getShopSetting(req.scope)
+  const parsed = parseCustomOrderInput(req.body, {
+    channels: customOrderChannelsFromRow(
+      setting as unknown as Record<string, unknown>
+    ),
+  })
   if ("error" in parsed) {
     res.status(400).json({ message: parsed.error })
     return

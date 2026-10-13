@@ -11,6 +11,7 @@ export const shopState = reactive({
   ozonFixedAmount: 0,
   redirectPath: "",
   redirectTarget: "",
+  customOrderChannels: ["telegram", "max"],
 })
 
 export async function loadShopStatus() {
@@ -33,4 +34,9 @@ export async function loadShopStatus() {
     Number.isFinite(fixed) && fixed > 0 ? Math.round(fixed) : 0
   shopState.redirectPath = String(data.shop?.redirect_path || "")
   shopState.redirectTarget = String(data.shop?.redirect_target || "")
+  if (Array.isArray(data.shop?.custom_order_channels)) {
+    shopState.customOrderChannels = data.shop.custom_order_channels.filter(
+      (id) => id === "telegram" || id === "max"
+    )
+  }
 }
