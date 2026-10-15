@@ -131,7 +131,9 @@ services:
       - traefik.http.routers.shop-storefront-www.rule=Host(`www.${STORE_HOST}`)
       - traefik.http.routers.shop-storefront-www.entrypoints=websecure
       - traefik.http.routers.shop-storefront-www.tls.certResolver=letsencrypt
-      - traefik.http.routers.shop-storefront-www.priority=10
+      # Dokploy domain routers default to the rule length (~30) and were
+      # beating this redirect, so www kept serving the shop.
+      - traefik.http.routers.shop-storefront-www.priority=10000
       - traefik.http.routers.shop-storefront-www.middlewares=shop-www-redirect
       - traefik.http.routers.shop-storefront-www.service=shop-storefront
       - traefik.http.middlewares.shop-www-redirect.redirectregex.regex=^https://www.${STORE_HOST}(.*)

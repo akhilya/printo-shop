@@ -1,4 +1,5 @@
 import { loadEnv, defineConfig } from '@medusajs/framework/utils'
+import { corsWithHostAliases } from "./src/lib/store-cors"
 
 loadEnv(process.env.NODE_ENV || 'development', process.cwd())
 
@@ -24,9 +25,9 @@ module.exports = defineConfig({
     },
     redisUrl: process.env.REDIS_URL,
     http: {
-      storeCors: process.env.STORE_CORS!,
+      storeCors: corsWithHostAliases(process.env.STORE_CORS),
       adminCors: process.env.ADMIN_CORS!,
-      authCors: process.env.AUTH_CORS!,
+      authCors: corsWithHostAliases(process.env.AUTH_CORS),
       jwtSecret: process.env.JWT_SECRET,
       cookieSecret: process.env.COOKIE_SECRET,
     }

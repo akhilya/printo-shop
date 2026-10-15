@@ -13,6 +13,24 @@ describe("originAllowed", () => {
     ).toBe(false)
   })
 
+  it("allows the www host when only the apex is listed", () => {
+    expect(
+      originAllowed("https://www.printo.studio", "https://printo.studio")
+    ).toBe(true)
+  })
+
+  it("allows the apex when only the www host is listed", () => {
+    expect(
+      originAllowed("https://printo.studio", "https://www.printo.studio")
+    ).toBe(true)
+  })
+
+  it("does not invent a www alias for localhost", () => {
+    expect(
+      originAllowed("http://www.localhost:8000", "http://localhost:8000")
+    ).toBe(false)
+  })
+
   it("allows one of several origins", () => {
     expect(
       originAllowed(
