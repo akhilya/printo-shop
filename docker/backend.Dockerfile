@@ -42,6 +42,7 @@ RUN chmod +x ./start.sh \
   && npm pkg set "overrides.@aws-sdk/lib-storage=3.1128.0" \
   && npm pkg set "overrides.@aws-sdk/s3-request-presigner=3.1128.0" \
   && npm pkg set "overrides.@aws-sdk/client-dynamodb=3.1128.0" \
+  && rm -f package-lock.json \
   && npm install --omit=dev
 
 EXPOSE 9000
