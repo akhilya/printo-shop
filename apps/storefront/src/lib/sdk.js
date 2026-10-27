@@ -234,6 +234,18 @@ export async function listShopGroups() {
   return data.groups || []
 }
 
+export async function loadShopHomeProducts() {
+  const res = await fetch(`${BACKEND_URL}/store/shop-home`, {
+    headers: storeHeaders(),
+  })
+  if (!res.ok) throw new Error("home catalog")
+  const data = await res.json()
+  return {
+    products: data.products || [],
+    recommendations: data.recommendations || [],
+  }
+}
+
 export async function loadLuckyProducts(excludeId, limit = 1) {
   const params = new URLSearchParams()
   if (excludeId) params.set("exclude", excludeId)

@@ -12,6 +12,7 @@ export const shopState = reactive({
   redirectPath: "",
   redirectTarget: "",
   customOrderChannels: ["telegram", "max"],
+  giftCardDenominations: [],
 })
 
 export async function loadShopStatus() {
@@ -39,4 +40,11 @@ export async function loadShopStatus() {
       (id) => id === "telegram" || id === "max"
     )
   }
+  shopState.giftCardDenominations = Array.isArray(
+    data.shop?.gift_card_denominations
+  )
+    ? data.shop.gift_card_denominations.filter(
+        (amount) => Number.isSafeInteger(amount) && amount > 0
+      )
+    : []
 }

@@ -1,10 +1,30 @@
 import {
   defaultTbankUrls,
+  parseGiftCardDenominations,
   parseShopSettingUpdate,
   presentShopSetting,
   resolveTbankApiUrl,
   tbankOptionsFromRow,
 } from "../shop-setting"
+
+describe("parseGiftCardDenominations", () => {
+  it("normalizes and validates denomination lists", () => {
+    expect(parseGiftCardDenominations("[5000, 1000, 1000, -2, 1.5, 1000001]")).toEqual([
+      1000,
+      5000,
+    ])
+    expect(parseGiftCardDenominations("1000, 3000;5000")).toEqual([
+      1000,
+      3000,
+      5000,
+    ])
+  })
+
+  it("returns an empty list for invalid input", () => {
+    expect(parseGiftCardDenominations("not a list")).toEqual([])
+    expect(parseGiftCardDenominations({})).toEqual([])
+  })
+})
 
 describe("tbankOptionsFromRow", () => {
   it("returns null without a terminal password", () => {
@@ -161,6 +181,18 @@ describe("presentShopSetting", () => {
 })
 
 describe("parseShopSettingUpdate", () => {
+  it("saves normalized gift-card denominations", () => {
+    const update = parseShopSettingUpdate(
+      { gift_card_denominations: [5000, 1000, 1000, -1] },
+      {}
+    )
+    expect(update.gift_card_denominations).toBe("[1000,5000]")
+    expect(
+      presentShopSetting({ gift_card_denominations: update.gift_card_denominations })
+        .gift_card_denominations
+    ).toEqual([1000, 5000])
+  })
+
   it("saves the private app client id and ignores seller api keys", () => {
     const update = parseShopSettingUpdate(
       {

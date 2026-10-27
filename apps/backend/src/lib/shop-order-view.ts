@@ -200,6 +200,8 @@ export function publicShopOrder(order: {
     unit_price?: unknown
     total?: unknown
   }>
+  gift_card_amount?: unknown
+  gift_card_code?: unknown
 }) {
   return {
     number: order.number,
@@ -213,6 +215,8 @@ export function publicShopOrder(order: {
     shipping: order.shipping ?? null,
     currency_code: order.currency_code,
     can_track: Boolean(order.ozon_tracking),
+    gift_card_amount: order.gift_card_amount ?? null,
+    gift_card_code: order.gift_card_code ?? null,
     ozon_point_name: order.ozon_point_name || null,
     items: (order.items || []).map((item) => ({
       title: item.title,
@@ -272,6 +276,8 @@ export function presentShopOrderFromCustom(
     currency_code: "rub",
     created_at: order.created_at ? String(order.created_at) : null,
     details: note,
+    gift_card_amount: money(order.gift_card_amount),
+    gift_card_code: paid ? String(order.gift_card_code || "") || null : null,
     image_urls: urls,
     ozon_order_number: order.ozon_order_number
       ? String(order.ozon_order_number)

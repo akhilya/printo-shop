@@ -2,6 +2,7 @@ import type { MedusaRequest, MedusaResponse } from "@medusajs/framework/http"
 import { Modules } from "@medusajs/framework/utils"
 import type { IPromotionModuleService } from "@medusajs/framework/types"
 import {
+  isGiftCardPromotion,
   presentPublicPromo,
   promotionPageFromRow,
 } from "../../../../lib/shop-promotion"
@@ -26,7 +27,7 @@ export async function GET(req: MedusaRequest, res: MedusaResponse) {
       { take: 100, relations: ["application_method"] }
     )
     const row = (rows as unknown as Record<string, unknown>[]).find(
-      (item) => promotionPageFromRow(item) === page
+      (item) => !isGiftCardPromotion(item) && promotionPageFromRow(item) === page
     )
     if (!row) {
       res.json({ promo: null })

@@ -3,6 +3,7 @@ import {
   applyVariantPrices,
   attachVariantInventoryLinks,
   catalogProductInStock,
+  catalogSearchScore,
   pageCatalogIds,
   pageCatalogProducts,
   pickLuckyCatalogRow,
@@ -16,6 +17,7 @@ import {
   canPreviewInStockPage,
   catalogUsesMemory,
   presentShopGroups,
+  pickDiverseCatalogRows,
 } from "../shop-catalog"
 
 const inStock = {
@@ -34,8 +36,26 @@ const empty = {
 describe("shop catalog", () => {
   it("matches title, handle, and sku", () => {
     expect(productMatchesCatalogQuery(inStock, "страж")).toBe(true)
+    expect(productMatchesCatalogQuery(inStock, "strazh")).toBe(true)
+    expect(productMatchesCatalogQuery(inStock, "cnhf;")).toBe(true)
+    expect(productMatchesCatalogQuery(inStock, "стражж")).toBe(true)
     expect(productMatchesCatalogQuery(inStock, "wa150")).toBe(true)
     expect(productMatchesCatalogQuery(inStock, "tn1")).toBe(false)
+  })
+
+  it("ranks title matches above weaker SKU matches and searches attributes", () => {
+    const titleMatch = { ...inStock, id: "title", title: "Страж леса" }
+    const skuMatch = { ...inStock, id: "sku", title: "Фигурка", variants: [{ sku: "strazh" }] }
+    const attributeMatch = {
+      ...inStock,
+      id: "attribute",
+      title: "Фигурка",
+      metadata: { attributes: { faction: "Стражи" } },
+    }
+    expect(catalogSearchScore(titleMatch, "страж")).toBeGreaterThan(
+      catalogSearchScore(skuMatch, "страж")
+    )
+    expect(productMatchesCatalogQuery(attributeMatch, "страж")).toBe(true)
   })
 
   it("puts out-of-stock rows after in-stock ones across the whole list", () => {
@@ -64,6 +84,24 @@ describe("shop catalog", () => {
     expect(randomCatalogSkip(10, () => 0)).toBe(0)
     expect(randomCatalogSkip(10, () => 0.999)).toBe(9)
     expect(randomCatalogSkip(0)).toBe(0)
+  })
+
+  it("balances daily rotation with views and avoids overfilling collections", () => {
+    const rows = [
+      { ...inStock, id: "popular-1", collection_id: "one", metadata: { shop_views: 1000 } },
+      { ...inStock, id: "popular-2", collection_id: "one", metadata: { shop_views: 800 } },
+      { ...inStock, id: "popular-3", collection_id: "one", metadata: { shop_views: 600 } },
+      { ...inStock, id: "other", collection_id: "two", metadata: { shop_views: 5 } },
+      { ...inStock, id: "unavailable", collection_id: "three", variants: [{ inventory_quantity: 0 }] },
+    ]
+    const now = new Date("2026-10-27T00:00:00Z")
+    const selected = pickDiverseCatalogRows(rows, 3, [], now)
+    expect(selected.map((row) => row.id)).toContain("popular-1")
+    expect(selected.map((row) => row.id)).toContain("other")
+    expect(selected.map((row) => row.id)).not.toContain("unavailable")
+    expect(pickDiverseCatalogRows(rows, 3, [], now).map((row) => row.id)).toEqual(
+      selected.map((row) => row.id)
+    )
   })
 
   it("reads stock from location levels when inventory_quantity is missing", () => {

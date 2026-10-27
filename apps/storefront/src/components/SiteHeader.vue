@@ -30,8 +30,8 @@ function onSearch(event) {
           v-model="q"
           type="search"
           name="q"
-          placeholder="Поиск по названию"
-          aria-label="Поиск по названию"
+          placeholder="Название, артикул или характеристики"
+          aria-label="Поиск по названию, артикулу или характеристикам"
         />
       </form>
       <router-link class="brand" to="/" aria-label="PrintO.studio — на главную">

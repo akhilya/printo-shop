@@ -30,6 +30,7 @@ const ShopSetting = model.define("shop_setting", {
   redirect_target: model.text().nullable(),
   custom_order_telegram: model.boolean().default(true),
   custom_order_max: model.boolean().default(true),
+  gift_card_denominations: model.text().default("[]"),
 })
 
 export default ShopSetting

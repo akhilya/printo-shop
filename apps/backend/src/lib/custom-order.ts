@@ -327,6 +327,10 @@ export function presentCustomOrder(row: Record<string, unknown>) {
       row.checkout_token ? String(row.checkout_token) : null
     ),
     paid_at: row.paid_at ? String(row.paid_at) : null,
+    gift_card_amount: Number.isFinite(Number(row.gift_card_amount))
+      ? Number(row.gift_card_amount)
+      : null,
+    gift_card_code: row.gift_card_code ? String(row.gift_card_code) : null,
     ozon_point_id: row.ozon_point_id ? String(row.ozon_point_id) : null,
     ozon_point_name: row.ozon_point_name ? String(row.ozon_point_name) : null,
     ozon_point_address: row.ozon_point_address
@@ -391,6 +395,8 @@ export function presentPublicCustomCheckout(
     arrived: customOrderArrived(presented.ozon_posting_status),
     can_pay: customCheckoutCanPay(row),
     paid,
+    gift_card_amount: presented.gift_card_amount,
+    gift_card_code: paid ? presented.gift_card_code : null,
     ozon_point_id: presented.ozon_point_id,
     ozon_point_name: presented.ozon_point_name,
     ozon_point_address: presented.ozon_point_address,

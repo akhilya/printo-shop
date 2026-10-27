@@ -126,7 +126,11 @@ const waitingArrival = computed(
   () => orderPlaced.value && custom.value?.can_pay !== true
 )
 const submitLabel = computed(() =>
-  postpay.value && !orderPlaced.value ? "Оформить" : "Оплатить"
+  postpay.value && !orderPlaced.value
+    ? "Оформить"
+    : !isCustom.value && totals.value.total <= 0
+      ? "Оформить заказ"
+      : "Оплатить"
 )
 
 const pvzChosen = computed(() => Boolean(form.ozon_point_id))
@@ -411,6 +415,10 @@ async function payCart() {
     })
     cart = await retrieveCart(cart.id)
   }
+  if (Number(cart.total) <= 0) {
+    window.location.href = "/checkout/success"
+    return
+  }
   const { payment_collection } = await sdk.store.payment.initiatePaymentSession(
     cart,
     {
@@ -614,7 +622,7 @@ const empty = computed(() => {
         </div>
         <p v-if="!isCustom && cartState.error" class="err">{{ cartState.error }}</p>
         <PromoField
-          v-if="!orderPlaced"
+          v-if="!orderPlaced && !custom?.gift_card_amount"
           :token="isCustom ? token : ''"
           :promo-code="custom?.promo_code || ''"
           @applied="custom = $event"

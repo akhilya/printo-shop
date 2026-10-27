@@ -36,6 +36,7 @@ import { getOzonPosting } from "./ozon-posting"
 import { recordShopEvent, shopEventErrorDetail } from "./shop-event"
 import { ensureShopAccessToken } from "./shop-order-number"
 import { hasLegalAccepted, LEGAL_ACCEPT_ERROR } from "./legal-accept"
+import { ensureGiftCardPromotion, newGiftCardCode } from "./gift-card"
 
 import {
   getShopSetting,
@@ -378,14 +379,51 @@ export async function markCustomOrderPaid(
   container: MedusaContainer,
   order: Record<string, unknown>
 ) {
-  if (order.paid_at) return order
-  const next = await saveCustomOrder(container, String(order.id), {
-    paid_at: new Date(),
-    status: "paid",
-  })
-  const paid = await createOzonForCustomOrder(container, { ...order, ...next })
-  const { sendCustomOrderMail } = await import("./order-mail.js")
-  await sendCustomOrderMail(container, paid, "placed")
+  const justPaid = !order.paid_at
+  let paid = order
+  if (justPaid) {
+    const next = await saveCustomOrder(container, String(order.id), {
+      paid_at: new Date(),
+      status: "paid",
+    })
+    paid = { ...order, ...next }
+  }
+  const giftAmount = Number(paid.gift_card_amount)
+  let giftCardMailSent = false
+  if (giftAmount > 0) {
+    let giftCode = text(paid.gift_card_code)
+    if (!giftCode) {
+      const secret = text(process.env.JWT_SECRET || process.env.COOKIE_SECRET)
+      if (!secret) {
+        throw new MedusaError(
+          MedusaError.Types.INVALID_DATA,
+          "Не удалось безопасно создать сертификат"
+        )
+      }
+      giftCode = newGiftCardCode(String(paid.id), secret)
+      paid = await saveCustomOrder(container, String(paid.id), {
+        gift_card_code: giftCode,
+      })
+      paid = { ...order, ...paid, paid_at: paid.paid_at || order.paid_at || new Date() }
+    }
+    await ensureGiftCardPromotion(container, giftCode, giftAmount)
+    if (!paid.gift_card_email_sent_at) {
+      const { sendCustomOrderMail } = await import("./order-mail.js")
+      const result = await sendCustomOrderMail(container, paid, "placed")
+      if (!result.skipped) {
+        const saved = await saveCustomOrder(container, String(paid.id), {
+          gift_card_email_sent_at: new Date(),
+        })
+        paid = { ...paid, ...saved }
+        giftCardMailSent = true
+      }
+    }
+  }
+  paid = await createOzonForCustomOrder(container, paid)
+  if (justPaid && giftAmount <= 0 && !giftCardMailSent) {
+    const { sendCustomOrderMail } = await import("./order-mail.js")
+    await sendCustomOrderMail(container, paid, "placed")
+  }
   return paid
 }
 
@@ -440,6 +478,12 @@ export async function applyCustomOrderPromo(
   const order = await findCustomOrderByToken(container, token)
   if (!order || order.quote_amount == null) {
     throw new MedusaError(MedusaError.Types.NOT_FOUND, "Страница не найдена")
+  }
+  if (Number(order.gift_card_amount) > 0) {
+    throw new MedusaError(
+      MedusaError.Types.NOT_ALLOWED,
+      "На подарочный сертификат нельзя применить промокод"
+    )
   }
   if (order.paid_at) {
     throw new MedusaError(MedusaError.Types.NOT_ALLOWED, "Заказ уже оплачен")
@@ -516,6 +560,12 @@ export async function removeCustomOrderPromo(
   if (!order || order.quote_amount == null) {
     throw new MedusaError(MedusaError.Types.NOT_FOUND, "Страница не найдена")
   }
+  if (Number(order.gift_card_amount) > 0) {
+    throw new MedusaError(
+      MedusaError.Types.NOT_ALLOWED,
+      "Для сертификата промокод не применялся"
+    )
+  }
   if (order.paid_at) {
     throw new MedusaError(MedusaError.Types.NOT_ALLOWED, "Заказ уже оплачен")
   }
@@ -549,6 +599,17 @@ export async function startCustomOrderPayment(
   }
   if (order.paid_at) {
     throw new MedusaError(MedusaError.Types.NOT_ALLOWED, "Заказ уже оплачен")
+  }
+  if (
+    Number(order.gift_card_amount) > 0 &&
+    (Number(order.quote_amount) !== Number(order.gift_card_amount) ||
+      Number(order.promo_discount) > 0 ||
+      text(order.promo_code))
+  ) {
+    throw new MedusaError(
+      MedusaError.Types.NOT_ALLOWED,
+      "Не удалось проверить сумму сертификата"
+    )
   }
   const postpay =
     order.delivery_method === "ozon" && order.pay_on_arrival === true
@@ -685,8 +746,8 @@ export async function confirmCustomOrderPayment(
     throw new MedusaError(MedusaError.Types.NOT_FOUND, "Страница не найдена")
   }
   if (order.paid_at) {
-    const shipped = await createOzonForCustomOrder(container, order)
-    return presentCustomCheckoutWithAccess(container, shipped)
+    const paid = await markCustomOrderPaid(container, order)
+    return presentCustomCheckoutWithAccess(container, paid)
   }
   const paymentId = text(order.tbank_payment_id)
   if (!paymentId) {
@@ -706,6 +767,12 @@ export async function confirmCustomOrderPayment(
     apiUrl: options.apiUrl,
   })
   const state = await client.getState(paymentId)
+  if (
+    String(state.OrderId || "") !== text(order.tbank_order_id) ||
+    Number(state.Amount) !== toKopecks(order.quote_amount)
+  ) {
+    return presentCustomCheckoutWithAccess(container, order)
+  }
   if (!isTbankPaidStatus(state.Status)) {
     return presentCustomCheckoutWithAccess(container, order)
   }
@@ -728,6 +795,15 @@ export async function applyTbankNotificationToCustomOrder(
   const paymentId = text(payload.PaymentId)
   if (!paymentId) return
   const order = await findCustomOrderByPaymentId(container, paymentId)
-  if (!order || order.paid_at) return
+  if (!order) return
+  if (
+    String(payload.OrderId || "") !== text(order.tbank_order_id) ||
+    Number(payload.Amount) !== toKopecks(order.quote_amount)
+  ) return
+  if (
+    order.paid_at &&
+    (!order.gift_card_amount ||
+      (order.gift_card_code && order.gift_card_email_sent_at))
+  ) return
   await markCustomOrderPaid(container, order)
 }

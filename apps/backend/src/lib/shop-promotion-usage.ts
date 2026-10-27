@@ -32,6 +32,7 @@ export async function loadShopPromotionUsage(container: MedusaContainer) {
     )
     const rows = await custom.listCustomOrders({}, { take: 1000, skip: 0 })
     for (const row of rows as unknown as Record<string, unknown>[]) {
+      if (!row.paid_at) continue
       const code = String(row.promo_code || "").trim()
       if (code) codeLists.push([code])
     }

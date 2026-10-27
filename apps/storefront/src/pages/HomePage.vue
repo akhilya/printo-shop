@@ -7,12 +7,10 @@ import ProductCell from "../components/ProductCell.vue"
 import LinkArrow from "../components/LinkArrow.vue"
 import LuckyBanner from "../components/LuckyBanner.vue"
 import SiteBanner from "../components/SiteBanner.vue"
-import { productInStock } from "../lib/product-stock.js"
 import {
   HOME_GROUPS,
-  HOME_PRODUCTS,
   BACKEND_URL,
-  listShopCatalog,
+  loadShopHomeProducts,
   listShopGroups,
   storeHeaders,
 } from "../lib/sdk.js"
@@ -67,23 +65,10 @@ onMounted(async () => {
     .catch(() => {
       groups.value = []
     })
-  const productsTask = listShopCatalog({
-    limit: HOME_PRODUCTS,
-    offset: 0,
-    inStock: true,
-  })
+  const productsTask = loadShopHomeProducts()
     .then((result) => {
-      products.value = (result.products || []).filter(productInStock)
-      if (!luckySeeds.value.length && products.value.length) {
-        const pool = products.value.slice()
-        for (let i = pool.length - 1; i > 0; i--) {
-          const swap = Math.floor(Math.random() * (i + 1))
-          const current = pool[i]
-          pool[i] = pool[swap]
-          pool[swap] = current
-        }
-        luckySeeds.value = pool.slice(0, 3)
-      }
+      products.value = result.products || []
+      luckySeeds.value = result.recommendations || []
     })
     .catch(() => {
       products.value = []

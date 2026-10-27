@@ -1,4 +1,5 @@
 import {
+  isGiftCardPromotion,
   parseShopPromotionCreate,
   parseShopPromotionUpdate,
   presentPublicPromo,
@@ -147,6 +148,21 @@ describe("promotion page", () => {
 })
 
 describe("presentPublicPromo", () => {
+  it("never exposes a gift-card code as a public promo page", () => {
+    const result = presentPublicPromo(
+      {
+        code: "GIFT-SECRET",
+        status: "active",
+        is_automatic: false,
+        metadata: { gift_card: true, page: "abcdefgh23" },
+        application_method: { type: "fixed", value: 3000 },
+      },
+      0
+    )
+    expect(result).toBeNull()
+    expect(isGiftCardPromotion({ metadata: { gift_card: true } })).toBe(true)
+  })
+
   const row = {
     code: "leto10",
     status: "active",

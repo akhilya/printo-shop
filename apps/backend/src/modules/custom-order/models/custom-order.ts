@@ -38,6 +38,9 @@ const CustomOrder = model.define("custom_order", {
   ozon_order_number: model.text().nullable(),
   ozon_posting_number: model.text().nullable(),
   ozon_tracking: model.text().nullable(),
+  gift_card_amount: model.number().nullable(),
+  gift_card_code: model.text().nullable(),
+  gift_card_email_sent_at: model.dateTime().nullable(),
 })
 
 export default CustomOrder

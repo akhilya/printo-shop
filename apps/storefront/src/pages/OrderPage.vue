@@ -181,6 +181,14 @@ watch([numberParam, access], async () => {
     <template v-else-if="order">
       <p v-if="justPaid" class="checkout-done-id">{{ order.number }}</p>
       <p class="muted">{{ order.status?.label }}</p>
+      <section v-if="order.gift_card_code" class="checkout-done-block">
+        <h2>Подарочный сертификат</h2>
+        <p>Номинал: {{ price(order.gift_card_amount) }}</p>
+        <p class="checkout-done-id" aria-label="Код подарочного сертификата">
+          {{ order.gift_card_code }}
+        </p>
+        <p class="muted">Код одноразовый и действует для оплаты заказа в магазине.</p>
+      </section>
       <p v-if="order.cancel_reason" class="muted">{{ order.cancel_reason }}</p>
       <p v-if="order.cancel_note" class="muted" style="white-space: pre-wrap">
         {{ order.cancel_note }}

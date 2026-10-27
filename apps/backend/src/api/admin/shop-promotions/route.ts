@@ -5,6 +5,7 @@ import type {
 import { Modules } from "@medusajs/framework/utils"
 import type { IPromotionModuleService } from "@medusajs/framework/types"
 import {
+  isGiftCardPromotion,
   parseShopPromotionCreate,
   presentShopPromotion,
   promotionPageFromRow,
@@ -31,6 +32,21 @@ export async function GET(
     loadShopPromotionUsage(req.scope),
   ])
   for (const row of rows as unknown as Record<string, unknown>[]) {
+    if (isGiftCardPromotion(row)) {
+      const metadata =
+        row.metadata && typeof row.metadata === "object"
+          ? { ...(row.metadata as Record<string, unknown>) }
+          : {}
+      if ("page" in metadata) {
+        delete metadata.page
+        await (promotion.updatePromotions as (data: {
+          id: string
+          metadata: Record<string, unknown>
+        }) => Promise<unknown>)({ id: String(row.id), metadata })
+        row.metadata = metadata
+      }
+      continue
+    }
     if (row.is_automatic === true || !String(row.code || "").trim()) continue
     if (promotionPageFromRow(row)) continue
     const page = promotionPageKey(String(row.code || ""))

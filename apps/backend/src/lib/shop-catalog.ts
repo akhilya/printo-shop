@@ -38,6 +38,7 @@ const CATALOG_META_KEYS = [
   "sale_price",
   "attributes",
   "brand",
+  SHOP_VIEWS_KEY,
 ] as const
 
 type CatalogLevel = {
@@ -101,7 +102,110 @@ export function applyInventoryItemQuantities(
 }
 
 export function catalogNeedle(value: unknown) {
-  return String(value || "").trim().toLowerCase()
+  return String(value || "")
+    .normalize("NFKC")
+    .toLocaleLowerCase("ru")
+    .replace(/ё/g, "е")
+    .replace(/[^\p{L}\p{N}]+/gu, " ")
+    .trim()
+}
+
+const LATIN_TO_CYRILLIC: Record<string, string> = {
+  a: "а", b: "б", v: "в", g: "г", d: "д", e: "е", z: "з", i: "и",
+  k: "к", l: "л", m: "м", n: "н", o: "о", p: "п", r: "р", s: "с",
+  t: "т", u: "у", f: "ф", h: "х", c: "ц", y: "ы",
+}
+const KEYBOARD_LAYOUT = "qwertyuiop[]asdfghjkl;'zxcvbnm,."
+const RUSSIAN_LAYOUT = "йцукенгшщзхъфывапролджэячсмитьбю"
+
+function transliterateToCyrillic(value: string) {
+  return value
+    .replace(/shch/g, "щ")
+    .replace(/zh/g, "ж")
+    .replace(/ch/g, "ч")
+    .replace(/sh/g, "ш")
+    .replace(/ts/g, "ц")
+    .replace(/kh/g, "х")
+    .replace(/yu/g, "ю")
+    .replace(/ya/g, "я")
+    .replace(/[abvgdeziklmnoprstufhcy]/g, (letter) => LATIN_TO_CYRILLIC[letter] || letter)
+}
+
+function searchForms(value: string) {
+  const forms = new Set([value])
+  forms.add(transliterateToCyrillic(value))
+  forms.add(value.replace(/[a-z\[\];',.]/g, (letter) => {
+    const index = KEYBOARD_LAYOUT.indexOf(letter)
+    return index < 0 ? letter : RUSSIAN_LAYOUT[index]
+  }))
+  return [...forms]
+}
+
+function editDistanceAtMostOne(left: string, right: string) {
+  if (Math.abs(left.length - right.length) > 1) return false
+  let i = 0
+  let j = 0
+  let edits = 0
+  while (i < left.length && j < right.length) {
+    if (left[i] === right[j]) {
+      i += 1
+      j += 1
+      continue
+    }
+    edits += 1
+    if (edits > 1) return false
+    if (left.length > right.length) i += 1
+    else if (right.length > left.length) j += 1
+    else {
+      i += 1
+      j += 1
+    }
+  }
+  return edits + Number(i < left.length || j < right.length) <= 1
+}
+
+function catalogSearchText(row: CatalogRow) {
+  const metadata = row.metadata || {}
+  const attributes = metadata.attributes
+  const attributeText =
+    typeof attributes === "string"
+      ? attributes
+      : attributes && typeof attributes === "object"
+        ? Object.values(attributes).join(" ")
+        : ""
+  return [
+    row.title,
+    row.handle,
+    ...(row.variants || []).map((variant) => variant.sku),
+    metadata.brand,
+    attributeText,
+  ]
+    .filter((value) => typeof value === "string")
+    .join(" ")
+}
+
+export function catalogSearchScore(row: CatalogRow, query: string) {
+  const needle = catalogNeedle(query)
+  if (!needle) return 1
+  const forms = searchForms(needle)
+  const title = catalogNeedle(row.title)
+  const searchable = catalogNeedle(catalogSearchText(row))
+  const words = searchable.split(/\s+/).filter(Boolean)
+  let score = 0
+  for (const form of forms) {
+    if (title === form) score = Math.max(score, 120)
+    else if (title.startsWith(form)) score = Math.max(score, 100)
+    else if (title.includes(form)) score = Math.max(score, 80)
+    else if (searchable.includes(form)) score = Math.max(score, 60)
+    const tokens = form.split(/\s+/).filter(Boolean)
+    const matched = tokens.filter((token) =>
+      words.some((word) => word === token || word.startsWith(token) || (token.length >= 4 && editDistanceAtMostOne(token, word)))
+    ).length
+    if (tokens.length && matched === tokens.length) {
+      score = Math.max(score, 70 + tokens.length)
+    }
+  }
+  return score
 }
 
 export function variantCatalogQuantity(variant: CatalogVariant) {
@@ -134,12 +238,7 @@ export function catalogProductInStock(row: CatalogRow) {
 
 export function productMatchesCatalogQuery(row: CatalogRow, needle: string) {
   if (!needle) return true
-  if (String(row.title || "").toLowerCase().includes(needle)) return true
-  if (String(row.handle || "").toLowerCase().includes(needle)) return true
-  for (const variant of row.variants || []) {
-    if (String(variant.sku || "").toLowerCase().includes(needle)) return true
-  }
-  return false
+  return catalogSearchScore(row, needle) > 0
 }
 
 export function catalogUsesMemory(cache: { count: number; partial: boolean }) {
@@ -402,6 +501,47 @@ export function pickLuckyCatalogRows(
 
 export function pickLuckyCatalogRow(rows: CatalogRow[], excludeId?: string | null) {
   return pickLuckyCatalogRows(rows, 1, excludeId)[0] || null
+}
+
+function dailyProductScore(row: CatalogRow, day: string) {
+  const views = Math.max(0, Number(row.metadata?.[SHOP_VIEWS_KEY]) || 0)
+  let hash = 2166136261
+  for (const char of `${day}:${row.id}`) {
+    hash ^= char.charCodeAt(0)
+    hash = Math.imul(hash, 16777619)
+  }
+  const rotation = (hash >>> 0) / 0xffffffff
+  return Math.log1p(views) * 0.65 + rotation * 0.35
+}
+
+export function pickDiverseCatalogRows(
+  rows: CatalogRow[],
+  count: number,
+  excludeIds: string[] = [],
+  now = new Date()
+) {
+  const day = `${now.getUTCFullYear()}-${now.getUTCMonth()}-${now.getUTCDate()}`
+  const excluded = new Set(excludeIds)
+  const candidates = rows
+    .filter((row) => !excluded.has(row.id) && catalogProductInStock(row))
+    .sort((a, b) => dailyProductScore(b, day) - dailyProductScore(a, day))
+  const picked: CatalogRow[] = []
+  const collectionCounts = new Map<string, number>()
+  while (candidates.length && picked.length < count) {
+    const index = candidates.findIndex((row) => {
+      const collection = String(row.collection_id || "")
+      return !collection || (collectionCounts.get(collection) || 0) < 2
+    })
+    const [row] = candidates.splice(index < 0 ? 0 : index, 1)
+    picked.push(row)
+    if (row.collection_id) {
+      collectionCounts.set(
+        row.collection_id,
+        (collectionCounts.get(row.collection_id) || 0) + 1
+      )
+    }
+  }
+  return picked
 }
 
 let catalogCache: { at: number; rows: CatalogRow[]; partial: boolean } = {
@@ -975,6 +1115,13 @@ function pageReadyCatalog(
       return true
     })
   }
+  if (needle) {
+    matched = matched
+      .map((row, index) => ({ row, index, score: catalogSearchScore(row, needle) }))
+      .filter((item) => item.score > 0)
+      .sort((a, b) => b.score - a.score || a.index - b.index)
+      .map((item) => item.row)
+  }
   return pageCatalogProducts(matched, input.offset || 0, input.limit || 20)
 }
 
@@ -1255,6 +1402,25 @@ export async function getLuckyShopProduct(
 ) {
   const [product] = await getLuckyShopProducts(container, excludeId, 1)
   return product || null
+}
+
+export async function getHomeShopProducts(
+  container: MedusaContainer,
+  productLimit = 16,
+  recommendationLimit = 3
+) {
+  const rows = memoryCatalogRows() || (await loadEnoughInStockRows(container, 400))
+  queueCatalogRefresh(container)
+  const products = pickDiverseCatalogRows(rows, productLimit)
+  const recommendations = pickDiverseCatalogRows(
+    rows,
+    recommendationLimit,
+    products.map((row) => row.id)
+  )
+  return {
+    products: products.map(presentCatalogProduct),
+    recommendations: recommendations.map(presentCatalogProduct),
+  }
 }
 
 export async function bumpProductViews(

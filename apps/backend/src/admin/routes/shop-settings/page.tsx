@@ -11,8 +11,9 @@ import {
   Textarea,
   toast,
 } from "@medusajs/ui"
+import { Trash } from "@medusajs/icons"
 import { useMutation, useQuery, useQueryClient } from "@tanstack/react-query"
-import { useEffect, useState } from "react"
+import { useEffect, useMemo, useState } from "react"
 import OzonFromPlaceMap from "../../components/ozon-from-place-map"
 import { sdk } from "../../lib/sdk"
 
@@ -41,6 +42,7 @@ type ShopSetting = {
   ozon_fixed_amount: number
   ozon_custom_article: string
   custom_order_channels: Array<"telegram" | "max">
+  gift_card_denominations: number[]
 }
 
 const EMPTY: ShopSetting = {
@@ -76,6 +78,9 @@ const ShopSettingsPage = () => {
     ...EMPTY,
     tbank_password: "",
   })
+  const [giftCardRows, setGiftCardRows] = useState<
+    Array<{ id: string; value: string }>
+  >([])
 
   const { data, isLoading } = useQuery({
     queryFn: () =>
@@ -91,7 +96,37 @@ const ShopSettingsPage = () => {
       tbank_password: "",
       ozon_oauth_token: "",
     })
+    setGiftCardRows(
+      (data.shop.gift_card_denominations || []).map((amount, index) => ({
+        id: `${index}-${amount}`,
+        value: String(amount),
+      }))
+    )
   }, [data])
+
+  const giftCardErrors = useMemo(() => {
+    const counts = new Map<string, number>()
+    for (const row of giftCardRows) {
+      const value = row.value.trim()
+      if (value) {
+        const key = String(Number(value))
+        counts.set(key, (counts.get(key) || 0) + 1)
+      }
+    }
+    return giftCardRows.map((row) => {
+      const value = row.value.trim()
+      const amount = Number(value)
+      if (!value) return "Укажите сумму"
+      if (!Number.isSafeInteger(amount) || amount < 1 || amount > 1_000_000) {
+        return "Введите целое число от 1 до 1 000 000 ₽"
+      }
+      if ((counts.get(String(amount)) || 0) > 1) {
+        return "Такой номинал уже добавлен"
+      }
+      return ""
+    })
+  }, [giftCardRows])
+  const giftCardRowsValid = giftCardErrors.every((error) => !error)
 
   const save = useMutation({
     mutationFn: (row?: typeof form) => {
@@ -120,6 +155,13 @@ const ShopSettingsPage = () => {
           ozon_fixed_amount: src.ozon_fixed_amount,
           ozon_custom_article: src.ozon_custom_article,
           custom_order_channels: src.custom_order_channels,
+          ...(giftCardRowsValid
+            ? {
+                gift_card_denominations: giftCardRows.map((row) =>
+                  Number(row.value)
+                ),
+              }
+            : {}),
         },
       })
     },
@@ -244,6 +286,112 @@ const ShopSettingsPage = () => {
             <Button onClick={() => save.mutate()} isLoading={save.isPending}>
               Сохранить
             </Button>
+          </>
+        )}
+      </Container>
+
+      <Container className="flex max-w-2xl flex-col gap-y-4 p-6">
+        <Heading>Подарочные сертификаты</Heading>
+        <Text size="small" className="text-ui-fg-subtle">
+          Каждый номинал задаётся отдельно. Суммы доступны покупателю на странице сертификатов.
+        </Text>
+        {isLoading ? null : (
+          <>
+            {giftCardRows.length ? (
+              <div className="flex flex-col gap-y-3">
+                {giftCardRows.map((row, index) => (
+                  <div
+                    key={row.id}
+                    className="grid grid-cols-[minmax(0,1fr)_auto] items-start gap-x-2 gap-y-1 sm:max-w-lg"
+                  >
+                    <div className="flex min-w-0 flex-col gap-y-1">
+                      <Label htmlFor={`gift-card-denomination-${row.id}`}>
+                        Номинал {index + 1}
+                      </Label>
+                      <div className="relative">
+                        <Input
+                          id={`gift-card-denomination-${row.id}`}
+                          type="number"
+                          inputMode="numeric"
+                          min={1}
+                          max={1_000_000}
+                          step={1}
+                          value={row.value}
+                          aria-invalid={Boolean(giftCardErrors[index])}
+                          aria-describedby={
+                            giftCardErrors[index]
+                              ? `gift-card-error-${row.id}`
+                              : undefined
+                          }
+                          onChange={(event) =>
+                            setGiftCardRows((current) =>
+                              current.map((item) =>
+                                item.id === row.id
+                                  ? { ...item, value: event.target.value }
+                                  : item
+                              )
+                            )
+                          }
+                          className="pr-10"
+                        />
+                        <span className="text-ui-fg-subtle pointer-events-none absolute inset-y-0 right-3 flex items-center text-sm">
+                          ₽
+                        </span>
+                      </div>
+                      {giftCardErrors[index] ? (
+                        <Text
+                          id={`gift-card-error-${row.id}`}
+                          role="alert"
+                          size="small"
+                          className="text-ui-fg-error"
+                        >
+                          {giftCardErrors[index]}
+                        </Text>
+                      ) : null}
+                    </div>
+                    <Button
+                      type="button"
+                      variant="secondary"
+                      size="small"
+                      className="mt-6"
+                      aria-label={`Удалить номинал ${index + 1}`}
+                      onClick={() =>
+                        setGiftCardRows((current) =>
+                          current.filter((item) => item.id !== row.id)
+                        )
+                      }
+                    >
+                      <Trash />
+                    </Button>
+                  </div>
+                ))}
+              </div>
+            ) : (
+              <Text size="small" className="text-ui-fg-subtle">
+                Номиналы не заданы. Продажа сертификатов будет выключена.
+              </Text>
+            )}
+            <div className="flex flex-wrap gap-2">
+              <Button
+                type="button"
+                variant="secondary"
+                onClick={() =>
+                  setGiftCardRows((current) => [
+                    ...current,
+                    { id: crypto.randomUUID(), value: "" },
+                  ])
+                }
+              >
+                Добавить номинал
+              </Button>
+              <Button
+                onClick={() => save.mutate()}
+                isLoading={save.isPending}
+                disabled={!giftCardRowsValid}
+              >
+              Сохранить
+              </Button>
+            </div>
           </>
         )}
       </Container>

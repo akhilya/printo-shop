@@ -31,6 +31,8 @@ type AdminCustomOrder = {
   status: string
   ip?: string | null
   quote_amount: number | null
+  gift_card_amount: number | null
+  gift_card_code: string | null
   quote_items_amount: number | null
   quote_discount_amount: number | null
   quote_shipping_amount: number | null
@@ -290,6 +292,13 @@ const CustomOrderDetailPage = () => {
               Своя модель, без привязки к каталогу
             </Text>
           )}
+          {order.gift_card_amount ? (
+            <div className="flex flex-col gap-y-1 rounded-md border p-3">
+              <Text weight="plus">Подарочный сертификат</Text>
+              <Text>Номинал: {order.gift_card_amount} ₽</Text>
+              <Text>Код: {order.gift_card_code || "Будет создан после оплаты"}</Text>
+            </div>
+          ) : null}
           {order.ip ? (
             <div className="flex flex-wrap items-center gap-2">
               <Text size="small">IP: {order.ip}</Text>

@@ -27,6 +27,7 @@ type ShopPromotion = {
   used_count: number
   max_uses: number
   page: string
+  gift_card: boolean
 }
 
 const EMPTY = {
@@ -335,6 +336,7 @@ const ShopPromotionsPage = () => {
                       />
                     </div>
                     <div className="flex items-center gap-x-2">
+                      {row.gift_card ? <Badge color="purple">Сертификат</Badge> : null}
                       <Badge color={row.include_shipping ? "blue" : "grey"}>
                         {row.include_shipping ? "С доставкой" : "Только товар"}
                       </Badge>

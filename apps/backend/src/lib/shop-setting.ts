@@ -86,6 +86,21 @@ function text(row: Record<string, unknown>, key: string): string {
   return String(row[key] || "").trim()
 }
 
+export function parseGiftCardDenominations(value: unknown): number[] {
+  let parsed = value
+  if (typeof value === "string") {
+    try {
+      parsed = JSON.parse(value)
+    } catch {
+      parsed = value.split(/[\s,;]+/)
+    }
+  }
+  if (!Array.isArray(parsed)) return []
+  return [...new Set(parsed.map(Number).filter((amount) =>
+    Number.isSafeInteger(amount) && amount > 0 && amount <= 1_000_000
+  ))].sort((a, b) => a - b)
+}
+
 export function cacheShopSetting(row: Record<string, unknown> | null) {
   cachedRow = row
   cachedAt = row ? Date.now() : 0
@@ -150,6 +165,7 @@ export type ShopSettingPublic = {
   redirect_path: string
   redirect_target: string
   custom_order_channels: CustomOrderContactChannel[]
+  gift_card_denominations: number[]
 }
 
 export type ShopSettingAdmin = ShopSettingPublic & {
@@ -199,6 +215,9 @@ export function presentShopSetting(
     redirect_path: text(row, "redirect_path"),
     redirect_target: text(row, "redirect_target"),
     custom_order_channels: customOrderChannelsFromRow(row),
+    gift_card_denominations: parseGiftCardDenominations(
+      row.gift_card_denominations
+    ),
   }
   if (!opts.admin) return base
   const urls = defaultTbankUrls()
@@ -307,6 +326,11 @@ export function parseShopSettingUpdate(
     const channels = parseCustomOrderChannels(rec.custom_order_channels)
     update.custom_order_telegram = channels.telegram
     update.custom_order_max = channels.max
+  }
+  if ("gift_card_denominations" in rec) {
+    update.gift_card_denominations = JSON.stringify(
+      parseGiftCardDenominations(rec.gift_card_denominations)
+    )
   }
   return update
 }

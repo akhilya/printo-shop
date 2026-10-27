@@ -64,6 +64,7 @@ onMounted(async () => {
             <router-link to="/products">Товары</router-link>
             <router-link to="/collections">Коллекции</router-link>
             <router-link to="/custom-order">Индивидуальный заказ</router-link>
+            <router-link to="/gift-cards">Подарочные сертификаты</router-link>
             <router-link to="/order">Заказ</router-link>
             <router-link
               v-for="page in usefulExtraPages(legalPages)"

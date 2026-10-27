@@ -26,6 +26,15 @@ function text(value: unknown) {
   return String(value || "").trim()
 }
 
+export function isGiftCardPromotion(row: Record<string, unknown> | null | undefined) {
+  const metadata = row?.metadata
+  return Boolean(
+    metadata &&
+      typeof metadata === "object" &&
+      (metadata as Record<string, unknown>).gift_card === true
+  )
+}
+
 const PAGE_ALPHABET = "abcdefghjkmnpqrstuvwxyz23456789"
 
 export function promotionPageKey(code = "") {
@@ -224,7 +233,7 @@ export function presentPublicPromo(
   row: Record<string, unknown> | null | undefined,
   used = 0
 ) {
-  if (!row || row.is_automatic === true) return null
+  if (!row || row.is_automatic === true || isGiftCardPromotion(row)) return null
   if (String(row.status || "") !== "active") return null
   const code = text(row.code).toUpperCase()
   if (!/^[A-Z0-9_-]{3,32}$/.test(code)) return null
@@ -253,6 +262,9 @@ export function presentShopPromotion(
   const method = (row.application_method || {}) as Record<string, unknown>
   const type = method.type === "fixed" ? "fixed" : "percentage"
   const code = String(row.code || "")
+  const metadata = row.metadata && typeof row.metadata === "object"
+    ? (row.metadata as Record<string, unknown>)
+    : {}
   return {
     id: String(row.id || ""),
     code,
@@ -265,5 +277,6 @@ export function presentShopPromotion(
     max_uses: shopPromotionMaxUses(row),
     used_count: usageByCode[code.toUpperCase()] || 0,
     page: promotionPageFromRow(row),
+    gift_card: metadata.gift_card === true,
   }
 }

@@ -143,7 +143,9 @@ export function orderMailPayloadFromCustom(
     ozon_point_address: text(order.ozon_point_address) || null,
     ozon_tracking: text(order.ozon_tracking) || null,
     ozon_posting_number: text(order.ozon_posting_number) || null,
-    details: text(order.quote_note || order.message) || null,
+    details: Number(order.gift_card_amount) > 0 && text(order.gift_card_code)
+      ? `Подарочный сертификат на ${Number(order.gift_card_amount)} ₽\nКод сертификата: ${text(order.gift_card_code)}`
+      : text(order.quote_note || order.message) || null,
     returns_url: shopReturnsUrl(),
     logo_url: shopLogoUrl(),
   }
