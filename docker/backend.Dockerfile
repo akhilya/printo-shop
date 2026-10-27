@@ -1,3 +1,25 @@
+FROM node:20-bookworm-slim AS build
+
+WORKDIR /app
+
+RUN apt-get update \
+  && apt-get install -y --no-install-recommends python3 make g++ \
+  && rm -rf /var/lib/apt/lists/*
+
+COPY package.json package-lock.json turbo.json eslint.config.ts ./
+COPY apps/backend/package.json apps/backend/package.json
+COPY apps/storefront/package.json apps/storefront/package.json
+
+RUN npm ci
+
+COPY apps/backend apps/backend
+
+WORKDIR /app/apps/backend
+RUN npx medusa build
+
+WORKDIR /app
+RUN npm ci --omit=dev --workspace=@dtc/backend --include-workspace-root=false
+
 FROM node:20-bookworm-slim
 
 WORKDIR /app
@@ -19,16 +41,11 @@ ENV NODE_EXTRA_CA_CERTS=/etc/ssl/certs/ca-certificates.crt
 # copy the built server files and the package manifest(s) from the build stage
 COPY --from=build /app/apps/backend/.medusa/server ./
 COPY --from=build /app/apps/backend/package.json ./
-COPY --from=build /app/apps/backend/package-lock.json ./
+COPY --from=build /app/node_modules ./node_modules
 
 COPY docker/backend-start.sh ./start.sh
 
-RUN chmod +x ./start.sh \
-  && npm pkg set "overrides.@aws-sdk/client-s3=3.1128.0" \
-  && npm pkg set "overrides.@aws-sdk/lib-storage=3.1128.0" \
-  && npm pkg set "overrides.@aws-sdk/s3-request-presigner=3.1128.0" \
-  && npm pkg set "overrides.@aws-sdk/client-dynamodb=3.1128.0" \
-  && npm install --omit=dev
+RUN chmod +x ./start.sh
 
 EXPOSE 9000
 CMD ["./start.sh"]
