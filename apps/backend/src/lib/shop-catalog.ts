@@ -141,27 +141,54 @@ function searchForms(value: string) {
   return [...forms]
 }
 
-function editDistanceAtMostOne(left: string, right: string) {
-  if (Math.abs(left.length - right.length) > 1) return false
-  let i = 0
-  let j = 0
-  let edits = 0
-  while (i < left.length && j < right.length) {
-    if (left[i] === right[j]) {
-      i += 1
-      j += 1
-      continue
-    }
-    edits += 1
-    if (edits > 1) return false
-    if (left.length > right.length) i += 1
-    else if (right.length > left.length) j += 1
-    else {
-      i += 1
-      j += 1
+function editDistance(left: string, right: string) {
+  const rows = Array.from({ length: left.length + 1 }, () =>
+    Array.from({ length: right.length + 1 }, () => 0)
+  )
+  for (let i = 0; i <= left.length; i += 1) rows[i][0] = i
+  for (let j = 0; j <= right.length; j += 1) rows[0][j] = j
+  for (let i = 1; i <= left.length; i += 1) {
+    for (let j = 1; j <= right.length; j += 1) {
+      const substitution = rows[i - 1][j - 1] + Number(left[i - 1] !== right[j - 1])
+      rows[i][j] = Math.min(
+        rows[i - 1][j] + 1,
+        rows[i][j - 1] + 1,
+        substitution
+      )
+      if (i > 1 && j > 1 && left[i - 1] === right[j - 2] && left[i - 2] === right[j - 1]) {
+        rows[i][j] = Math.min(rows[i][j], rows[i - 2][j - 2] + 1)
+      }
     }
   }
-  return edits + Number(i < left.length || j < right.length) <= 1
+  return rows[left.length][right.length]
+}
+
+function searchTokenMatches(query: string, word: string) {
+  if (word === query || word.startsWith(query)) return true
+  if (query.length < 4) return false
+  const maxDistance = query.length >= 5 ? 2 : 1
+  const minLength = Math.max(1, query.length - maxDistance)
+  const maxLength = Math.min(word.length, query.length + maxDistance)
+  for (let length = minLength; length <= maxLength; length += 1) {
+    if (editDistance(query, word.slice(0, length)) <= maxDistance) return true
+  }
+  return false
+}
+
+function nearestTokenSimilarity(query: string, words: string[]) {
+  if (!query || !words.length) return 0
+  let best = 0
+  for (const word of words) {
+    const minLength = Math.max(1, Math.min(query.length, word.length) - 2)
+    const maxLength = Math.min(word.length, query.length + 2)
+    let distance = editDistance(query, word)
+    for (let length = minLength; length <= maxLength; length += 1) {
+      distance = Math.min(distance, editDistance(query, word.slice(0, length)))
+    }
+    const similarity = 1 - distance / Math.max(query.length, word.length, 1)
+    best = Math.max(best, similarity)
+  }
+  return best
 }
 
 function catalogSearchText(row: CatalogRow) {
@@ -199,11 +226,20 @@ export function catalogSearchScore(row: CatalogRow, query: string) {
     else if (searchable.includes(form)) score = Math.max(score, 60)
     const tokens = form.split(/\s+/).filter(Boolean)
     const matched = tokens.filter((token) =>
-      words.some((word) => word === token || word.startsWith(token) || (token.length >= 4 && editDistanceAtMostOne(token, word)))
+      words.some((word) => searchTokenMatches(token, word))
     ).length
     if (tokens.length && matched === tokens.length) {
       score = Math.max(score, 70 + tokens.length)
     }
+  }
+  if (!score) {
+    const tokens = needle.split(/\s+/).filter(Boolean)
+    const similarities = tokens.map((token) =>
+      Math.max(...searchForms(token).map((form) => nearestTokenSimilarity(form, words)))
+    )
+    const average = similarities.reduce((sum, value) => sum + value, 0) / similarities.length
+    // Keep a positive score so even an unrelated query returns its closest products.
+    score = 1 + average * 30
   }
   return score
 }
@@ -1221,6 +1257,14 @@ export async function listShopCatalogPage(
     seedCatalogPreview(rows)
     queueCatalogRefresh(container)
     return pageCatalogProducts(rows, offset, limit)
+  }
+  if (catalogNeedle(input.q)) {
+    try {
+      const rows = await refreshCatalogInBackground(container)
+      return pageReadyCatalog(rows, input)
+    } catch {
+      // Fall back to the module query if the full catalog cannot be loaded.
+    }
   }
   const page = await loadFastCatalogPage(container, input)
   queueCatalogRefresh(container)

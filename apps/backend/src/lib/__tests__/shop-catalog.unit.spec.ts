@@ -40,7 +40,7 @@ describe("shop catalog", () => {
     expect(productMatchesCatalogQuery(inStock, "cnhf;")).toBe(true)
     expect(productMatchesCatalogQuery(inStock, "стражж")).toBe(true)
     expect(productMatchesCatalogQuery(inStock, "wa150")).toBe(true)
-    expect(productMatchesCatalogQuery(inStock, "tn1")).toBe(false)
+    expect(productMatchesCatalogQuery(inStock, "tn1")).toBe(true)
   })
 
   it("ranks title matches above weaker SKU matches and searches attributes", () => {
@@ -56,6 +56,22 @@ describe("shop catalog", () => {
       catalogSearchScore(skuMatch, "страж")
     )
     expect(productMatchesCatalogQuery(attributeMatch, "страж")).toBe(true)
+  })
+
+  it("finds products from misspelled and incomplete English or Russian words", () => {
+    const vampire = { ...inStock, id: "vampire", title: "Vampires" }
+    const vampires = { ...inStock, id: "vampires", title: "Вампиры" }
+    expect(productMatchesCatalogQuery(vampire, "vampries")).toBe(true)
+    expect(productMatchesCatalogQuery(vampires, "вампр")).toBe(true)
+  })
+
+  it("returns a nearest result for a query with no direct match", () => {
+    const close = { ...inStock, id: "close", title: "Vampires" }
+    const far = { ...inStock, id: "far", title: "Dragon" }
+    expect(productMatchesCatalogQuery(close, "vampirezzzz")).toBe(true)
+    expect(catalogSearchScore(close, "vampirezzzz")).toBeGreaterThan(
+      catalogSearchScore(far, "vampirezzzz")
+    )
   })
 
   it("puts out-of-stock rows after in-stock ones across the whole list", () => {
