@@ -7,6 +7,7 @@ import {
   normalizeOzonPhone,
   ozonOrderContacts,
   ozonOrderCreateSplits,
+  ozonCheckoutResponseDiagnostic,
   ozonPackErrorMessage,
   ozonAdminErrorMessage,
   ozonCreateDeliveryType,
@@ -556,6 +557,42 @@ describe("ozonOrderCreateSplits", () => {
     expect(() => ozonOrderCreateSplits({ amount: 320 }, { items: cart })).toThrow(
       /без отправлений/
     )
+  })
+})
+
+describe("ozonCheckoutResponseDiagnostic", () => {
+  it("keeps delivery details and redacts personal fields", () => {
+    expect(
+      ozonCheckoutResponseDiagnostic({
+        buyer_phone: "79991234567",
+        splits: [
+          {
+            warehouse_id: 555,
+            delivery_methods: [
+              {
+                delivery_method_id: 42,
+                unavailable_reason: "NO_AVAILABLE_TIMESLOT",
+                timeslots: [],
+              },
+            ],
+          },
+        ],
+      })
+    ).toEqual({
+      buyer_phone: "[redacted]",
+      splits: [
+        {
+          warehouse_id: 555,
+          delivery_methods: [
+            {
+              delivery_method_id: 42,
+              unavailable_reason: "NO_AVAILABLE_TIMESLOT",
+              timeslots: [],
+            },
+          ],
+        },
+      ],
+    })
   })
 })
 
@@ -1285,6 +1322,49 @@ describe("quoteOzonDelivery", () => {
     expect(JSON.stringify(error.ozonRequests || requests, null, 2)).toContain(
       "offer_id"
     )
+  })
+
+  it("keeps both checkout responses when neither schema has a timeslot", async () => {
+    mockOzon((path, init) => {
+      if (path.includes("/product/info/list")) {
+        return jsonResponse({ items: [{ offer_id: "WA150", sku: 987 }] })
+      }
+      if (path.includes("/v2/delivery/checkout")) {
+        const request = JSON.parse(String(init?.body || "{}"))
+        return jsonResponse({
+          splits: [
+            {
+              delivery_schema: request.delivery_schema,
+              warehouse_id: 555,
+              delivery_methods: [
+                {
+                  delivery_method_id: 42,
+                  unavailable_reason: "NO_AVAILABLE_TIMESLOT",
+                  timeslots: [],
+                },
+              ],
+            },
+          ],
+        })
+      }
+      return jsonResponse({ message: path }, 404)
+    })
+
+    const error = await createOzonDeliveryOrder({
+      creds: sellerInput.creds,
+      orderNumber: "shop-1",
+      buyer: { name: "Иван Петров", phone: sellerInput.phone },
+      point: { id: "77", address: "Тверская 1" },
+      amount: 1500,
+      items: [{ article: "WA150", name: "Фигурка", quantity: 1, price: 1500 }],
+    }).catch((caught) => caught as Error & { ozonCheckoutResponses?: unknown[] })
+
+    expect(error.ozonCheckoutResponses).toHaveLength(2)
+    expect(JSON.stringify(error.ozonCheckoutResponses)).toContain(
+      "NO_AVAILABLE_TIMESLOT"
+    )
+    expect(JSON.stringify(error.ozonCheckoutResponses)).toContain('"schema":"FBS"')
+    expect(JSON.stringify(error.ozonCheckoutResponses)).toContain('"schema":"FBO"')
   })
 })
 

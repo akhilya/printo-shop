@@ -77,6 +77,31 @@ describe("shopEventErrorDetail", () => {
     expect(detail).toContain('"delivery_schema": "FBS"')
     expect(detail).toContain('"items"')
   })
+
+  it("includes checkout responses needed to diagnose delivery availability", () => {
+    const error = new Error("Ozon checkout: split 1 has no delivery slot") as Error & {
+      ozonCheckoutResponses: unknown[]
+    }
+    error.ozonCheckoutResponses = [
+      {
+        schema: "FBS",
+        response: {
+          splits: [{
+            delivery_methods: [{
+              delivery_method_id: 42,
+              unavailable_reason: "NO_AVAILABLE_TIMESLOT",
+              timeslots: [],
+            }],
+          }],
+        },
+      },
+    ]
+
+    const detail = shopEventErrorDetail(error)
+    expect(detail).toContain('"checkout_responses"')
+    expect(detail).toContain("NO_AVAILABLE_TIMESLOT")
+    expect(detail).toContain('"schema": "FBS"')
+  })
 })
 
 describe("shopEventSearchFilters", () => {

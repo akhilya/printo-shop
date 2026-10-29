@@ -1847,6 +1847,64 @@ function ozonCreateTimeslot(method: Record<string, unknown>) {
   return null
 }
 
+const OZON_CHECKOUT_PRIVATE_KEY =
+  /^(?:buyer|recipient|customer|user|phone|email|first_name|last_name|name|full_name|address|contact)(?:_|$)|(?:^|_)address(?:_|$)/i
+
+function sanitizeOzonCheckoutValue(value: unknown, depth = 0): unknown {
+  if (depth > 8) return "[max depth]"
+  if (Array.isArray(value)) {
+    const rows = value
+      .slice(0, 100)
+      .map((row) => sanitizeOzonCheckoutValue(row, depth + 1))
+    if (value.length > rows.length) {
+      rows.push(`[${value.length - rows.length} more items]`)
+    }
+    return rows
+  }
+
+  const rec = asRecord(value)
+  if (rec) {
+    const sanitized: Record<string, unknown> = {}
+    for (const [key, entry] of Object.entries(rec)) {
+      if (OZON_CHECKOUT_PRIVATE_KEY.test(key)) {
+        sanitized[key] = "[redacted]"
+      } else if (key === "raw" && typeof entry === "string") {
+        sanitized.raw_response_chars = entry.length
+        sanitized.raw_response = "[omitted: response was not valid JSON]"
+      } else {
+        sanitized[key] = sanitizeOzonCheckoutValue(entry, depth + 1)
+      }
+    }
+    return sanitized
+  }
+
+  if (typeof value === "string" && value.length > 1000) {
+    return `${value.slice(0, 1000)}…[truncated]`
+  }
+  return value
+}
+
+export function ozonCheckoutResponseDiagnostic(checkout: unknown) {
+  const sanitized = sanitizeOzonCheckoutValue(checkout)
+  const serialized = JSON.stringify(sanitized) || "null"
+  if (serialized.length <= 9000) return sanitized
+  return {
+    truncated: true,
+    original_chars: serialized.length,
+    response_preview: serialized.slice(0, 9000),
+  }
+}
+
+function withOzonCheckoutResponses<T>(
+  error: T,
+  responses: Array<{ schema: string; response: unknown }>
+) {
+  if (!error || typeof error !== "object" || !responses.length) return error
+  ;(error as T & { ozonCheckoutResponses: typeof responses }).ozonCheckoutResponses =
+    responses
+  return error
+}
+
 export function ozonOrderCreateSplits(
   checkout: unknown,
   input: {
@@ -2060,6 +2118,7 @@ async function createSellerOrder(input: {
     ),
   }
   const sent: OzonRequestDump[] = []
+  const checkoutResponses: Array<{ schema: string; response: unknown }> = []
   const checkoutItems = checkoutBody.items as unknown[]
   if (!Array.isArray(checkoutItems) || !checkoutItems.length) {
     const labels = input.items
@@ -2092,6 +2151,10 @@ async function createSellerOrder(input: {
         "/v2/delivery/checkout",
         checkoutRequest
       )
+      checkoutResponses.push({
+        schema: next,
+        response: ozonCheckoutResponseDiagnostic(checkout),
+      })
       splits = ozonOrderCreateSplits(checkout, {
         items: cartItems,
         fromPlaceId: input.creds.fromPlaceId,
@@ -2113,13 +2176,16 @@ async function createSellerOrder(input: {
     }
   }
   if (!splits) {
-    throw withOzonRequests(
-      new MedusaError(
-        MedusaError.Types.UNEXPECTED_STATE,
-        errors.join("; ") ||
-          "Не удалось создать отправление Ozon. Попробуйте ещё раз."
+    throw withOzonCheckoutResponses(
+      withOzonRequests(
+        new MedusaError(
+          MedusaError.Types.UNEXPECTED_STATE,
+          errors.join("; ") ||
+            "Не удалось создать отправление Ozon. Попробуйте ещё раз."
+        ),
+        sent
       ),
-      sent
+      checkoutResponses
     )
   }
   const createRequest = {
@@ -2142,7 +2208,10 @@ async function createSellerOrder(input: {
   } catch (error) {
     const wrapped =
       error instanceof Error ? error : new Error(String(error))
-    throw withOzonRequests(wrapped, sent)
+    throw withOzonCheckoutResponses(
+      withOzonRequests(wrapped, sent),
+      checkoutResponses
+    )
   }
 }
 

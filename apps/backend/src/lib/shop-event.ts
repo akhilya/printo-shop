@@ -22,8 +22,17 @@ export function shopEventErrorDetail(error: unknown) {
     Array.isArray((error as { ozonRequests?: unknown }).ozonRequests)
       ? (error as { ozonRequests: unknown[] }).ozonRequests
       : []
+  const checkoutResponses =
+    error &&
+    typeof error === "object" &&
+    Array.isArray((error as { ozonCheckoutResponses?: unknown }).ozonCheckoutResponses)
+      ? (error as { ozonCheckoutResponses: unknown[] }).ozonCheckoutResponses
+      : []
   const payload: Record<string, unknown> = {}
   if (requests.length) payload.requests = requests
+  if (checkoutResponses.length) {
+    payload.checkout_responses = checkoutResponses
+  }
   if (error instanceof Error) {
     payload.name = error.name
     payload.message = error.message
