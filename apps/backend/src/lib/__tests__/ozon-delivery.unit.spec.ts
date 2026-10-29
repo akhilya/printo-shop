@@ -1190,6 +1190,7 @@ describe("quoteOzonDelivery", () => {
   })
 
   it("creates an order with a mapped pickup timeslot", async () => {
+    let createRequestStarted = false
     mockOzon((path) => {
       if (path.includes("/product/info/list")) {
         return jsonResponse({ items: [{ offer_id: "WA150", sku: 987 }] })
@@ -1219,6 +1220,7 @@ describe("quoteOzonDelivery", () => {
         })
       }
       if (path.includes("/v2/order/create")) {
+        expect(createRequestStarted).toBe(true)
         return jsonResponse({ order_number: "123-456", posting_number: ["123-456-1"] })
       }
       return jsonResponse({ message: path }, 404)
@@ -1232,8 +1234,13 @@ describe("quoteOzonDelivery", () => {
         amount: 1850,
         shippingTotal: 350,
         items: [{ article: "WA150", name: "Фигурка", quantity: 1, price: 1500 }],
+        onCreateRequestStart: async () => {
+          await Promise.resolve()
+          createRequestStarted = true
+        },
       })
     ).resolves.toMatchObject({ order_number: "123-456" })
+    expect(createRequestStarted).toBe(true)
     const create = (global.fetch as jest.Mock).mock.calls.find((call) =>
       String(call[0]).includes("/v2/order/create")
     )

@@ -115,7 +115,7 @@ describe("presentShopSetting", () => {
     expect(presented.tbank_notification_url).toMatch(/\/hooks\/tbank$/)
   })
 
-  it("marks ozon configured from the private app id and secret", () => {
+  it("marks ozon configured only for usable Seller or Delivery API settings", () => {
     const publicView = presentShopSetting({
       ozon_client_id: "app-uuid",
       ozon_oauth_token: "app-secret",
@@ -144,6 +144,17 @@ describe("presentShopSetting", () => {
       ozon_api_key: "seller-key",
     })
     expect(sellerOnly.ozon_configured).toBe(false)
+    const deliveryApiOnly = presentShopSetting({
+      ozon_delivery_client_id: "delivery-client",
+      ozon_delivery_client_secret: "delivery-secret",
+      ozon_delivery_shipment_method_id: "42",
+      ozon_delivery_weight_g: "1200",
+      ozon_delivery_length_mm: "200",
+      ozon_delivery_width_mm: "150",
+      ozon_delivery_height_mm: "100",
+    })
+    expect(deliveryApiOnly.ozon_configured).toBe(true)
+    expect(deliveryApiOnly).not.toHaveProperty("ozon_delivery_client_secret")
     const admin = presentShopSetting(
       {
         ozon_client_id: "app-uuid",
@@ -240,6 +251,53 @@ describe("parseShopSettingUpdate", () => {
     )
     expect(update.ozon_client_id).toBe("app-uuid")
     expect(update.ozon_oauth_token).toBe("app-secret")
+  })
+
+  it("keeps Delivery API secrets private and parses its shipment settings", () => {
+    const update = parseShopSettingUpdate(
+      {
+        ozon_delivery_client_id: " delivery-client ",
+        ozon_delivery_client_secret: " delivery-secret ",
+        ozon_delivery_shipment_method_id: "42",
+        ozon_delivery_weight_g: "1200",
+        ozon_delivery_length_mm: "200",
+        ozon_delivery_width_mm: "150",
+        ozon_delivery_height_mm: "100",
+      },
+      {}
+    )
+    expect(update).toEqual({
+      closed: false,
+      message: "Магазин в разработке.",
+      orders_closed: false,
+      orders_message: "Заказы временно недоступны.",
+      ozon_delivery_client_id: "delivery-client",
+      ozon_delivery_client_secret: "delivery-secret",
+      ozon_delivery_shipment_method_id: "42",
+      ozon_delivery_weight_g: "1200",
+      ozon_delivery_length_mm: "200",
+      ozon_delivery_width_mm: "150",
+      ozon_delivery_height_mm: "100",
+    })
+    const admin = presentShopSetting(
+      {
+        ...update,
+        ozon_delivery_client_secret: "delivery-secret",
+      },
+      { admin: true }
+    )
+    expect(admin.ozon_delivery_client_id).toBe("delivery-client")
+    expect(admin.ozon_delivery_client_secret_set).toBe(true)
+    expect(admin).not.toHaveProperty("ozon_delivery_client_secret")
+    expect(presentShopSetting({ ...update })).not.toHaveProperty(
+      "ozon_delivery_client_id"
+    )
+    expect(
+      parseShopSettingUpdate(
+        { ozon_delivery_client_secret: "" },
+        { ozon_delivery_client_secret: "existing" }
+      ).ozon_delivery_client_secret
+    ).toBeUndefined()
   })
 
   it("saves the ozon quote mode and fixed amount", () => {

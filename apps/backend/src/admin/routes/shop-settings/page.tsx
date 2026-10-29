@@ -37,6 +37,14 @@ type ShopSetting = {
   ozon_oauth_token_set: boolean
   ozon_connected: boolean
   ozon_oauth_redirect_uri: string
+  ozon_delivery_client_id: string
+  ozon_delivery_client_secret: string
+  ozon_delivery_client_secret_set: boolean
+  ozon_delivery_shipment_method_id: string
+  ozon_delivery_weight_g: string
+  ozon_delivery_length_mm: string
+  ozon_delivery_width_mm: string
+  ozon_delivery_height_mm: string
   ozon_from_place_id: string
   ozon_quote_mode: "ozon" | "fixed"
   ozon_fixed_amount: number
@@ -65,6 +73,14 @@ const EMPTY: ShopSetting = {
   ozon_oauth_token_set: false,
   ozon_connected: false,
   ozon_oauth_redirect_uri: "",
+  ozon_delivery_client_id: "",
+  ozon_delivery_client_secret: "",
+  ozon_delivery_client_secret_set: false,
+  ozon_delivery_shipment_method_id: "",
+  ozon_delivery_weight_g: "",
+  ozon_delivery_length_mm: "",
+  ozon_delivery_width_mm: "",
+  ozon_delivery_height_mm: "",
   ozon_from_place_id: "",
   ozon_quote_mode: "fixed",
   ozon_fixed_amount: 350,
@@ -95,6 +111,7 @@ const ShopSettingsPage = () => {
       ...data.shop,
       tbank_password: "",
       ozon_oauth_token: "",
+      ozon_delivery_client_secret: "",
     })
     setGiftCardRows(
       (data.shop.gift_card_denominations || []).map((amount, index) => ({
@@ -150,6 +167,14 @@ const ShopSettingsPage = () => {
           tbank_vat: src.tbank_vat,
           ozon_client_id: src.ozon_client_id,
           ozon_oauth_token: src.ozon_oauth_token,
+          ozon_delivery_client_id: src.ozon_delivery_client_id,
+          ozon_delivery_client_secret: src.ozon_delivery_client_secret,
+          ozon_delivery_shipment_method_id:
+            src.ozon_delivery_shipment_method_id,
+          ozon_delivery_weight_g: src.ozon_delivery_weight_g,
+          ozon_delivery_length_mm: src.ozon_delivery_length_mm,
+          ozon_delivery_width_mm: src.ozon_delivery_width_mm,
+          ozon_delivery_height_mm: src.ozon_delivery_height_mm,
           ozon_from_place_id: src.ozon_from_place_id,
           ozon_quote_mode: src.ozon_quote_mode,
           ozon_fixed_amount: src.ozon_fixed_amount,
@@ -716,9 +741,127 @@ const ShopSettingsPage = () => {
                 }
               />
               <Text size="small" className="text-ui-fg-subtle">
-                Артикул товара в Ozon. Нужен, если заявка не привязана к товару
-                из каталога. Вес и габариты берутся из карточки этого товара.
+                Сохраняется для прежних Seller API настроек. Новые
+                индивидуальные отправления создаются через Delivery API и не
+                требуют артикула.
               </Text>
+            </div>
+            <div className="flex flex-col gap-y-3 rounded-lg border p-4">
+              <Heading level="h2">Ozon Delivery API</Heading>
+              <Text size="small" className="text-ui-fg-subtle">
+                Отдельные OAuth-реквизиты Delivery API. Используется для
+                индивидуальных заказов и безопасного fallback, если Seller API
+                ещё не отправлял запрос создания заказа. ID метода и габариты
+                должны соответствовать подключённому методу доставки.
+              </Text>
+              <div className="flex flex-col gap-y-2">
+                <Label>Client ID Delivery API</Label>
+                <Input
+                  value={form.ozon_delivery_client_id}
+                  onChange={(event) =>
+                    setForm((current) => ({
+                      ...current,
+                      ozon_delivery_client_id: event.target.value,
+                    }))
+                  }
+                />
+              </div>
+              <div className="flex flex-col gap-y-2">
+                <Label>Client Secret Delivery API</Label>
+                <Input
+                  type="password"
+                  autoComplete="new-password"
+                  value={form.ozon_delivery_client_secret}
+                  placeholder={
+                    form.ozon_delivery_client_secret_set
+                      ? "Секрет сохранён"
+                      : ""
+                  }
+                  onChange={(event) =>
+                    setForm((current) => ({
+                      ...current,
+                      ozon_delivery_client_secret: event.target.value,
+                    }))
+                  }
+                />
+              </div>
+              <div className="flex flex-col gap-y-2">
+                <Label>ID метода доставки</Label>
+                <Input
+                  type="number"
+                  min={1}
+                  step={1}
+                  value={form.ozon_delivery_shipment_method_id}
+                  onChange={(event) =>
+                    setForm((current) => ({
+                      ...current,
+                      ozon_delivery_shipment_method_id: event.target.value,
+                    }))
+                  }
+                />
+              </div>
+              <div className="grid grid-cols-2 gap-3">
+                <div className="flex flex-col gap-y-2">
+                  <Label>Вес, г</Label>
+                  <Input
+                    type="number"
+                    min={1}
+                    step={1}
+                    value={form.ozon_delivery_weight_g}
+                    onChange={(event) =>
+                      setForm((current) => ({
+                        ...current,
+                        ozon_delivery_weight_g: event.target.value,
+                      }))
+                    }
+                  />
+                </div>
+                <div className="flex flex-col gap-y-2">
+                  <Label>Длина, мм</Label>
+                  <Input
+                    type="number"
+                    min={1}
+                    step={1}
+                    value={form.ozon_delivery_length_mm}
+                    onChange={(event) =>
+                      setForm((current) => ({
+                        ...current,
+                        ozon_delivery_length_mm: event.target.value,
+                      }))
+                    }
+                  />
+                </div>
+                <div className="flex flex-col gap-y-2">
+                  <Label>Ширина, мм</Label>
+                  <Input
+                    type="number"
+                    min={1}
+                    step={1}
+                    value={form.ozon_delivery_width_mm}
+                    onChange={(event) =>
+                      setForm((current) => ({
+                        ...current,
+                        ozon_delivery_width_mm: event.target.value,
+                      }))
+                    }
+                  />
+                </div>
+                <div className="flex flex-col gap-y-2">
+                  <Label>Высота, мм</Label>
+                  <Input
+                    type="number"
+                    min={1}
+                    step={1}
+                    value={form.ozon_delivery_height_mm}
+                    onChange={(event) =>
+                      setForm((current) => ({
+                        ...current,
+                        ozon_delivery_height_mm: event.target.value,
+                      }))
+                    }
+                  />
+                </div>
+              </div>
             </div>
             <OzonFromPlaceMap
               selectedId={form.ozon_from_place_id}

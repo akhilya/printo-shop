@@ -242,6 +242,7 @@ export function customOrderArrived(status?: unknown) {
   return (
     key === "in_pickup_point" ||
     key === "posting_in_pickup_point" ||
+    key === "in_delivery_point" ||
     key === "delivered" ||
     key === "posting_delivered" ||
     key === "posting_received" ||

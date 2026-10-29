@@ -3,9 +3,15 @@ import { ContainerRegistrationKeys, Modules } from "@medusajs/framework/utils"
 import {
   ozonCartArticle,
   ozonCredsFromRow,
+  normalizeOzonPhone,
   ozonSellerReady,
   quoteOzonDelivery,
 } from "./ozon-delivery"
+import {
+  matchOzonDeliveryApiPoint,
+  ozonDeliveryApiConfigFromRow,
+  quoteOzonDeliveryApi,
+} from "./ozon-delivery-api"
 import { getShopSetting, parseOzonFixedAmount, parseOzonQuoteMode } from "./shop-setting"
 
 export type OzonQuoteMode = "ozon" | "fixed"
@@ -50,6 +56,7 @@ export async function applyOzonShippingToCart(
     unknown
   >
   const creds = ozonCredsFromRow(settings)
+  const deliveryConfig = ozonDeliveryApiConfigFromRow(settings)
   const query = container.resolve(ContainerRegistrationKeys.QUERY)
   const { data } = await query.graph({
     entity: "cart",
@@ -87,13 +94,67 @@ export async function applyOzonShippingToCart(
       }
     }
   )
+  const cartMetadata = (cart.metadata || {}) as Record<string, unknown>
   let amount: number | null = null
+  const deliveryFallbackRequired =
+    items.some((item) => !item.article) || !ozonSellerReady(creds)
+  const deliveryFallbackNeeded = Boolean(
+    deliveryConfig && deliveryFallbackRequired
+  )
+  let deliveryPoint: Awaited<ReturnType<typeof matchOzonDeliveryApiPoint>> = null
+  if (deliveryFallbackNeeded && deliveryConfig) {
+    try {
+      deliveryPoint = await matchOzonDeliveryApiPoint({
+        config: deliveryConfig,
+        address: input.pointAddress || String(cartMetadata.ozon_point_address || ""),
+        lat: input.lat ?? Number(cartMetadata.ozon_point_lat),
+        lon: input.lon ?? Number(cartMetadata.ozon_point_lon),
+      })
+    } catch (error) {
+      try {
+        const logger = container.resolve(ContainerRegistrationKeys.LOGGER)
+        logger.warn(
+          `Ozon Delivery API point match failed: ${error instanceof Error ? error.message : String(error)}`
+        )
+      } catch {
+        // Point matching failure must not prevent normal catalog checkout.
+      }
+    }
+  }
   const quoteMode = parseOzonQuoteMode(settings.ozon_quote_mode)
   if (quoteMode === "fixed") {
     amount = parseOzonFixedAmount(settings.ozon_fixed_amount)
-  } else if (!ozonSellerReady(creds)) {
-    return { amount: 0 }
-  } else {
+  } else if (deliveryFallbackRequired) {
+    if (deliveryConfig && deliveryPoint) {
+      try {
+        const phone = normalizeOzonPhone(
+          input.phone ||
+            String(
+              (cart.shipping_address as Record<string, unknown> | undefined)
+                ?.phone || ""
+            )
+        )
+        amount = await quoteOzonDeliveryApi({
+          config: deliveryConfig,
+          pointId: deliveryPoint.id,
+          phone: phone ? `+${phone}` : "",
+          declaredValue: items.reduce(
+            (sum, item) =>
+              sum + Math.max(0, item.price) * Math.max(1, item.quantity),
+            0
+          ),
+        })
+      } catch (error) {
+        try {
+          const logger = container.resolve(ContainerRegistrationKeys.LOGGER)
+          logger.warn(`Ozon Delivery API quote failed: ${error instanceof Error ? error.message : String(error)}`)
+        } catch {
+          // Quote must still finish even if logging is unavailable.
+        }
+        amount = null
+      }
+    } else amount = null
+  } else if (ozonSellerReady(creds)) {
     try {
       amount = await quoteOzonDelivery({
         creds,
@@ -122,6 +183,8 @@ export async function applyOzonShippingToCart(
       }
       amount = null
     }
+  } else {
+    amount = null
   }
   amount = resolveOzonQuoteAmount({
     mode: quoteMode,
@@ -140,6 +203,7 @@ export async function applyOzonShippingToCart(
     ...((cart.metadata || {}) as Record<string, unknown>),
     ozon_shipping_amount: amount,
     ozon_point_id: input.pointId,
+    ozon_delivery_point_id: deliveryPoint?.id || null,
   }
   if (typeof cartModule.updateCarts === "function") {
     await cartModule.updateCarts({ id: input.cartId, metadata })
@@ -171,5 +235,9 @@ export async function applyOzonShippingToCart(
       await cartModule.createShippingMethods(payload)
     }
   }
-  return { amount }
+  return {
+    amount,
+    delivery_point_match_failed:
+      deliveryFallbackRequired && !deliveryPoint,
+  }
 }

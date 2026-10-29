@@ -11,6 +11,7 @@ import { BACKEND_URL, shopError, storeHeaders } from "../lib/sdk.js"
 
 const props = defineProps({
   phone: { type: String, default: "" },
+  provider: { type: String, default: "seller" },
   selectedId: { type: String, default: "" },
   selectedLat: { type: [String, Number], default: "" },
   selectedLon: { type: [String, Number], default: "" },
@@ -152,6 +153,7 @@ async function loadPoints() {
       body: JSON.stringify({
         ...view,
         phone: props.phone,
+        provider: props.provider,
       }),
     })
     const data = await res.json()
@@ -190,7 +192,11 @@ async function goToQuery() {
         "Content-Type": "application/json",
         ...storeHeaders(),
       },
-      body: JSON.stringify({ query: text, phone: props.phone }),
+      body: JSON.stringify({
+        query: text,
+        phone: props.phone,
+        provider: props.provider,
+      }),
     })
     const data = await res.json()
     configured.value = data.configured !== false
@@ -231,6 +237,11 @@ onMounted(async () => {
 
 watch(
   () => props.phone,
+  () => scheduleLoad()
+)
+
+watch(
+  () => props.provider,
   () => scheduleLoad()
 )
 

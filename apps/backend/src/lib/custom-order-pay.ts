@@ -2,7 +2,6 @@ import { MedusaContainer } from "@medusajs/framework"
 import {
   ContainerRegistrationKeys,
   MedusaError,
-  Modules,
 } from "@medusajs/framework/utils"
 import { tbankPublicError } from "../modules/tbank/ca"
 import { TbankClient, isPublicHttpUrl } from "../modules/tbank/client"
@@ -16,12 +15,16 @@ import { loadShopPromotionUsage } from "./shop-promotion-usage"
 import { toKopecks } from "../modules/tbank/status"
 import { verifyTbankToken } from "../modules/tbank/token"
 import {
-  createOzonDeliveryOrder,
-  extractOzonCreateIds,
+  normalizeOzonPhone,
   ozonCredsFromRow,
   ozonOfferArticle,
 } from "./ozon-delivery"
-import { randomBytes } from "node:crypto"
+import { randomBytes, randomUUID } from "node:crypto"
+import {
+  createOzonDeliveryApiOrder,
+  getOzonDeliveryApiPosting,
+  ozonDeliveryApiConfigFromRow,
+} from "./ozon-delivery-api"
 import { CUSTOM_ORDER_MODULE } from "../modules/custom-order"
 import type CustomOrderModuleService from "../modules/custom-order/service"
 import {
@@ -112,34 +115,6 @@ export function customOrderOzonArticle(
   return ""
 }
 
-async function customOrderOfferArticle(
-  container: MedusaContainer,
-  order: Record<string, unknown>
-) {
-  const settings = (await getShopSetting(container)) as unknown as Record<
-    string,
-    unknown
-  >
-  const fallback = settings.ozon_custom_article
-  const productId = text(order.product_id)
-  if (!productId) return customOrderOzonArticle(order, [], fallback)
-  try {
-    const productModule = container.resolve(Modules.PRODUCT) as {
-      listProductVariants: (
-        filters: { product_id: string },
-        config?: { select?: string[]; take?: number }
-      ) => Promise<Array<{ sku?: string | null }>>
-    }
-    const variants = await productModule.listProductVariants(
-      { product_id: productId },
-      { select: ["sku"], take: 20 }
-    )
-    return customOrderOzonArticle(order, variants, fallback)
-  } catch {
-    return customOrderOzonArticle(order, [], fallback)
-  }
-}
-
 async function noteCustomOzonFailure(
   container: MedusaContainer,
   order: Record<string, unknown>,
@@ -187,8 +162,8 @@ async function createOzonForCustomOrder(
     string,
     unknown
   >
-  const creds = ozonCredsFromRow(row)
-  if (!creds) {
+  const config = ozonDeliveryApiConfigFromRow(row)
+  if (!config) {
     if (options?.required) {
       throw new MedusaError(
         MedusaError.Types.NOT_ALLOWED,
@@ -202,50 +177,47 @@ async function createOzonForCustomOrder(
     text(order.quote_note) ||
     text(order.product_title) ||
     "Индивидуальный заказ"
-  const article = await customOrderOfferArticle(container, order)
-  if (!article) {
-    await noteCustomOzonFailure(
-      container,
-      order,
-      "У индивидуального заказа нет артикула Ozon"
+  const phone = normalizeOzonPhone(order.phone)
+  if (!phone) {
+    const error = new MedusaError(
+      MedusaError.Types.INVALID_DATA,
+      "Проверьте телефон получателя"
     )
-    if (options?.required) {
-      throw new MedusaError(
-        MedusaError.Types.INVALID_DATA,
-        "Не удалось оформить доставку."
-      )
-    }
+    await noteCustomOzonFailure(container, order, error.message, error)
+    if (options?.required) throw error
     return order
   }
   try {
-    const created = await createOzonDeliveryOrder({
-      creds,
-      orderNumber: text(order.shop_number) || text(order.id),
+    let idempotencyKey = text(order.ozon_delivery_idempotency_key)
+    if (!idempotencyKey) {
+      idempotencyKey = randomUUID()
+      const saved = await saveCustomOrder(container, String(order.id), {
+        ozon_delivery_idempotency_key: idempotencyKey,
+        ozon_provider: "delivery_api",
+      })
+      order = { ...order, ...saved }
+    }
+    const created = await createOzonDeliveryApiOrder({
+      config,
+      idempotencyKey,
+      orderExternalId: text(order.shop_number) || text(order.id),
+      postingExternalId: `${text(order.shop_number) || text(order.id)}-1`,
       buyer: {
         name: text(order.name) || "Покупатель",
-        phone: text(order.phone),
-        email: text(order.email) || undefined,
+        phone: `+${phone}`,
       },
-      point: {
-        id: pointId,
-        address: text(order.ozon_point_address),
-      },
-      amount,
-      shippingTotal: Number(order.quote_shipping_amount) || 0,
-      items: [
-        {
-          article,
-          name: title.slice(0, 128),
-          quantity: 1,
-          price: amount,
-        },
-      ],
+      pointId,
+      description: title.slice(0, 500),
+      declaredValue: Math.max(
+        0,
+        amount - (Number(order.quote_shipping_amount) || 0)
+      ),
     })
-    const ids = extractOzonCreateIds(created)
     return saveCustomOrder(container, String(order.id), {
-      ozon_order_number: ids.orderNumber,
-      ozon_posting_number: ids.postingNumber,
-      ozon_tracking: ids.trackingUrl,
+      ozon_order_number: created.orderNumber,
+      ozon_posting_number: created.postingNumber,
+      ozon_tracking: created.trackingUrl,
+      ozon_provider: "delivery_api",
     })
   } catch (error) {
     await noteCustomOzonFailure(
@@ -280,9 +252,17 @@ export async function refreshCustomOrderArrival(
     unknown
   >
   const creds = ozonCredsFromRow(row)
-  if (!creds) return order
+  const deliveryConfig = ozonDeliveryApiConfigFromRow(row)
   try {
-    const info = await getOzonPosting(creds, postingNumber, orderNumber)
+    const info =
+      order.ozon_provider === "delivery_api"
+        ? deliveryConfig
+          ? await getOzonDeliveryApiPosting(deliveryConfig, postingNumber)
+          : null
+        : creds
+          ? await getOzonPosting(creds, postingNumber, orderNumber)
+          : null
+    if (!info) return order
     const patch: Record<string, unknown> = {}
     if (info.status && info.status !== text(order.ozon_posting_status)) {
       patch.ozon_posting_status = info.status

@@ -93,6 +93,18 @@ Webhook: `POST /hooks/tbank` (ответ `OK`). После старта вклю
 
 Дальше: витрина.
 
+## Ozon Delivery API
+
+Delivery API настраивается отдельно от Seller API. В админке откройте **Настройки → Ozon Доставка → Ozon Delivery API** и укажите:
+
+- Client ID и Client Secret OAuth-приложения с правами `delivery-api.delivery`, `delivery-api.delivery-point`, `delivery-api.order` и `delivery-api.posting`;
+- ID активного метода доставки из `/v1/shipment-method/search`;
+- вес отправления в граммах и длину, ширину и высоту в миллиметрах.
+
+Секрет хранится в настройках магазина и не возвращается в API; пустое поле при сохранении не стирает ранее сохранённый секрет. После обновления существующей базы примените миграции из `apps/backend`: `npx medusa db:migrate`.
+
+Индивидуальные заказы создаются через Delivery API без артикула Ozon. Для заказов каталога остаётся основной путь Seller API. Переход на Delivery API разрешён только до отправки Seller-запроса создания или если у товара нет Seller-артикула; выбранный Seller ПВЗ сопоставляется с Delivery API по адресу и координатам, ID двух API не считаются взаимозаменяемыми. Если надёжного совпадения нет, заказ не переключается на другой ПВЗ автоматически.
+
 ## Деплой на Dokploy
 
 Образы собирает GitHub Actions (`.github/workflows/publish-images.yml`) и публикует в GHCR:

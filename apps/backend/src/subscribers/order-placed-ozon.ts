@@ -1,13 +1,26 @@
 import type { SubscriberArgs, SubscriberConfig } from "@medusajs/framework"
 import type { MedusaContainer } from "@medusajs/framework/types"
-import { ContainerRegistrationKeys, Modules } from "@medusajs/framework/utils"
+import {
+  ContainerRegistrationKeys,
+  MedusaError,
+  Modules,
+} from "@medusajs/framework/utils"
 import {
   createOzonDeliveryOrder,
   extractOzonCreateIds,
+  normalizeOzonPhone,
   ozonAdminErrorMessage,
   ozonCredsFromRow,
   ozonOrderItemsForCreate,
+  ozonSellerCreateRequestStarted,
+  ozonSellerReady,
 } from "../lib/ozon-delivery"
+import {
+  createOzonDeliveryApiOrder,
+  matchOzonDeliveryApiPoint,
+  newOzonDeliveryIdempotencyKey,
+  ozonDeliveryApiConfigFromRow,
+} from "../lib/ozon-delivery-api"
 import { ensureMedusaShopNumber } from "../lib/shop-order-number"
 import {
   recordShopEvent,
@@ -67,7 +80,9 @@ async function createOzonOrderForMedusaOrderInner(
 ): Promise<OzonOrderCreateResult> {
   const row = (await getShopSetting(container)) as unknown as Record<string, unknown>
   const creds = ozonCredsFromRow(row)
-  if (!creds) {
+  const deliveryConfig = ozonDeliveryApiConfigFromRow(row)
+  const sellerReady = ozonSellerReady(creds)
+  if (!sellerReady && !deliveryConfig) {
     return { status: "skipped", message: "Не настроено подключение к Ozon" }
   }
 
@@ -104,9 +119,10 @@ async function createOzonOrderForMedusaOrderInner(
     ],
     filters: { id: orderId },
   })
-  const order = ((data ?? [])[0] || null) as Record<string, unknown> | null
-  if (!order) return { status: "skipped", message: "Заказ не найден" }
-  const metadata = (order.metadata || {}) as Record<string, unknown>
+  const loadedOrder = ((data ?? [])[0] || null) as Record<string, unknown> | null
+  if (!loadedOrder) return { status: "skipped", message: "Заказ не найден" }
+  const order = loadedOrder
+  let metadata = (order.metadata || {}) as Record<string, unknown>
   if (order.status === "canceled") {
     return { status: "skipped", message: "Заказ отменён" }
   }
@@ -130,23 +146,6 @@ async function createOzonOrderForMedusaOrderInner(
     [address.first_name, address.last_name].filter(Boolean).join(" ").trim() ||
     "Покупатель"
   const phone = String(address.phone || "")
-  const items = await ozonOrderItemsForCreate(
-    (order.items as Array<Record<string, unknown>>) || [],
-    money,
-    async (ids) => {
-      const productModule = container.resolve(Modules.PRODUCT)
-      const rows = await productModule.listProductVariants(
-        { id: ids },
-        { select: ["id", "sku", "barcode", "metadata"] }
-      )
-      return rows.map((row) => ({
-        id: row.id,
-        sku: row.sku,
-        barcode: row.barcode,
-        metadata: (row.metadata || {}) as Record<string, unknown>,
-      }))
-    }
-  )
   const shopNumber =
     (await ensureMedusaShopNumber(container, orderId)) ||
     (metadata.shop_number ? String(metadata.shop_number) : null) ||
@@ -163,25 +162,21 @@ async function createOzonOrderForMedusaOrderInner(
     await orderModule.updateOrders(orderId, { metadata: next })
   }
 
-  const missing = items.filter((item) => !item.article)
-  if (missing.length) {
+  async function recordCreateFailure(error: unknown, previousError?: unknown) {
     const logger = container.resolve(ContainerRegistrationKeys.LOGGER)
-    const labels = missing.map((item) => item.name).join(", ")
-    logger.warn(`Ozon order create skipped, no offer_id for ${orderId}: ${labels}`)
-    const message = `Нет артикула Ozon у позиций: ${labels}`
-    await saveMeta({
-      ...metadata,
-      ozon_create_error: message,
-      ...ozonCreateRetryMetadata(metadata),
-    })
+    const raw = error instanceof Error ? error.message : String(error)
+    const message = ozonAdminErrorMessage(error)
+    logger.warn(`Ozon order create failed for ${orderId}: ${raw}`)
     await recordShopEvent(container, {
       kind: "ozon_create",
       level: "error",
       title: "Не удалось создать отправление Ozon",
       message,
       detail: shopEventJsonDetail({
-        items,
-        hint: "items.variant_sku",
+        error: shopEventErrorDetail(error),
+        previous_error: previousError
+          ? shopEventErrorDetail(previousError)
+          : null,
       }),
       order_id: orderId,
       shop_number: metadata.shop_number
@@ -190,9 +185,176 @@ async function createOzonOrderForMedusaOrderInner(
           ? String(order.display_id)
           : null,
     })
-    return { status: "failed", message }
+    try {
+      await saveMeta({
+        ...metadata,
+        ozon_create_error: raw.slice(0, 1500),
+        ozon_seller_create_uncertain:
+          metadata.ozon_seller_create_uncertain === true ||
+          ozonSellerCreateRequestStarted(error),
+        ...ozonCreateRetryMetadata(metadata),
+      })
+    } catch {
+      // Metadata write is best-effort after a failed create.
+    }
+    return { status: "failed", message } as const
   }
 
+  async function createWithDeliveryApi(reason: string, previousError?: unknown) {
+    if (!deliveryConfig) {
+      return recordCreateFailure(
+        new Error("Ozon Delivery API не настроен")
+      )
+    }
+    if (metadata.ozon_seller_create_uncertain === true) {
+      return recordCreateFailure(
+        new Error(
+          "Seller API запрос создания мог быть принят Ozon; безопасный переход в Delivery API невозможен"
+        )
+      )
+    }
+    const phone = normalizeOzonPhone(address.phone)
+    if (!phone) {
+      return recordCreateFailure(
+        new Error("Проверьте телефон получателя для Ozon Delivery API")
+      )
+    }
+    try {
+      const deliveryPoint = await matchOzonDeliveryApiPoint({
+        config: deliveryConfig,
+        address: String(
+          metadata.ozon_point_address || address.address_1 || ""
+        ),
+        lat: Number(metadata.ozon_point_lat),
+        lon: Number(metadata.ozon_point_lon),
+      })
+      if (!deliveryPoint) {
+        throw new MedusaError(
+          MedusaError.Types.INVALID_DATA,
+          "Не удалось безопасно сопоставить выбранный пункт выдачи с Ozon Delivery API"
+        )
+      }
+      const idempotencyKey =
+        String(metadata.ozon_delivery_idempotency_key || "").trim() ||
+        newOzonDeliveryIdempotencyKey()
+      metadata = {
+        ...metadata,
+        ozon_provider: "delivery_api",
+        ozon_delivery_point_id: deliveryPoint.id,
+        ozon_delivery_idempotency_key: idempotencyKey,
+      }
+      await saveMeta(metadata)
+      const rawItems = (order.items as Array<Record<string, unknown>>) || []
+      const description = rawItems
+        .map((item) => `${String(item.title || "Товар")} × ${Number(item.quantity || 1)}`)
+        .join(", ")
+        .slice(0, 500)
+      const shippingTotal = shopOrderShipping(order) ?? 0
+      const created = await createOzonDeliveryApiOrder({
+        config: deliveryConfig,
+        idempotencyKey,
+        orderExternalId: String(
+          metadata.shop_number || order.display_id || order.id
+        ),
+        postingExternalId: `${String(
+          metadata.shop_number || order.display_id || order.id
+        )}-1`,
+        buyer: { name, phone: `+${phone}` },
+        pointId: deliveryPoint.id,
+        description: description || "Заказ миниатюр",
+        declaredValue: Math.max(0, money(order.total) - shippingTotal),
+      })
+      const ids = extractOzonCreateIds(created)
+      const next = {
+        ...metadata,
+        ozon_order_number: ids.orderNumber,
+        ozon_posting_number: ids.postingNumber,
+        ozon_tracking: ids.trackingUrl,
+        ozon_posting_status: created.status,
+        ozon_create_error: null,
+        ozon_create_attempts: 0,
+        ozon_create_retry_after: null,
+        ozon_seller_create_uncertain: false,
+        ozon_create_raw: JSON.stringify({ provider: "delivery_api", ids }).slice(
+          0,
+          2000
+        ),
+      }
+      await saveMeta(next)
+      await recordShopEvent(container, {
+        kind: "ozon_create",
+        title: "Отправление создано в Ozon Delivery API",
+        message: `Номер отправления ${ids.postingNumber}`,
+        detail: shopEventJsonDetail({
+          reason,
+          seller_error: previousError
+            ? shopEventErrorDetail(previousError)
+            : null,
+          ids,
+          created,
+        }),
+        order_id: orderId,
+        shop_number: metadata.shop_number
+          ? String(metadata.shop_number)
+          : order.display_id
+            ? String(order.display_id)
+            : null,
+        posting_number: ids.postingNumber,
+      })
+      return {
+        status: "created",
+        message: `Отправление создано: ${ids.postingNumber}`,
+      } as const
+    } catch (error) {
+      return recordCreateFailure(error, previousError)
+    }
+  }
+
+  if (metadata.ozon_provider === "delivery_api") {
+    return createWithDeliveryApi("повтор Delivery API по сохранённому ключу")
+  }
+  if (!ozonSellerReady(creds)) {
+    return createWithDeliveryApi("Seller API недоступен до создания заказа")
+  }
+
+  let items: Awaited<ReturnType<typeof ozonOrderItemsForCreate>>
+  try {
+    items = await ozonOrderItemsForCreate(
+      (order.items as Array<Record<string, unknown>>) || [],
+      money,
+      async (ids) => {
+        const productModule = container.resolve(Modules.PRODUCT)
+        const rows = await productModule.listProductVariants(
+          { id: ids },
+          { select: ["id", "sku", "barcode", "metadata"] }
+        )
+        return rows.map((row) => ({
+          id: row.id,
+          sku: row.sku,
+          barcode: row.barcode,
+          metadata: (row.metadata || {}) as Record<string, unknown>,
+        }))
+      }
+    )
+  } catch (error) {
+    if (deliveryConfig && metadata.ozon_seller_create_uncertain !== true) {
+      return createWithDeliveryApi("ошибка подготовки Seller API до запроса создания")
+    }
+    return recordCreateFailure(error)
+  }
+
+  const missing = items.filter((item) => !item.article)
+  if (missing.length) {
+    const labels = missing.map((item) => item.name).join(", ")
+    if (deliveryConfig && metadata.ozon_seller_create_uncertain !== true) {
+      return createWithDeliveryApi(`у товарных позиций нет артикула Seller API: ${labels}`)
+    }
+    return recordCreateFailure(
+      new Error(`Нет артикула Ozon у позиций: ${labels}`)
+    )
+  }
+
+  let sellerCreateRequestStarted = false
   try {
     const created = await createOzonDeliveryOrder({
       creds,
@@ -213,16 +375,27 @@ async function createOzonOrderForMedusaOrderInner(
       amount: money(order.total),
       shippingTotal: shopOrderShipping(order) ?? undefined,
       items,
+      onCreateRequestStart: async () => {
+        sellerCreateRequestStarted = true
+        metadata = {
+          ...metadata,
+          ozon_provider: "seller",
+          ozon_seller_create_uncertain: true,
+        }
+        await saveMeta(metadata)
+      },
     })
     const ids = extractOzonCreateIds(created)
     await saveMeta({
       ...metadata,
+      ozon_provider: "seller",
       ozon_order_number: ids.orderNumber,
       ozon_posting_number: ids.postingNumber,
       ozon_tracking: ids.trackingUrl,
       ozon_create_error: null,
       ozon_create_attempts: 0,
       ozon_create_retry_after: null,
+      ozon_seller_create_uncertain: false,
       ozon_create_raw: JSON.stringify({
         ids,
         created: {
@@ -257,33 +430,29 @@ async function createOzonOrderForMedusaOrderInner(
         : "Заказ передан в Ozon",
     }
   } catch (error) {
-    const logger = container.resolve(ContainerRegistrationKeys.LOGGER)
-    const raw = error instanceof Error ? error.message : String(error)
-    const message = ozonAdminErrorMessage(error)
-    logger.warn(`Ozon order create failed for ${orderId}: ${raw}`)
-    await recordShopEvent(container, {
-      kind: "ozon_create",
-      level: "error",
-      title: "Не удалось создать отправление Ozon",
-      message,
-      detail: shopEventErrorDetail(error),
-      order_id: orderId,
-      shop_number: metadata.shop_number
-        ? String(metadata.shop_number)
-        : order.display_id
-          ? String(order.display_id)
-          : null,
-    })
-    try {
-      await saveMeta({
-        ...metadata,
-        ozon_create_error: raw.slice(0, 1500),
-        ...ozonCreateRetryMetadata(metadata),
-      })
-    } catch {
-      // Metadata write is best-effort after a failed create.
+    const sellerCreateMayHaveSucceeded =
+      sellerCreateRequestStarted || ozonSellerCreateRequestStarted(error)
+    if (
+      deliveryConfig &&
+      metadata.ozon_seller_create_uncertain !== true &&
+      !sellerCreateMayHaveSucceeded
+    ) {
+      const result = await createWithDeliveryApi(
+        "ошибка Seller API до отправки /v2/order/create",
+        error
+      )
+      if (result.status !== "failed") return result
+      return result
     }
-    return { status: "failed", message }
+    if (sellerCreateMayHaveSucceeded) {
+      const markedError =
+        error instanceof Error ? error : new Error(String(error))
+      ;(
+        markedError as Error & { ozonSellerCreateRequestStarted?: boolean }
+      ).ozonSellerCreateRequestStarted = true
+      return recordCreateFailure(markedError)
+    }
+    return recordCreateFailure(error)
   }
 }
 

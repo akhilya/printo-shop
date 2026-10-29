@@ -182,22 +182,30 @@ export function mapOzonPostingStatus(
 ) {
   const key = normOzonStatus(raw)
   switch (key) {
+    case "created":
     case "awaiting_packaging":
     case "awaiting_approve":
-    case "created":
     case "registered":
       return "awaiting_pack"
     case "awaiting_deliver":
     case "awaiting_registration":
     case "arbitration":
+    case "ready_for_shipping":
       return "awaiting_deliver"
+    case "forming":
+    case "forming_failed":
+      return "awaiting_pack"
+    case "in_container":
     case "delivering":
+    case "acceptance_in_progress":
     case "driver_pickup":
     case "in_transit":
     case "on_way":
     case "sent":
     case "posting_in_pickup_point":
     case "in_pickup_point":
+    case "in_delivery_point":
+    case "in_courier_service":
       return "delivering"
     case "delivered":
     case "received":
@@ -209,6 +217,8 @@ export function mapOzonPostingStatus(
     case "given_to_seller":
     case "sent_to_seller":
     case "on_way_to_return":
+      return "returned"
+    case "not_accepted_to_delivery":
       return "returned"
     case "cancelled":
     case "canceled":

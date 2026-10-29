@@ -45,6 +45,7 @@ const consentPages = computed(() =>
 )
 const quotedShipping = ref(null)
 const shippingQuoteFailed = ref(false)
+const deliveryPointMatchFailed = ref(false)
 let quoteTimer = 0
 let statusTimer = 0
 let arrivalTimer = 0
@@ -136,6 +137,7 @@ const submitLabel = computed(() =>
 const pvzChosen = computed(() => Boolean(form.ozon_point_id))
 
 const shippingLabel = computed(() => {
+  if (deliveryPointMatchFailed.value) return "Выберите другой пункт выдачи"
   if (totals.value.shipping) {
     return formatPrice(totals.value.shipping, currency.value)
   }
@@ -286,6 +288,7 @@ async function quoteShipping(point = {
 }) {
   if (isCustom.value || !cartState.cart?.id || !point.id) return
   shippingQuoteFailed.value = false
+  deliveryPointMatchFailed.value = false
   try {
     const res = await fetch(`${BACKEND_URL}/store/ozon/quote`, {
       method: "POST",
@@ -303,6 +306,12 @@ async function quoteShipping(point = {
       }),
     })
     const data = await res.json().catch(() => ({}))
+    if (data.delivery_point_match_failed === true) {
+      deliveryPointMatchFailed.value = true
+      shippingQuoteFailed.value = true
+      quotedShipping.value = null
+      return
+    }
     const amount = Number(data.amount)
     if (res.ok && amount > 0) {
       quotedShipping.value = amount
@@ -400,7 +409,7 @@ async function payCart() {
     cart = added.cart
   }
   if (form.ozon_point_id) {
-    await fetch(`${BACKEND_URL}/store/ozon/quote`, {
+    const quoteResponse = await fetch(`${BACKEND_URL}/store/ozon/quote`, {
       method: "POST",
       headers: {
         "Content-Type": "application/json",
@@ -410,9 +419,17 @@ async function payCart() {
         cart_id: cart.id,
         point_id: form.ozon_point_id,
         point_address: form.ozon_point_address,
+        lat: Number(form.ozon_point_lat),
+        lon: Number(form.ozon_point_lon),
         phone: form.phone,
       }),
     })
+    const quoteResult = await quoteResponse.json().catch(() => ({}))
+    if (quoteResult.delivery_point_match_failed === true) {
+      throw new Error(
+        "Доставка в выбранный пункт недоступна. Выберите другой пункт выдачи."
+      )
+    }
     cart = await retrieveCart(cart.id)
   }
   if (Number(cart.total) <= 0) {
@@ -508,6 +525,14 @@ async function submit(event) {
   }
   if (showPvz.value && !form.ozon_point_id) {
     error.value = "Выберите пункт выдачи Ozon"
+    document.querySelector(".pvz")?.scrollIntoView({
+      behavior: "smooth",
+      block: "center",
+    })
+    return
+  }
+  if (!isCustom.value && deliveryPointMatchFailed.value) {
+    error.value = "Доставка в выбранный пункт недоступна. Выберите другой пункт выдачи."
     document.querySelector(".pvz")?.scrollIntoView({
       behavior: "smooth",
       block: "center",
@@ -660,6 +685,7 @@ const empty = computed(() => {
         <PvzPicker
           v-if="showPvz && !orderPlaced"
           :phone="form.phone"
+          :provider="isCustom ? 'delivery_api' : 'seller'"
           :selected-id="form.ozon_point_id"
           :selected-lat="form.ozon_point_lat"
           :selected-lon="form.ozon_point_lon"

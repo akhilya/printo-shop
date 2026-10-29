@@ -25,8 +25,17 @@ import {
   shipOzonPosting,
   waitForOzonAwaitingDeliver,
   type OzonPackageLabel,
+  type OzonPostingInfo,
   type OzonReturnKind,
 } from "./ozon-posting"
+import {
+  approveOzonDeliveryApiPosting,
+  cancelOzonDeliveryApiPosting,
+  getOzonDeliveryApiLabel,
+  getOzonDeliveryApiPosting,
+  ozonDeliveryApiConfigFromRow,
+  type OzonDeliveryApiConfig,
+} from "./ozon-delivery-api"
 import {
   orderLogContext,
   recordShopEvent,
@@ -67,6 +76,28 @@ function money(value: unknown) {
 export async function ozonCreds(container: MedusaContainer): Promise<OzonCreds | null> {
   const row = (await getShopSetting(container)) as unknown as Record<string, unknown>
   return ozonCredsFromRow(row)
+}
+
+async function ozonDeliveryConfig(
+  container: MedusaContainer
+): Promise<OzonDeliveryApiConfig | null> {
+  const row = (await getShopSetting(container)) as unknown as Record<string, unknown>
+  return ozonDeliveryApiConfigFromRow(row)
+}
+
+function deliveryPostingInfo(posting: {
+  postingNumber: string
+  orderNumber: string | null
+  status: string | null
+}): OzonPostingInfo {
+  return {
+    postingNumber: posting.postingNumber,
+    orderNumber: posting.orderNumber,
+    status: posting.status,
+    substatus: null,
+    cancelReason: null,
+    products: [],
+  }
 }
 
 export async function loadShopOrder(
@@ -152,12 +183,13 @@ async function storeOzonLabel(
 async function ensureOzonIds(
   container: MedusaContainer,
   order: Record<string, unknown>,
-  creds: OzonCreds
+  creds: OzonCreds | null
 ) {
   const metadata = (order.metadata || {}) as Record<string, unknown>
   if (text(metadata.ozon_posting_number) || text(metadata.ozon_order_number)) {
     return metadata
   }
+  if (metadata.ozon_provider === "delivery_api" || !creds) return metadata
   const address = (order.shipping_address || {}) as Record<string, unknown>
   const billing = (order.billing_address || {}) as Record<string, unknown>
   const pointId = text(metadata.ozon_point_id || address.company)
@@ -246,15 +278,35 @@ async function retryOzonLabel(creds: OzonCreds, postingNumber: string) {
   throw lastError
 }
 
+async function retryOzonDeliveryApiLabel(
+  config: OzonDeliveryApiConfig,
+  postingNumber: string
+) {
+  let lastError: unknown = null
+  for (let i = 0; i < 6; i++) {
+    try {
+      return await getOzonDeliveryApiLabel(config, postingNumber)
+    } catch (error) {
+      lastError = error
+      if (!ozonLabelNotReady(error) || i === 5) break
+      await new Promise((resolve) => setTimeout(resolve, 4000))
+    }
+  }
+  throw lastError
+}
+
 async function packOzonForOrderInner(
   container: MedusaContainer,
   orderId: string
 ) {
-  const creds = await ozonCreds(container)
-  if (!creds) return null
+  const row = (await getShopSetting(container)) as unknown as Record<string, unknown>
+  const creds = ozonCredsFromRow(row)
+  const deliveryConfig = ozonDeliveryApiConfigFromRow(row)
   const order = await loadShopOrder(container, orderId)
   if (!order) return null
   let metadata = (order.metadata || {}) as Record<string, unknown>
+  const deliveryProvider = metadata.ozon_provider === "delivery_api"
+  if (deliveryProvider ? !deliveryConfig : !creds) return null
   if (metadata.ozon_packed_at && metadata.ozon_label_url) {
     return metadata
   }
@@ -304,16 +356,38 @@ async function packOzonForOrderInner(
   let posting
   let number = postingNumber
   try {
-    posting = await getOzonPosting(creds, postingNumber, orderNumber)
-    number = posting.postingNumber || postingNumber
-    if (!alreadyPacked) {
-      posting = await shipOzonPosting(creds, { ...posting, postingNumber: number })
+    if (deliveryProvider && deliveryConfig) {
+      posting = deliveryPostingInfo(
+        await getOzonDeliveryApiPosting(deliveryConfig, postingNumber)
+      )
+      number = posting.postingNumber || postingNumber
+      const status = String(posting.status || "").toLowerCase()
+      if (status === "created" || status === "forming_failed") {
+        await approveOzonDeliveryApiPosting(deliveryConfig, number)
+      }
+      posting = await waitForOzonAwaitingDeliver(async () =>
+        deliveryPostingInfo(
+          await getOzonDeliveryApiPosting(deliveryConfig, number)
+        )
+      )
       number = posting.postingNumber || number
+    } else if (creds) {
+      posting = await getOzonPosting(creds, postingNumber, orderNumber)
+      number = posting.postingNumber || postingNumber
+      if (!alreadyPacked) {
+        posting = await shipOzonPosting(creds, { ...posting, postingNumber: number })
+        number = posting.postingNumber || number
+      }
+      posting = await waitForOzonAwaitingDeliver(
+        () => getOzonPosting(creds, number, orderNumber)
+      )
+      number = posting.postingNumber || number
+    } else {
+      throw new MedusaError(
+        MedusaError.Types.NOT_ALLOWED,
+        "Не настроено подключение к Ozon"
+      )
     }
-    posting = await waitForOzonAwaitingDeliver(
-      () => getOzonPosting(creds, number, orderNumber)
-    )
-    number = posting.postingNumber || number
   } catch (error) {
     const message = ozonPackErrorMessage(error)
     await recordShopEvent(container, {
@@ -343,9 +417,23 @@ async function packOzonForOrderInner(
   let labelUrl = text(metadata.ozon_label_url) || null
   try {
     if (!ozonPostingReadyForLabel(posting.status)) {
-      throw new Error("INVALID_ARGUMENT")
+      throw new MedusaError(
+        MedusaError.Types.UNEXPECTED_STATE,
+        "INVALID_ARGUMENT"
+      )
     }
-    label = await retryOzonLabel(creds, number)
+    label =
+      deliveryProvider && deliveryConfig
+        ? await retryOzonDeliveryApiLabel(deliveryConfig, number)
+        : creds
+          ? await retryOzonLabel(creds, number)
+          : null
+    if (!label) {
+      throw new MedusaError(
+        MedusaError.Types.NOT_ALLOWED,
+        "Не настроено подключение к Ozon"
+      )
+    }
     labelUrl = await storeOzonLabel(
       container,
       number,
@@ -395,11 +483,23 @@ export async function handOverOzonForOrder(
   container: MedusaContainer,
   orderId: string
 ) {
-  const creds = await ozonCreds(container)
-  if (!creds) return null
   const order = await loadShopOrder(container, orderId)
   if (!order) return null
   const metadata = (order.metadata || {}) as Record<string, unknown>
+  if (metadata.ozon_provider === "delivery_api") {
+    const config = await ozonDeliveryConfig(container)
+    const postingNumber = text(metadata.ozon_posting_number)
+    if (!config || !postingNumber) return metadata
+    const posting = await getOzonDeliveryApiPosting(config, postingNumber)
+    const next = {
+      ...metadata,
+      ozon_posting_status: posting.status,
+    }
+    await saveOrderMetadata(container, orderId, next)
+    return next
+  }
+  const creds = await ozonCreds(container)
+  if (!creds) return null
   const postingNumber = text(metadata.ozon_posting_number)
   const orderNumber = text(metadata.ozon_order_number)
   if (!postingNumber && !orderNumber) return metadata
@@ -432,14 +532,19 @@ export async function cancelOzonForOrder(
   container: MedusaContainer,
   orderId: string
 ) {
-  const creds = await ozonCreds(container)
-  if (!creds) return
   const order = await loadShopOrder(container, orderId)
   if (!order) return
   const metadata = (order.metadata || {}) as Record<string, unknown>
+  const deliveryProvider = metadata.ozon_provider === "delivery_api"
+  const deliveryConfig = deliveryProvider
+    ? await ozonDeliveryConfig(container)
+    : null
+  const creds = deliveryProvider ? null : await ozonCreds(container)
+  if (deliveryProvider ? !deliveryConfig : !creds) return
   const postingNumber = text(metadata.ozon_posting_number)
   const orderNumber = text(metadata.ozon_order_number)
   if (!postingNumber && !orderNumber) return
+  if (deliveryProvider && !postingNumber) return
   const markCancelled = async () => {
     await saveOrderMetadata(container, orderId, {
       ...metadata,
@@ -451,8 +556,15 @@ export async function cancelOzonForOrder(
     return key === "cancelled" || key === "canceled"
   }
   try {
-    const current = await getOzonPosting(creds, postingNumber, orderNumber)
-    if (postingCancelled(current.status)) {
+    const current =
+      deliveryProvider && deliveryConfig
+        ? deliveryPostingInfo(
+            await getOzonDeliveryApiPosting(deliveryConfig, postingNumber)
+          )
+        : creds
+          ? await getOzonPosting(creds, postingNumber, orderNumber)
+          : null
+    if (current && postingCancelled(current.status)) {
       await markCancelled()
       return
     }
@@ -460,7 +572,11 @@ export async function cancelOzonForOrder(
     // Cancel anyway if get fails.
   }
   try {
-    await cancelOzonPosting(creds, postingNumber, orderNumber)
+    if (deliveryProvider && deliveryConfig) {
+      await cancelOzonDeliveryApiPosting(deliveryConfig, postingNumber)
+    } else if (creds) {
+      await cancelOzonPosting(creds, postingNumber, orderNumber)
+    }
     await markCancelled()
   } catch (error) {
     if (ozonAlreadyCancelled(error)) {
@@ -468,8 +584,15 @@ export async function cancelOzonForOrder(
       return
     }
     try {
-      const fresh = await getOzonPosting(creds, postingNumber, orderNumber)
-      if (postingCancelled(fresh.status)) {
+      const fresh =
+        deliveryProvider && deliveryConfig
+          ? deliveryPostingInfo(
+              await getOzonDeliveryApiPosting(deliveryConfig, postingNumber)
+            )
+          : creds
+            ? await getOzonPosting(creds, postingNumber, orderNumber)
+            : null
+      if (fresh && postingCancelled(fresh.status)) {
         await markCancelled()
         return
       }
@@ -493,16 +616,28 @@ export async function syncOzonPostingForOrder(
   container: MedusaContainer,
   orderId: string
 ) {
-  const creds = await ozonCreds(container)
-  if (!creds) return null
   const order = await loadShopOrder(container, orderId)
   if (!order) return null
   const metadata = (order.metadata || {}) as Record<string, unknown>
+  const deliveryProvider = metadata.ozon_provider === "delivery_api"
+  const deliveryConfig = deliveryProvider
+    ? await ozonDeliveryConfig(container)
+    : null
+  const creds = deliveryProvider ? null : await ozonCreds(container)
+  if (deliveryProvider ? !deliveryConfig : !creds) return null
   const postingNumber = text(metadata.ozon_posting_number)
   const orderNumber = text(metadata.ozon_order_number)
   if (!postingNumber && !orderNumber) return null
-  const posting = await getOzonPosting(creds, postingNumber, orderNumber)
-  const returns = posting.postingNumber
+  const posting =
+    deliveryProvider && deliveryConfig
+      ? deliveryPostingInfo(
+          await getOzonDeliveryApiPosting(deliveryConfig, postingNumber)
+        )
+      : creds
+        ? await getOzonPosting(creds, postingNumber, orderNumber)
+        : null
+  if (!posting) return null
+  const returns = !deliveryProvider && creds && posting.postingNumber
     ? await listOzonReturns(creds, posting.postingNumber)
     : []
   const agreed = pickAgreedOzonReturn(returns)
@@ -584,14 +719,24 @@ export async function getStoredOzonLabel(
       // Fall through to a live Ozon fetch.
     }
   }
-  const creds = await ozonCreds(container)
-  if (!creds) return null
+  const row = (await getShopSetting(container)) as unknown as Record<string, unknown>
+  const deliveryProvider = metadata.ozon_provider === "delivery_api"
+  const config = deliveryProvider ? ozonDeliveryApiConfigFromRow(row) : null
+  const creds = deliveryProvider ? null : ozonCredsFromRow(row)
+  if (deliveryProvider ? !config : !creds) return null
   if (!postingNumber && orderNumber) {
+    if (!creds) return null
     const posting = await getOzonPosting(creds, postingNumber, orderNumber)
     postingNumber = posting.postingNumber || ""
   }
   if (!postingNumber) return null
-  const label = await getOzonPackageLabel(creds, postingNumber)
+  const label =
+    deliveryProvider && config
+      ? await getOzonDeliveryApiLabel(config, postingNumber)
+      : creds
+        ? await getOzonPackageLabel(creds, postingNumber)
+        : null
+  if (!label) return null
   const labelUrl = await storeOzonLabel(
     container,
     postingNumber,

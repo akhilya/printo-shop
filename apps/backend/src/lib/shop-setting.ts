@@ -8,6 +8,7 @@ import {
 } from "./custom-order"
 import { publicBackendUrl } from "./public-url"
 import { isOzonAccessToken, ozonOAuthRedirectUri, setOzonTokenPersist } from "./ozon-delivery"
+import { ozonDeliveryApiConfigFromRow } from "./ozon-delivery-api"
 
 export const SHOP_SETTING_KEY = "storefront"
 export const DEFAULT_CLOSED_MESSAGE = "Магазин в разработке."
@@ -173,6 +174,13 @@ export type ShopSettingAdmin = ShopSettingPublic & {
   ozon_oauth_token_set: boolean
   ozon_connected: boolean
   ozon_oauth_redirect_uri: string
+  ozon_delivery_client_id: string
+  ozon_delivery_client_secret_set: boolean
+  ozon_delivery_shipment_method_id: string
+  ozon_delivery_weight_g: string
+  ozon_delivery_length_mm: string
+  ozon_delivery_width_mm: string
+  ozon_delivery_height_mm: string
   ozon_fixed_amount: number
   ozon_custom_article: string
   tbank_terminal_key: string
@@ -207,7 +215,8 @@ export function presentShopSetting(
     orders_message: text(row, "orders_message") || DEFAULT_ORDERS_MESSAGE,
     ozon_configured: Boolean(
       text(row, "ozon_refresh_token") ||
-        isOzonAccessToken(text(row, "ozon_oauth_token"))
+        isOzonAccessToken(text(row, "ozon_oauth_token")) ||
+        ozonDeliveryApiConfigFromRow(row)
     ),
     ozon_from_place_id: text(row, "ozon_from_place_id"),
     ozon_quote_mode: parseOzonQuoteMode(row.ozon_quote_mode),
@@ -227,6 +236,18 @@ export function presentShopSetting(
     ozon_oauth_token_set: Boolean(text(row, "ozon_oauth_token")),
     ozon_connected: Boolean(text(row, "ozon_refresh_token")),
     ozon_oauth_redirect_uri: ozonOAuthRedirectUri(),
+    ozon_delivery_client_id: text(row, "ozon_delivery_client_id"),
+    ozon_delivery_client_secret_set: Boolean(
+      text(row, "ozon_delivery_client_secret")
+    ),
+    ozon_delivery_shipment_method_id: text(
+      row,
+      "ozon_delivery_shipment_method_id"
+    ),
+    ozon_delivery_weight_g: text(row, "ozon_delivery_weight_g"),
+    ozon_delivery_length_mm: text(row, "ozon_delivery_length_mm"),
+    ozon_delivery_width_mm: text(row, "ozon_delivery_width_mm"),
+    ozon_delivery_height_mm: text(row, "ozon_delivery_height_mm"),
     ozon_from_place_id: text(row, "ozon_from_place_id"),
     ozon_fixed_amount: parseOzonFixedAmount(row.ozon_fixed_amount) || 0,
     ozon_custom_article: text(row, "ozon_custom_article"),
@@ -307,6 +328,27 @@ export function parseShopSettingUpdate(
   if ("ozon_oauth_token" in rec) {
     const token = String(rec.ozon_oauth_token || "").trim()
     if (token) update.ozon_oauth_token = token
+  }
+  if ("ozon_delivery_client_id" in rec) {
+    update.ozon_delivery_client_id =
+      String(rec.ozon_delivery_client_id || "").trim() || null
+  }
+  if ("ozon_delivery_client_secret" in rec) {
+    const secret = String(rec.ozon_delivery_client_secret || "").trim()
+    if (secret) update.ozon_delivery_client_secret = secret
+  }
+  for (const key of [
+    "ozon_delivery_shipment_method_id",
+    "ozon_delivery_weight_g",
+    "ozon_delivery_length_mm",
+    "ozon_delivery_width_mm",
+    "ozon_delivery_height_mm",
+  ]) {
+    if (!(key in rec)) continue
+    const raw = String(rec[key] ?? "").trim()
+    const value = Number(raw)
+    update[key] =
+      raw && Number.isSafeInteger(value) && value > 0 ? String(value) : null
   }
   if ("ozon_from_place_id" in rec) {
     update.ozon_from_place_id = String(rec.ozon_from_place_id || "").trim() || null

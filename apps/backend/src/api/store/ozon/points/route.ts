@@ -14,6 +14,7 @@ export async function POST(req: MedusaRequest, res: MedusaResponse) {
     east?: number
     zoom?: number
     phone?: string
+    provider?: "seller" | "delivery_api"
   }
   const row = (await getShopSetting(req.scope)) as unknown as Record<string, unknown>
   const payload = await loadOzonPoints(row, {
@@ -27,6 +28,7 @@ export async function POST(req: MedusaRequest, res: MedusaResponse) {
     east: body.east,
     zoom: body.zoom,
     phone: String(body.phone || "").trim(),
+    provider: body.provider === "delivery_api" ? "delivery_api" : "seller",
   })
   res.json(payload)
 }

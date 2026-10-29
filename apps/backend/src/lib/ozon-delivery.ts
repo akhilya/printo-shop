@@ -1,5 +1,9 @@
 import { MedusaError } from "@medusajs/framework/utils"
 import { publicBackendUrl } from "./public-url"
+import {
+  listOzonDeliveryApiPoints,
+  ozonDeliveryApiConfigFromRow,
+} from "./ozon-delivery-api"
 
 export type OzonRequestDump = {
   method: "POST"
@@ -45,6 +49,15 @@ export function withOzonRequests<T>(error: T, requests: OzonRequestDump[]): T {
   }
   ;(error as T & { ozonRequests: OzonRequestDump[] }).ozonRequests = next
   return error
+}
+
+export function ozonSellerCreateRequestStarted(error: unknown) {
+  return Boolean(
+    error &&
+      typeof error === "object" &&
+      (error as { ozonSellerCreateRequestStarted?: unknown })
+        .ozonSellerCreateRequestStarted === true
+  )
 }
 
 export type OzonPoint = {
@@ -1446,9 +1459,11 @@ export async function readJson(response: Response) {
 export async function sellerRequest(
   creds: OzonCreds,
   path: string,
-  body: Record<string, unknown>
+  body: Record<string, unknown>,
+  onRequestStart?: () => void | Promise<void>
 ) {
   const accessToken = await resolveSellerAccessToken(creds)
+  await onRequestStart?.()
   const response = await fetch(`https://api-seller.ozon.ru${path}`, {
     method: "POST",
     headers: sellerAuthHeaders({ ...creds, accessToken }),
@@ -1462,9 +1477,10 @@ export async function sellerRequest(
 export async function sellerPost(
   creds: OzonCreds,
   path: string,
-  body: Record<string, unknown>
+  body: Record<string, unknown>,
+  onRequestStart?: () => void | Promise<void>
 ) {
-  const raw = await sellerRequest(creds, path, body)
+  const raw = await sellerRequest(creds, path, body, onRequestStart)
   const text = raw.buffer.toString("utf8")
   let json: unknown = null
   try {
@@ -1651,9 +1667,12 @@ export async function loadOzonPoints(
     east?: number
     zoom?: number
     phone?: string
+    provider?: "seller" | "delivery_api"
   }
 ) {
   const creds = ozonCredsFromRow(row)
+  const deliveryConfig = ozonDeliveryApiConfigFromRow(row)
+  const deliveryApi = input.provider === "delivery_api"
   const query = String(input.query || input.city || "").trim()
   let bounds = parseBounds(input)
   let center =
@@ -1664,7 +1683,7 @@ export async function loadOzonPoints(
     center = await geocodeCity(query)
     if (!center && !bounds) {
       return {
-        configured: Boolean(creds),
+        configured: deliveryApi ? Boolean(deliveryConfig) : Boolean(creds),
         points: [] as OzonPoint[],
         clusters: [] as OzonMapCluster[],
         center: null,
@@ -1685,7 +1704,16 @@ export async function loadOzonPoints(
     bounds = boundsFromCenter(center)
   }
   const zoom = Number(input.zoom)
-  if (!ozonSellerReady(creds)) {
+  if (deliveryApi && !deliveryConfig) {
+    return {
+      configured: false,
+      points: [] as OzonPoint[],
+      clusters: [] as OzonMapCluster[],
+      center,
+      message: "Не удалось загрузить пункты выдачи.",
+    }
+  }
+  if (!deliveryApi && !ozonSellerReady(creds)) {
     return {
       configured: false,
       points: [] as OzonPoint[],
@@ -1696,6 +1724,39 @@ export async function loadOzonPoints(
   }
   try {
     const mapZoom = Number.isFinite(zoom) ? zoom : 12
+    if (deliveryApi && deliveryConfig) {
+      const allPoints = await listOzonDeliveryApiPoints(deliveryConfig)
+      const loadedPoints = pointsInBounds(
+        allPoints.map((point) => ({
+          ...point,
+          schedule: undefined,
+        })),
+        bounds
+      )
+      const grouped = clusterOzonPoints(loadedPoints, mapZoom)
+      const layers = resolveOzonMapLayers(
+        grouped.points,
+        grouped.clusters,
+        mapZoom
+      )
+      return {
+        configured: true,
+        points: layers.points,
+        clusters: layers.clusters,
+        center,
+        message: layers.points.length
+          ? null
+          : layers.clusters.length
+            ? "Нажмите на цифру, чтобы увидеть пункты."
+            : "В этой области пунктов нет. Сдвиньте карту или найдите другой город.",
+      }
+    }
+    if (!ozonSellerReady(creds)) {
+      throw new MedusaError(
+        MedusaError.Types.NOT_ALLOWED,
+        "Не удалось загрузить пункты выдачи."
+      )
+    }
     const cacheKey = pvzCacheKey(creds.clientId || creds.accessToken, bounds, mapZoom)
     let loaded = readPvzCache(cacheKey)
     if (!loaded) {
@@ -2069,7 +2130,9 @@ async function createSellerOrder(input: {
   items: Array<{ article: string; name: string; quantity: number; price: number }>
   paidGoods?: number
   shippingTotal?: number
+  onCreateRequestStart?: () => void | Promise<void>
 }) {
+  let sellerCreateRequestStarted = false
   const contacts = ozonOrderContacts(input.buyer)
   if (!contacts.phone) {
     throw new MedusaError(
@@ -2202,12 +2265,18 @@ async function createSellerOrder(input: {
     const created = await sellerPost(
       input.creds,
       "/v2/order/create",
-      createRequest
+      createRequest,
+      async () => {
+        sellerCreateRequestStarted = true
+        await input.onCreateRequestStart?.()
+      }
     )
     return { json: created, requests: sent }
   } catch (error) {
     const wrapped =
       error instanceof Error ? error : new Error(String(error))
+    ;(wrapped as Error & { ozonSellerCreateRequestStarted?: boolean }).ozonSellerCreateRequestStarted =
+      sellerCreateRequestStarted
     throw withOzonCheckoutResponses(
       withOzonRequests(wrapped, sent),
       checkoutResponses
@@ -2223,6 +2292,7 @@ export async function createOzonDeliveryOrder(input: {
   amount: number
   shippingTotal?: number
   items: Array<{ article: string; name: string; quantity: number; price: number }>
+  onCreateRequestStart?: () => void | Promise<void>
 }) {
   const shipping = Number(input.shippingTotal)
   const hasShipping = Number.isFinite(shipping)
@@ -2232,6 +2302,7 @@ export async function createOzonDeliveryOrder(input: {
     paidGoods: hasShipping
       ? Math.max(0, Number(input.amount || 0) - Math.max(0, shipping))
       : undefined,
+    onCreateRequestStart: input.onCreateRequestStart,
   })
   const ids = await completeOzonCreateIds(input.creds, json)
   const rec = asRecord(json) || {}
