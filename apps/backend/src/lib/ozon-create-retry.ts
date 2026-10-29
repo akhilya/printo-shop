@@ -30,9 +30,16 @@ export function isOzonCreateRetryDue(
   metadata: Record<string, unknown>,
   now = Date.now()
 ) {
-  if (!metadata.ozon_create_error) return false
-  if (metadata.ozon_order_number || metadata.ozon_posting_number) return false
+  if (!canManuallyRetryOzonOrderCreation(metadata)) return false
 
   const retryAfter = Date.parse(String(metadata.ozon_create_retry_after || ""))
   return !Number.isFinite(retryAfter) || retryAfter <= now
+}
+
+export function canManuallyRetryOzonOrderCreation(
+  metadata: Record<string, unknown>
+) {
+  return Boolean(metadata.ozon_create_error) &&
+    !metadata.ozon_order_number &&
+    !metadata.ozon_posting_number
 }

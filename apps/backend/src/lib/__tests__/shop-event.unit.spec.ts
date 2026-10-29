@@ -2,6 +2,7 @@ import {
   presentShopEvent,
   prettyShopEventText,
   shopEventErrorDetail,
+  shopEventJsonDetail,
   shopEventSearchFilters,
 } from "../shop-event"
 
@@ -67,6 +68,7 @@ describe("shopEventErrorDetail", () => {
         url: "https://api-seller.ozon.ru/v2/delivery/checkout",
         path: "/v2/delivery/checkout",
         body: {
+          buyer_phone: "79166147424",
           delivery_schema: "FBS",
           items: [{ quantity: 1 }],
         },
@@ -76,6 +78,29 @@ describe("shopEventErrorDetail", () => {
     expect(detail).toContain("/v2/delivery/checkout")
     expect(detail).toContain('"delivery_schema": "FBS"')
     expect(detail).toContain('"items"')
+    expect(detail).toContain('"buyer_phone": "[redacted]"')
+    expect(detail).not.toContain("79166147424")
+  })
+
+  it("redacts buyer details from successful request dumps too", () => {
+    const detail = shopEventJsonDetail({
+      requests: [
+        {
+          path: "/v2/order/create",
+          body: {
+            buyer: { name: "Иван", phone: "79166147424" },
+            recipient: { email: "buyer@example.com" },
+            items: [{ name: "Фигурка" }],
+          },
+        },
+      ],
+    })
+
+    expect(detail).toContain('"buyer": "[redacted]"')
+    expect(detail).toContain('"recipient": "[redacted]"')
+    expect(detail).toContain('"name": "Фигурка"')
+    expect(detail).not.toContain("79166147424")
+    expect(detail).not.toContain("buyer@example.com")
   })
 
   it("includes checkout responses needed to diagnose delivery availability", () => {

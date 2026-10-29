@@ -17,6 +17,7 @@ import {
 import { getShopSetting } from "../lib/shop-setting"
 import { shopOrderShipping } from "../lib/shop-order-view"
 import {
+  canManuallyRetryOzonOrderCreation,
   isOzonCreateRetryDue,
   ozonCreateRetryMetadata,
 } from "../lib/ozon-create-retry"
@@ -31,29 +32,44 @@ function money(value: unknown) {
   return Number.isFinite(numeric) ? numeric : 0
 }
 
-const activeOrderCreates = new Map<string, Promise<void>>()
+export type OzonOrderCreateResult = {
+  status: "created" | "failed" | "skipped"
+  message: string
+}
+
+const activeOrderCreates = new Map<string, Promise<OzonOrderCreateResult>>()
+
+type OzonOrderCreateOptions = {
+  force?: boolean
+}
 
 export async function createOzonOrderForMedusaOrder(
   container: MedusaContainer,
-  orderId: string
+  orderId: string,
+  options: OzonOrderCreateOptions = {}
 ) {
   const running = activeOrderCreates.get(orderId)
   if (running) return running
 
-  const task = createOzonOrderForMedusaOrderInner(container, orderId).finally(
-    () => activeOrderCreates.delete(orderId)
-  )
+  const task = createOzonOrderForMedusaOrderInner(
+    container,
+    orderId,
+    options
+  ).finally(() => activeOrderCreates.delete(orderId))
   activeOrderCreates.set(orderId, task)
   return task
 }
 
 async function createOzonOrderForMedusaOrderInner(
   container: MedusaContainer,
-  orderId: string
-) {
+  orderId: string,
+  options: OzonOrderCreateOptions
+): Promise<OzonOrderCreateResult> {
   const row = (await getShopSetting(container)) as unknown as Record<string, unknown>
   const creds = ozonCredsFromRow(row)
-  if (!creds) return
+  if (!creds) {
+    return { status: "skipped", message: "Не настроено подключение к Ozon" }
+  }
 
   const query = container.resolve(ContainerRegistrationKeys.QUERY)
   const { data } = await query.graph({
@@ -61,6 +77,7 @@ async function createOzonOrderForMedusaOrderInner(
     fields: [
       "id",
       "display_id",
+      "status",
       "email",
       "total",
       "shipping_total",
@@ -88,13 +105,26 @@ async function createOzonOrderForMedusaOrderInner(
     filters: { id: orderId },
   })
   const order = ((data ?? [])[0] || null) as Record<string, unknown> | null
-  if (!order) return
+  if (!order) return { status: "skipped", message: "Заказ не найден" }
   const metadata = (order.metadata || {}) as Record<string, unknown>
-  if (metadata.ozon_order_number || metadata.ozon_posting_number) return
-  if (metadata.ozon_create_error && !isOzonCreateRetryDue(metadata)) return
+  if (order.status === "canceled") {
+    return { status: "skipped", message: "Заказ отменён" }
+  }
+  if (metadata.ozon_order_number || metadata.ozon_posting_number) {
+    return { status: "skipped", message: "Отправление Ozon уже создано" }
+  }
+  if (options.force) {
+    if (!canManuallyRetryOzonOrderCreation(metadata)) {
+      return { status: "skipped", message: "У заказа уже нет ошибки создания Ozon" }
+    }
+  } else if (metadata.ozon_create_error && !isOzonCreateRetryDue(metadata)) {
+    return { status: "skipped", message: "Повторная попытка пока не наступила" }
+  }
   const address = (order.shipping_address || {}) as Record<string, unknown>
   const pointId = String(metadata.ozon_point_id || address.company || "")
-  if (!pointId) return
+  if (!pointId) {
+    return { status: "skipped", message: "У заказа не найден пункт выдачи Ozon" }
+  }
 
   const name =
     [address.first_name, address.last_name].filter(Boolean).join(" ").trim() ||
@@ -160,7 +190,7 @@ async function createOzonOrderForMedusaOrderInner(
           ? String(order.display_id)
           : null,
     })
-    return
+    return { status: "failed", message }
   }
 
   try {
@@ -220,6 +250,12 @@ async function createOzonOrderForMedusaOrderInner(
           : null,
       posting_number: ids.postingNumber,
     })
+    return {
+      status: "created",
+      message: ids.postingNumber
+        ? `Отправление создано: ${ids.postingNumber}`
+        : "Заказ передан в Ozon",
+    }
   } catch (error) {
     const logger = container.resolve(ContainerRegistrationKeys.LOGGER)
     const raw = error instanceof Error ? error.message : String(error)
@@ -247,6 +283,7 @@ async function createOzonOrderForMedusaOrderInner(
     } catch {
       // Metadata write is best-effort after a failed create.
     }
+    return { status: "failed", message }
   }
 }
 

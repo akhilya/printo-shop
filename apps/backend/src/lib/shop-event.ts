@@ -2,6 +2,25 @@ import { MedusaContainer } from "@medusajs/framework"
 import { SHOP_EVENT_MODULE } from "../modules/shop-event"
 import type ShopEventModuleService from "../modules/shop-event/service"
 
+const SHOP_EVENT_PRIVATE_KEY =
+  /^(?:buyer|recipient|customer|user|phone|email|first_name|last_name|full_name|contact)(?:_|$)|(?:^|_)address(?:_|$)/i
+
+function sanitizeShopEventValue(value: unknown, depth = 0): unknown {
+  if (depth > 8) return "[max depth]"
+  if (Array.isArray(value)) {
+    return value.map((entry) => sanitizeShopEventValue(entry, depth + 1))
+  }
+  if (!value || typeof value !== "object") return value
+
+  const sanitized: Record<string, unknown> = {}
+  for (const [key, entry] of Object.entries(value)) {
+    sanitized[key] = SHOP_EVENT_PRIVATE_KEY.test(key)
+      ? "[redacted]"
+      : sanitizeShopEventValue(entry, depth + 1)
+  }
+  return sanitized
+}
+
 export type ShopEventInput = {
   kind: string
   level?: "info" | "warn" | "error"
@@ -77,7 +96,7 @@ export function prettyShopEventText(value: unknown) {
 
 export function shopEventJsonDetail(value: unknown) {
   try {
-    return JSON.stringify(value, null, 2)
+    return JSON.stringify(sanitizeShopEventValue(value), null, 2)
   } catch {
     return String(value ?? "")
   }

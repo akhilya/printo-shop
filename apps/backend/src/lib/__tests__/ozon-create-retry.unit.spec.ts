@@ -1,4 +1,5 @@
 import {
+  canManuallyRetryOzonOrderCreation,
   isOzonCreateRetryDue,
   ozonCreateRetryMetadata,
 } from "../ozon-create-retry"
@@ -41,5 +42,27 @@ describe("Ozon create retry", () => {
       )
     ).toBe(false)
     expect(isOzonCreateRetryDue({}, now)).toBe(false)
+  })
+
+  it("allows manual retries only for failed orders without an Ozon id", () => {
+    const failed = {
+      ozon_create_error: "Нет интервала доставки",
+      ozon_create_retry_after: "2026-10-29T13:00:00.000Z",
+    }
+
+    expect(canManuallyRetryOzonOrderCreation(failed)).toBe(true)
+    expect(
+      canManuallyRetryOzonOrderCreation({
+        ...failed,
+        ozon_order_number: "10001",
+      })
+    ).toBe(false)
+    expect(
+      canManuallyRetryOzonOrderCreation({
+        ...failed,
+        ozon_posting_number: "123-1",
+      })
+    ).toBe(false)
+    expect(canManuallyRetryOzonOrderCreation({})).toBe(false)
   })
 })
