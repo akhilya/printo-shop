@@ -108,5 +108,9 @@ watch(() => route.path, load)
       <h1>{{ page.title }}</h1>
       <div class="legal-body" v-html="page.html" />
     </template>
+    <p v-if="slug === 'contacts'" class="legal-contact">
+      По вопросам заказов и любым техническим проблемам пишите на
+      <a href="mailto:akhilya@yandex.ru">akhilya@yandex.ru</a>.
+    </p>
   </article>
 </template>

@@ -2247,6 +2247,15 @@ a.btn:active {
   font-size: 0.9em;
 }
 
+.legal-contact {
+  margin: var(--space-4) 0 0;
+}
+
+.legal-contact a {
+  color: var(--ink);
+  text-decoration: underline;
+}
+
 .footer {
   border-top: 1px solid var(--hairline);
   font-size: var(--fs-caption);
@@ -2554,4 +2563,3 @@ a.btn:active {
   height: 100%;
   object-fit: contain;
 }
-

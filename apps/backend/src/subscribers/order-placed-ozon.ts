@@ -1,4 +1,5 @@
 import type { SubscriberArgs, SubscriberConfig } from "@medusajs/framework"
+import type { MedusaContainer } from "@medusajs/framework/types"
 import { ContainerRegistrationKeys, Modules } from "@medusajs/framework/utils"
 import {
   createOzonDeliveryOrder,
@@ -15,6 +16,10 @@ import {
 } from "../lib/shop-event"
 import { getShopSetting } from "../lib/shop-setting"
 import { shopOrderShipping } from "../lib/shop-order-view"
+import {
+  isOzonCreateRetryDue,
+  ozonCreateRetryMetadata,
+} from "../lib/ozon-create-retry"
 
 function money(value: unknown) {
   if (typeof value === "number" && Number.isFinite(value)) return value
@@ -26,11 +31,26 @@ function money(value: unknown) {
   return Number.isFinite(numeric) ? numeric : 0
 }
 
-export default async function orderPlacedOzon({
-  event,
-  container,
-}: SubscriberArgs<{ id: string }>) {
-  const orderId = event.data.id
+const activeOrderCreates = new Map<string, Promise<void>>()
+
+export async function createOzonOrderForMedusaOrder(
+  container: MedusaContainer,
+  orderId: string
+) {
+  const running = activeOrderCreates.get(orderId)
+  if (running) return running
+
+  const task = createOzonOrderForMedusaOrderInner(container, orderId).finally(
+    () => activeOrderCreates.delete(orderId)
+  )
+  activeOrderCreates.set(orderId, task)
+  return task
+}
+
+async function createOzonOrderForMedusaOrderInner(
+  container: MedusaContainer,
+  orderId: string
+) {
   const row = (await getShopSetting(container)) as unknown as Record<string, unknown>
   const creds = ozonCredsFromRow(row)
   if (!creds) return
@@ -70,6 +90,8 @@ export default async function orderPlacedOzon({
   const order = ((data ?? [])[0] || null) as Record<string, unknown> | null
   if (!order) return
   const metadata = (order.metadata || {}) as Record<string, unknown>
+  if (metadata.ozon_order_number || metadata.ozon_posting_number) return
+  if (metadata.ozon_create_error && !isOzonCreateRetryDue(metadata)) return
   const address = (order.shipping_address || {}) as Record<string, unknown>
   const pointId = String(metadata.ozon_point_id || address.company || "")
   if (!pointId) return
@@ -95,29 +117,6 @@ export default async function orderPlacedOzon({
       }))
     }
   )
-  const missing = items.filter((item) => !item.article)
-  if (missing.length) {
-    const logger = container.resolve(ContainerRegistrationKeys.LOGGER)
-    const labels = missing.map((item) => item.name).join(", ")
-    logger.warn(`Ozon order create skipped, no offer_id for ${orderId}: ${labels}`)
-    await recordShopEvent(container, {
-      kind: "ozon_create",
-      level: "error",
-      title: "Не удалось создать отправление Ozon",
-      message: `Нет артикула Ozon у позиций: ${labels}`,
-      detail: shopEventJsonDetail({
-        items,
-        hint: "items.variant_sku",
-      }),
-      order_id: orderId,
-      shop_number: metadata.shop_number
-        ? String(metadata.shop_number)
-        : order.display_id
-          ? String(order.display_id)
-          : null,
-    })
-    return
-  }
   const shopNumber =
     (await ensureMedusaShopNumber(container, orderId)) ||
     (metadata.shop_number ? String(metadata.shop_number) : null) ||
@@ -132,6 +131,36 @@ export default async function orderPlacedOzon({
 
   async function saveMeta(next: Record<string, unknown>) {
     await orderModule.updateOrders(orderId, { metadata: next })
+  }
+
+  const missing = items.filter((item) => !item.article)
+  if (missing.length) {
+    const logger = container.resolve(ContainerRegistrationKeys.LOGGER)
+    const labels = missing.map((item) => item.name).join(", ")
+    logger.warn(`Ozon order create skipped, no offer_id for ${orderId}: ${labels}`)
+    const message = `Нет артикула Ozon у позиций: ${labels}`
+    await saveMeta({
+      ...metadata,
+      ozon_create_error: message,
+      ...ozonCreateRetryMetadata(metadata),
+    })
+    await recordShopEvent(container, {
+      kind: "ozon_create",
+      level: "error",
+      title: "Не удалось создать отправление Ozon",
+      message,
+      detail: shopEventJsonDetail({
+        items,
+        hint: "items.variant_sku",
+      }),
+      order_id: orderId,
+      shop_number: metadata.shop_number
+        ? String(metadata.shop_number)
+        : order.display_id
+          ? String(order.display_id)
+          : null,
+    })
+    return
   }
 
   try {
@@ -162,6 +191,8 @@ export default async function orderPlacedOzon({
       ozon_posting_number: ids.postingNumber,
       ozon_tracking: ids.trackingUrl,
       ozon_create_error: null,
+      ozon_create_attempts: 0,
+      ozon_create_retry_after: null,
       ozon_create_raw: JSON.stringify({
         ids,
         created: {
@@ -211,11 +242,19 @@ export default async function orderPlacedOzon({
       await saveMeta({
         ...metadata,
         ozon_create_error: raw.slice(0, 1500),
+        ...ozonCreateRetryMetadata(metadata),
       })
     } catch {
       // Metadata write is best-effort after a failed create.
     }
   }
+}
+
+export default async function orderPlacedOzon({
+  event,
+  container,
+}: SubscriberArgs<{ id: string }>) {
+  await createOzonOrderForMedusaOrder(container, event.data.id)
 }
 
 export const config: SubscriberConfig = {
