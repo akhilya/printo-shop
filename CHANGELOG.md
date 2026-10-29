@@ -12,3 +12,7 @@ Notable changes to this project are recorded here.
 ### Changed
 
 - Kept Seller API as the primary provider for catalog items it accepts; Delivery API fallback requires a physical pickup-point match by address and coordinates.
+
+### Fixed
+
+- Requested the dedicated `delivery-api.shipment-method` permission when searching Ozon delivery methods.

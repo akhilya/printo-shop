@@ -132,6 +132,7 @@ describe("Ozon Delivery API requests", () => {
         "delivery-api.delivery-point",
         "delivery-api.order",
         "delivery-api.posting",
+        "delivery-api.shipment-method",
       ],
     })
     expect(String(fetchMock.mock.calls[3][0])).toBe(

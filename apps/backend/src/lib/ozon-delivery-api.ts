@@ -8,6 +8,7 @@ const OZON_DELIVERY_SCOPES = [
   "delivery-api.delivery-point",
   "delivery-api.order",
   "delivery-api.posting",
+  "delivery-api.shipment-method",
 ]
 
 export type OzonDeliveryParcel = {
@@ -241,7 +242,7 @@ function errorCode(body: string) {
 }
 
 async function fetchAccessToken(config: Pick<OzonDeliveryApiConfig, "clientId" | "clientSecret">) {
-  const key = `${config.clientId}:${config.clientSecret}`
+  const key = `${config.clientId}:${config.clientSecret}:${OZON_DELIVERY_SCOPES.join(",")}`
   if (tokenCache?.key === key && tokenCache.expiresAt > Date.now() + 30_000) {
     return tokenCache.token
   }

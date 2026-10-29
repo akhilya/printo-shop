@@ -97,7 +97,7 @@ Webhook: `POST /hooks/tbank` (ответ `OK`). После старта вклю
 
 Delivery API настраивается отдельно от Seller API. В админке откройте **Настройки → Ozon Доставка → Ozon Delivery API** и укажите:
 
-- Client ID и Client Secret OAuth-приложения с правами `delivery-api.delivery`, `delivery-api.delivery-point`, `delivery-api.order` и `delivery-api.posting`;
+- Client ID и Client Secret OAuth-приложения с правами `delivery-api.delivery`, `delivery-api.delivery-point`, `delivery-api.order`, `delivery-api.posting` и `delivery-api.shipment-method`;
 - активный метод доставки. В настройках есть поиск: если метод один, его ID подставится автоматически; если несколько — выберите нужный из списка;
 - вес отправления в граммах и длину, ширину и высоту в миллиметрах.
 
