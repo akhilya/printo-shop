@@ -13,7 +13,7 @@ Notable changes to this project are recorded here.
 ### Changed
 
 - Kept Seller API as the primary provider for catalog items it accepts; Delivery API fallback requires a physical pickup-point match by address and coordinates.
-- Included provider, shipment-method, and safe pickup-point match diagnostics in failed Ozon order logs and order metadata.
+- Included provider, shipment-method, safe pickup-point match, and sanitized Delivery API request/response error diagnostics in failed Ozon order logs and order metadata.
 
 ### Fixed
 
