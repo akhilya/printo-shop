@@ -24,6 +24,21 @@ export type OzonDeliveryApiConfig = {
   parcel: OzonDeliveryParcel
 }
 
+export type OzonDeliveryApiCredentials = Pick<
+  OzonDeliveryApiConfig,
+  "clientId" | "clientSecret"
+>
+
+export type OzonDeliveryApiShipmentMethod = {
+  shipment_method_id: number
+  name: string
+  status: string | null
+  type: string | null
+  dropoff_point_id: number | null
+  full_address: string | null
+  error_code: string | null
+}
+
 export type OzonDeliveryPosting = {
   postingNumber: string
   orderNumber: string | null
@@ -91,16 +106,14 @@ export function ozonDeliveryApiConfigFromRow(
   row: Record<string, unknown> | null | undefined
 ): OzonDeliveryApiConfig | null {
   if (!row) return null
-  const clientId = valueText(row.ozon_delivery_client_id)
-  const clientSecret = valueText(row.ozon_delivery_client_secret)
+  const credentials = ozonDeliveryApiCredentialsFromRow(row)
   const shipmentMethodId = positiveInt(row.ozon_delivery_shipment_method_id)
   const weightG = positiveInt(row.ozon_delivery_weight_g)
   const lengthMm = positiveInt(row.ozon_delivery_length_mm)
   const widthMm = positiveInt(row.ozon_delivery_width_mm)
   const heightMm = positiveInt(row.ozon_delivery_height_mm)
   if (
-    !clientId ||
-    !clientSecret ||
+    !credentials ||
     !shipmentMethodId ||
     !weightG ||
     !lengthMm ||
@@ -110,20 +123,25 @@ export function ozonDeliveryApiConfigFromRow(
     return null
   }
   return {
-    clientId,
-    clientSecret,
+    ...credentials,
     shipmentMethodId,
     parcel: { weightG, lengthMm, widthMm, heightMm },
   }
 }
 
+export function ozonDeliveryApiCredentialsFromRow(
+  row: Record<string, unknown> | null | undefined
+): OzonDeliveryApiCredentials | null {
+  if (!row) return null
+  const clientId = valueText(row.ozon_delivery_client_id)
+  const clientSecret = valueText(row.ozon_delivery_client_secret)
+  return clientId && clientSecret ? { clientId, clientSecret } : null
+}
+
 export function ozonDeliveryApiCredentialsSet(
   row: Record<string, unknown> | null | undefined
 ) {
-  return Boolean(
-    valueText(row?.ozon_delivery_client_id) &&
-      valueText(row?.ozon_delivery_client_secret)
-  )
+  return Boolean(ozonDeliveryApiCredentialsFromRow(row))
 }
 
 export function newOzonDeliveryIdempotencyKey() {
@@ -445,6 +463,49 @@ export async function listOzonDeliveryApiPoints(config: OzonDeliveryApiConfig) {
     expiresAt: Date.now() + 30 * 60 * 1000,
   })
   return points
+}
+
+export async function listOzonDeliveryApiShipmentMethods(
+  credentials: OzonDeliveryApiCredentials
+) {
+  const methods = new Map<number, OzonDeliveryApiShipmentMethod>()
+  let cursor = ""
+  for (let page = 0; page < 100; page++) {
+    const response = await deliveryPostJson(
+      credentials,
+      "/v1/shipment-method/search",
+      {
+        filters: { statuses: ["active"] },
+        pagination: { limit: 100, ...(cursor ? { cursor } : {}) },
+      }
+    )
+    const result = apiResult(response)
+    const rows = Array.isArray(result.shipment_methods)
+      ? result.shipment_methods
+      : []
+    for (const value of rows) {
+      const row = record(value)
+      const id = positiveInt(row.shipment_method_id)
+      if (!id) continue
+      const types = record(row.type)
+      const type = Object.keys(types).find((key) => Boolean(types[key])) || null
+      const typeInfo = record(type ? types[type] : null)
+      const error = record(row.error)
+      methods.set(id, {
+        shipment_method_id: id,
+        name: valueText(row.name) || `Метод ${id}`,
+        status: valueText(row.status) || null,
+        type,
+        dropoff_point_id: positiveInt(typeInfo.dropoff_point_id),
+        full_address: valueText(row.full_address) || null,
+        error_code: valueText(error.code) || null,
+      })
+    }
+    const nextCursor = valueText(result.next_cursor)
+    if (!nextCursor || nextCursor === cursor || !rows.length) break
+    cursor = nextCursor
+  }
+  return [...methods.values()]
 }
 
 function normalizePointAddress(value: unknown) {

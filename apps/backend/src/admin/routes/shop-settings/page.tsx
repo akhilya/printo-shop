@@ -53,6 +53,16 @@ type ShopSetting = {
   gift_card_denominations: number[]
 }
 
+type OzonDeliveryShipmentMethod = {
+  shipment_method_id: number
+  name: string
+  status: string | null
+  type: string | null
+  dropoff_point_id: number | null
+  full_address: string | null
+  error_code: string | null
+}
+
 const EMPTY: ShopSetting = {
   closed: false,
   message: "Магазин в разработке.",
@@ -97,6 +107,11 @@ const ShopSettingsPage = () => {
   const [giftCardRows, setGiftCardRows] = useState<
     Array<{ id: string; value: string }>
   >([])
+  const [ozonDeliveryMethods, setOzonDeliveryMethods] = useState<
+    OzonDeliveryShipmentMethod[]
+  >([])
+  const [loadingOzonDeliveryMethods, setLoadingOzonDeliveryMethods] =
+    useState(false)
 
   const { data, isLoading } = useQuery({
     queryFn: () =>
@@ -120,6 +135,45 @@ const ShopSettingsPage = () => {
       }))
     )
   }, [data])
+
+  async function findOzonDeliveryMethods() {
+    if (
+      !form.ozon_delivery_client_id.trim() ||
+      !form.ozon_delivery_client_secret_set
+    ) {
+      toast.error("Сначала сохраните Client ID и Client Secret")
+      return
+    }
+    setLoadingOzonDeliveryMethods(true)
+    try {
+      const result = await sdk.client.fetch<{
+        shipment_methods: OzonDeliveryShipmentMethod[]
+      }>("/admin/shop-settings/ozon-delivery-methods")
+      const methods = (result.shipment_methods || []).filter(
+        (method) => method.status === "active" && !method.error_code
+      )
+      setOzonDeliveryMethods(methods)
+      if (methods.length === 1) {
+        setForm((current) => ({
+          ...current,
+          ozon_delivery_shipment_method_id: String(
+            methods[0].shipment_method_id
+          ),
+        }))
+        toast.success(`Найден метод: ${methods[0].name}`)
+      } else if (methods.length > 1) {
+        toast.success(`Найдено методов: ${methods.length}. Выберите нужный.`)
+      } else {
+        toast.error("Активные методы доставки не найдены")
+      }
+    } catch {
+      toast.error(
+        "Ozon не разрешил получить методы. Проверьте доступ приложения и его права."
+      )
+    } finally {
+      setLoadingOzonDeliveryMethods(false)
+    }
+  }
 
   const giftCardErrors = useMemo(() => {
     const counts = new Map<string, number>()
@@ -799,6 +853,46 @@ const ShopSettingsPage = () => {
                     }))
                   }
                 />
+                <Button
+                  variant="secondary"
+                  isLoading={loadingOzonDeliveryMethods}
+                  disabled={
+                    !form.ozon_delivery_client_id.trim() ||
+                    !form.ozon_delivery_client_secret_set
+                  }
+                  onClick={findOzonDeliveryMethods}
+                >
+                  Найти метод в Ozon
+                </Button>
+                {ozonDeliveryMethods.length > 1 ? (
+                  <Select
+                    value={form.ozon_delivery_shipment_method_id}
+                    onValueChange={(value) =>
+                      setForm((current) => ({
+                        ...current,
+                        ozon_delivery_shipment_method_id: value,
+                      }))
+                    }
+                  >
+                    <Select.Trigger>
+                      <Select.Value placeholder="Выберите метод доставки" />
+                    </Select.Trigger>
+                    <Select.Content>
+                      {ozonDeliveryMethods.map((method) => (
+                        <Select.Item
+                          key={method.shipment_method_id}
+                          value={String(method.shipment_method_id)}
+                        >
+                          {method.name} · {method.shipment_method_id}
+                        </Select.Item>
+                      ))}
+                    </Select.Content>
+                  </Select>
+                ) : null}
+                <Text size="small" className="text-ui-fg-subtle">
+                  Если активный метод один, ID подставится сам. При нескольких
+                  методах выберите нужный из списка.
+                </Text>
               </div>
               <div className="grid grid-cols-2 gap-3">
                 <div className="flex flex-col gap-y-2">

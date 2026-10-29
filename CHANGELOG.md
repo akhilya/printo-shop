@@ -7,7 +7,7 @@ Notable changes to this project are recorded here.
 ### Added
 
 - Added Ozon Delivery API support for individual orders, pickup-point discovery, posting approval, labels, status checks, and cancellation.
-- Added separate Delivery API credentials, shipment-method and parcel settings, plus safe catalog fallback when Seller order creation has not started.
+- Added separate Delivery API credentials, automatic active shipment-method discovery, parcel settings, and safe catalog fallback before Seller order creation starts.
 
 ### Changed
 

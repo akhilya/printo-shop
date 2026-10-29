@@ -1,5 +1,6 @@
 import {
   createOzonDeliveryApiOrder,
+  listOzonDeliveryApiShipmentMethods,
   matchOzonDeliveryApiPoint,
   ozonDeliveryApiConfigFromRow,
   quoteOzonDeliveryApi,
@@ -257,5 +258,52 @@ describe("Ozon Delivery API requests", () => {
         lon: 37.7,
       })
     ).resolves.toBeNull()
+  })
+
+  it("lists active shipment methods without exposing Delivery API credentials", async () => {
+    const fetchMock = jest
+      .fn()
+      .mockResolvedValueOnce(
+        jsonResponse({ access_token: "delivery-token", expires_in: 3600 })
+      )
+      .mockResolvedValueOnce(
+        jsonResponse({
+          shipment_methods: [
+            {
+              shipment_method_id: 42,
+              name: "Склад Москва — dropoff",
+              status: "active",
+              type: { dropoff: { dropoff_point_id: 1234 } },
+              full_address: "г. Москва, ул. Ленина, д. 1",
+            },
+          ],
+          next_cursor: "",
+        })
+      )
+    global.fetch = fetchMock as typeof fetch
+
+    await expect(
+      listOzonDeliveryApiShipmentMethods({
+        clientId: config.clientId,
+        clientSecret: config.clientSecret,
+      })
+    ).resolves.toEqual([
+      {
+        shipment_method_id: 42,
+        name: "Склад Москва — dropoff",
+        status: "active",
+        type: "dropoff",
+        dropoff_point_id: 1234,
+        full_address: "г. Москва, ул. Ленина, д. 1",
+        error_code: null,
+      },
+    ])
+    expect(String(fetchMock.mock.calls[1][0])).toBe(
+      "https://api-delivery.ozon.ru/v1/shipment-method/search"
+    )
+    expect(JSON.parse(String(fetchMock.mock.calls[1][1]?.body))).toEqual({
+      filters: { statuses: ["active"] },
+      pagination: { limit: 100 },
+    })
   })
 })
