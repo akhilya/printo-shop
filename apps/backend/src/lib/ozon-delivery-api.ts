@@ -3,6 +3,7 @@ import { MedusaError } from "@medusajs/framework/utils"
 
 const OZON_DELIVERY_API_URL = "https://api-delivery.ozon.ru"
 const OZON_DELIVERY_TOKEN_URL = "https://xapi.ozon.ru/oauth/token"
+const DELIVERY_POINT_INFO_BATCH_SIZE = 100
 const OZON_DELIVERY_SCOPES = [
   "delivery-api.delivery",
   "delivery-api.delivery-point",
@@ -592,8 +593,14 @@ async function fetchOzonDeliveryApiPoints(config: OzonDeliveryApiConfig) {
 
   const uniqueIds = [...new Set(candidateIds)]
   const pages: number[][] = []
-  for (let index = 0; index < uniqueIds.length; index += 1000) {
-    pages.push(uniqueIds.slice(index, index + 1000))
+  for (
+    let index = 0;
+    index < uniqueIds.length;
+    index += DELIVERY_POINT_INFO_BATCH_SIZE
+  ) {
+    pages.push(
+      uniqueIds.slice(index, index + DELIVERY_POINT_INFO_BATCH_SIZE)
+    )
   }
   const details: unknown[] = []
   for (let index = 0; index < pages.length; index += 3) {

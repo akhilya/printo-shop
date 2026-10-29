@@ -18,3 +18,4 @@ Notable changes to this project are recorded here.
 ### Fixed
 
 - Requested the dedicated `delivery-api.shipment-method` permission when searching Ozon delivery methods.
+- Limited Ozon Delivery API pickup-point detail requests to 100 IDs per batch.

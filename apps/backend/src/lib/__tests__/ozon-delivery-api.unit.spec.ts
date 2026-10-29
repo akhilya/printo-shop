@@ -1,5 +1,6 @@
 import {
   createOzonDeliveryApiOrder,
+  listOzonDeliveryApiPoints,
   listOzonDeliveryApiShipmentMethods,
   matchOzonDeliveryApiPoint,
   matchOzonDeliveryApiPointWithDiagnostics,
@@ -289,6 +290,50 @@ describe("Ozon Delivery API requests", () => {
         lon: 37.7,
       })
     ).resolves.toBeNull()
+  })
+
+  it("requests delivery-point details in batches of at most 100 ids", async () => {
+    const firstPageIds = Array.from({ length: 100 }, (_, index) => 10_000 + index)
+    const secondPageIds = [20_000]
+    const allIds = [...firstPageIds, ...secondPageIds]
+    const pointListPage = (ids: number[], nextCursor: string) => ({
+      delivery_points: ids.map((delivery_point_id) => ({
+        delivery_point_id,
+        shipment_method_ids: [config.shipmentMethodId],
+      })),
+      next_cursor: nextCursor,
+    })
+    const pointDetails = (ids: number[]) => ({
+      delivery_points: ids.map((delivery_point_id) => ({
+        delivery_point_id,
+        full_address: "г. Москва, ул. Тестовая, д. 1",
+        coordinates: { latitude: 55.75, longitude: 37.61 },
+        is_active: true,
+      })),
+    })
+    const fetchMock = jest
+      .fn()
+      .mockResolvedValueOnce(
+        jsonResponse({ access_token: "delivery-token", expires_in: 3600 })
+      )
+      .mockResolvedValueOnce(jsonResponse(pointListPage(firstPageIds, "next")))
+      .mockResolvedValueOnce(jsonResponse(pointListPage(secondPageIds, "")))
+      .mockResolvedValueOnce(jsonResponse(pointDetails(firstPageIds)))
+      .mockResolvedValueOnce(jsonResponse(pointDetails(secondPageIds)))
+    global.fetch = fetchMock as typeof fetch
+
+    const points = await listOzonDeliveryApiPoints(config)
+    const infoRequests = fetchMock.mock.calls.filter(([url]) =>
+      String(url).endsWith("/v1/delivery-point/info")
+    )
+    const requestedIds = infoRequests.map(([, init]) =>
+      (JSON.parse(String(init?.body)) as { delivery_point_ids: number[] })
+        .delivery_point_ids
+    )
+
+    expect(points).toHaveLength(101)
+    expect(requestedIds.map((ids) => ids.length)).toEqual([100, 1])
+    expect(requestedIds.flat()).toEqual(allIds)
   })
 
   it("records safe request details for a Delivery API HTTP error", async () => {
