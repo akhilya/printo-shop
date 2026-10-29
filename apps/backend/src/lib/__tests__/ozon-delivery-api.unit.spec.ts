@@ -291,6 +291,73 @@ describe("Ozon Delivery API requests", () => {
     ).resolves.toBeNull()
   })
 
+  it("records safe request details for a Delivery API HTTP error", async () => {
+    const fetchMock = jest
+      .fn()
+      .mockResolvedValueOnce(
+        jsonResponse({ access_token: "delivery-token", expires_in: 3600 })
+      )
+      .mockResolvedValueOnce(
+        jsonResponse({
+          delivery_points: [
+            { delivery_point_id: 77, shipment_method_ids: [42] },
+          ],
+          next_cursor: "",
+        })
+      )
+      .mockResolvedValueOnce(
+        jsonResponse(
+          {
+            error: JSON.stringify({
+              code: "INVALID_ARGUMENT",
+              message:
+                "Invalid input for phone +79991234567; address: ул. Ленина, д. 1; coordinates: 55.7512, 37.6184; client_secret=secret-value",
+              stack: "Sensitive stack details must not be retained",
+            }),
+          },
+          400
+        )
+      )
+    global.fetch = fetchMock as typeof fetch
+
+    let caught: unknown
+    try {
+      await matchOzonDeliveryApiPointWithDiagnostics({
+        config,
+        lat: 55.75,
+        lon: 37.61,
+      })
+    } catch (error) {
+      caught = error
+    }
+
+    expect(caught).toMatchObject({
+      message: "Ozon Delivery API HTTP 400: INVALID_ARGUMENT",
+      ozonDeliveryApiDiagnostics: {
+        endpoint: "/v1/delivery-point/info",
+        http_status: 400,
+        request: {
+          fields: ["delivery_point_ids"],
+          array_counts: { delivery_point_ids: 1 },
+          delivery_point_ids_count: 1,
+          delivery_point_ids_sample: ["77"],
+        },
+        response: {
+          error_code: "INVALID_ARGUMENT",
+          error_message:
+            "Invalid input for phone [redacted]; address=[redacted]; coordinates=[redacted]; client_secret=[redacted]",
+        },
+      },
+    })
+    const serializedError = JSON.stringify(caught)
+    expect(serializedError).not.toContain("+79991234567")
+    expect(serializedError).not.toContain("Ленина")
+    expect(serializedError).not.toContain("55.7512")
+    expect(serializedError).not.toContain("37.6184")
+    expect(serializedError).not.toContain("secret-value")
+    expect(serializedError).not.toContain("Sensitive stack details")
+  })
+
   it("lists active shipment methods without exposing Delivery API credentials", async () => {
     const fetchMock = jest
       .fn()

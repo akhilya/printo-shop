@@ -267,10 +267,129 @@ async function ozonDeliveryFetch(input: DeliveryFetchInput) {
 function errorCode(body: string) {
   try {
     const parsed = record(JSON.parse(body))
-    const error = record(parsed.error)
-    return valueText(error.code, parsed.code) || "request_failed"
+    const error = {
+      ...parsedDiagnosticObject(parsed.error),
+      ...record(parsed.error),
+    }
+    return safeDeliveryDiagnosticCode(valueText(error.code, parsed.code))
   } catch {
     return "request_failed"
+  }
+}
+
+function safeDeliveryDiagnosticCode(value: string) {
+  return /^[A-Z0-9_.-]{1,100}$/i.test(value) ? value : "request_failed"
+}
+
+function safeDeliveryDiagnosticText(value: unknown) {
+  return String(value ?? "")
+    .replace(/\b[A-Z0-9._%+-]+@[A-Z0-9.-]+\.[A-Z]{2,}\b/gi, "[redacted]")
+    .replace(
+      /(^|[^\p{L}\p{N}_])((?:full[_ -]?address|shipping[_ -]?address|pickup[_ -]?address|address|адрес(?:а|у|ом)?(?:\s+доставки)?|улица|ул\.?|проспект|пр-т|переулок|пер\.?|шоссе|бульвар|набережная|street|st\.?|avenue|ave\.?|road|rd\.?|city|город|г\.?))\s*(?::|=|is\b|was\b|for\b)?\s*["']?[^;\n}]+/giu,
+      "$1$2=[redacted]"
+    )
+    .replace(
+      /(^|[^\p{L}\p{N}_])((?:coordinates?|latitude|longitude|lat|lon|широта|долгота|координаты))\s*[:=]\s*[-+]?\d+(?:\.\d+)?(?:\s*[,/]\s*[-+]?\d+(?:\.\d+)?)?/giu,
+      "$1$2=[redacted]"
+    )
+    .replace(/-?\d{1,2}\.\d{2,}\s*,\s*-?\d{1,3}\.\d{2,}/g, "[coordinates redacted]")
+    .replace(/\+?\d[\d\s().-]{7,}\d/g, "[redacted]")
+    .replace(
+      /\b(client[_-]?secret|api[_-]?key|access[_-]?token|refresh[_-]?token|authorization|password|secret|token)\s*[:=]\s*(?:"[^"]*"|'[^']*'|[^\s,}]+)/gi,
+      "$1=[redacted]"
+    )
+    .replace(/\bbearer\s+[^\s,}]+/gi, "Bearer [redacted]")
+    .slice(0, 500)
+}
+
+function parsedDiagnosticObject(value: unknown) {
+  if (typeof value !== "string") return record(value)
+  try {
+    return record(JSON.parse(value))
+  } catch {
+    return {}
+  }
+}
+
+function deliveryApiRequestErrorDiagnostics(
+  path: string,
+  status: number,
+  request: Record<string, unknown>,
+  responseText: string
+) {
+  let parsed: unknown = null
+  try {
+    parsed = JSON.parse(responseText)
+  } catch {
+    // Keep a short, redacted preview below for non-JSON Ozon errors.
+  }
+  const response = record(parsed)
+  const error = {
+    ...parsedDiagnosticObject(response.error),
+    ...record(response.error),
+  }
+  const nestedErrors = Array.isArray(response.errors)
+    ? response.errors.map(record)
+    : []
+  const requestSummary: Record<string, unknown> = {
+    fields: Object.keys(request).sort(),
+  }
+  const arrayCounts = Object.fromEntries(
+    Object.entries(request)
+      .filter(([, value]) => Array.isArray(value))
+      .map(([key, value]) => [key, (value as unknown[]).length])
+  )
+  if (Object.keys(arrayCounts).length) {
+    requestSummary.array_counts = arrayCounts
+  }
+  if (Array.isArray(request.delivery_point_ids)) {
+    requestSummary.delivery_point_ids_count = request.delivery_point_ids.length
+    requestSummary.delivery_point_ids_sample = request.delivery_point_ids
+      .slice(0, 5)
+      .map((value) => String(value))
+  }
+  const pagination = record(request.pagination)
+  if (Object.keys(pagination).length) {
+    requestSummary.pagination = {
+      limit: positiveInt(pagination.limit),
+      cursor_present: Boolean(valueText(pagination.cursor)),
+    }
+  }
+
+  const nestedCode = nestedErrors
+    .map((item) => valueText(item.code))
+    .filter(Boolean)
+  const nestedMessage = nestedErrors
+    .map((item) => valueText(item.message, item.detail))
+    .filter(Boolean)
+  const errorMessage = safeDeliveryDiagnosticText(
+    valueText(
+      error.message,
+      response.message,
+      response.error_description,
+      response.detail,
+      typeof response.error === "string" ? response.error : "",
+      ...nestedMessage
+    )
+  )
+  const responseFields = Object.keys(response).slice(0, 20)
+  const responseSummary: Record<string, unknown> = {
+    error_code: safeDeliveryDiagnosticCode(
+      valueText(error.code, response.code, ...nestedCode)
+    ),
+    error_message: errorMessage || null,
+    fields: responseFields,
+    body_chars: responseText.length,
+  }
+  if (!responseFields.length && responseText.trim()) {
+    responseSummary.body_preview = safeDeliveryDiagnosticText(responseText)
+  }
+
+  return {
+    endpoint: path,
+    http_status: status,
+    request: requestSummary,
+    response: responseSummary,
   }
 }
 
@@ -336,10 +455,18 @@ async function deliveryPostRaw(
   })
   const buffer = Buffer.from(await response.arrayBuffer())
   if (!response.ok) {
-    throw new MedusaError(
+    const responseText = buffer.toString("utf8")
+    const error = new MedusaError(
       MedusaError.Types.UNEXPECTED_STATE,
-      `Ozon Delivery API HTTP ${response.status}: ${errorCode(buffer.toString("utf8"))}`
+      `Ozon Delivery API HTTP ${response.status}: ${errorCode(responseText)}`
+    ) as MedusaError & { ozonDeliveryApiDiagnostics?: unknown }
+    error.ozonDeliveryApiDiagnostics = deliveryApiRequestErrorDiagnostics(
+      path,
+      response.status,
+      body,
+      responseText
     )
+    throw error
   }
   return {
     buffer,

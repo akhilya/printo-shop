@@ -175,6 +175,11 @@ async function createOzonOrderForMedusaOrderInner(
         ? (error as { ozonPointMatchDiagnostics?: unknown })
             .ozonPointMatchDiagnostics || null
         : null
+    const deliveryApiRequestDiagnostics =
+      error && typeof error === "object"
+        ? (error as { ozonDeliveryApiDiagnostics?: unknown })
+            .ozonDeliveryApiDiagnostics || null
+        : null
     const pointLat = Number(metadata.ozon_point_lat)
     const pointLon = Number(metadata.ozon_point_lon)
     const diagnostics = {
@@ -196,6 +201,7 @@ async function createOzonOrderForMedusaOrderInner(
       },
       seller_create_uncertain: metadata.ozon_seller_create_uncertain === true,
       point_match: pointMatchDiagnostics,
+      delivery_api_request_error: deliveryApiRequestDiagnostics,
     }
     logger.warn(`Ozon order create failed for ${orderId}: ${raw}`)
     await recordShopEvent(container, {
