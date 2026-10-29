@@ -2,6 +2,7 @@ import {
   createOzonDeliveryApiOrder,
   listOzonDeliveryApiShipmentMethods,
   matchOzonDeliveryApiPoint,
+  matchOzonDeliveryApiPointWithDiagnostics,
   ozonDeliveryApiConfigFromRow,
   quoteOzonDeliveryApi,
   resetOzonDeliveryApiCache,
@@ -243,14 +244,43 @@ describe("Ozon Delivery API requests", () => {
       )
     global.fetch = fetchMock as typeof fetch
 
-    await expect(
-      matchOzonDeliveryApiPoint({
-        config,
-        address: "г. Москва, ул. Ленина, д. 1",
-        lat: 55.75,
-        lon: 37.61,
-      })
-    ).resolves.toMatchObject({ id: "77" })
+    const match = await matchOzonDeliveryApiPointWithDiagnostics({
+      config,
+      address: "г. Москва, ул. Ленина, д. 1",
+      lat: 55.75,
+      lon: 37.61,
+    })
+    expect(match.point).toMatchObject({ id: "77" })
+    expect(match.diagnostics).toMatchObject({
+      match_status: "matched_by_location_text",
+      shipment_method_id: 42,
+      source_location: {
+        has_text: true,
+        has_latitude: true,
+        has_longitude: true,
+      },
+      delivery_api_point_count: 2,
+      nearby_point_count: 2,
+      location_text_match_count: 1,
+      nearest_points: expect.arrayContaining([
+        expect.objectContaining({
+          delivery_point_id: "77",
+          within_250m: true,
+          location_text_matches: true,
+        }),
+      ]),
+    })
+    expect(JSON.stringify(match.diagnostics)).not.toContain("Ленина")
+
+    const noMatch = await matchOzonDeliveryApiPointWithDiagnostics({
+      config,
+      address: "г. Москва, ул. Ленина, д. 1",
+      lat: 55.8,
+      lon: 37.7,
+    })
+    expect(noMatch.point).toBeNull()
+    expect(noMatch.diagnostics.match_status).toBe("no_points_within_250m")
+    expect(noMatch.diagnostics.nearest_points[0].distance_m).toBeGreaterThan(250)
     await expect(
       matchOzonDeliveryApiPoint({
         config,

@@ -8,6 +8,7 @@ import { createOzonOrderForMedusaOrder } from "../subscribers/order-placed-ozon"
 
 type RetryOzonOrderCreationInput = {
   orderId: string
+  provider?: "delivery_api"
 }
 
 const retryOzonOrderCreationStep = createStep(
@@ -16,7 +17,7 @@ const retryOzonOrderCreationStep = createStep(
     const result = await createOzonOrderForMedusaOrder(
       container,
       input.orderId,
-      { force: true }
+      { force: true, provider: input.provider }
     )
     return new StepResponse(result)
   }

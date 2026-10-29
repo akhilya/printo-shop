@@ -24,16 +24,24 @@ const OrderOzonCreateErrorWidget = ({
     metadata.ozon_order_number || metadata.ozon_posting_number
   )
   const canceled = data.status === "canceled"
+  const diagnostics =
+    metadata.ozon_create_diagnostics &&
+    typeof metadata.ozon_create_diagnostics === "object"
+      ? JSON.stringify(metadata.ozon_create_diagnostics, null, 2)
+      : ""
   const [busy, setBusy] = useState(false)
 
   if (!error) return null
 
-  async function retryNow() {
+  async function createNow(provider?: "delivery_api") {
     setBusy(true)
     try {
       const result = await sdk.client.fetch<{ message: string }>(
         `/admin/shop-orders/${data.id}/retry-ozon`,
-        { method: "POST" }
+        {
+          method: "POST",
+          body: provider ? { provider } : {},
+        }
       )
       toast.success(result.message)
       window.location.reload()
@@ -55,6 +63,14 @@ const OrderOzonCreateErrorWidget = ({
       <Text size="small" className="whitespace-pre-wrap break-words">
         {error}
       </Text>
+      {diagnostics ? (
+        <details className="text-ui-fg-subtle text-xs">
+          <summary className="cursor-pointer">Диагностика ошибки</summary>
+          <pre className="bg-ui-bg-subtle mt-2 max-h-64 overflow-auto whitespace-pre-wrap break-all rounded-md p-3 font-mono">
+            {diagnostics}
+          </pre>
+        </details>
+      ) : null}
       <div className="flex flex-col gap-y-1">
         <Text size="small">Попыток: {attempts}</Text>
         <Text size="small" className="text-ui-fg-subtle">
@@ -68,13 +84,25 @@ const OrderOzonCreateErrorWidget = ({
           Отправление уже создано; повтор отключён.
         </Text>
       ) : (
-        <Button
-          variant="secondary"
-          disabled={busy || canceled}
-          onClick={retryNow}
-        >
-          {busy ? "Повторяем…" : "Повторить сейчас"}
-        </Button>
+        <div className="flex flex-col gap-y-2">
+          <Button
+            variant="secondary"
+            disabled={busy || canceled}
+            onClick={() => createNow()}
+          >
+            {busy ? "Создаём…" : "Повторить обычный путь"}
+          </Button>
+          <Button
+            disabled={busy || canceled}
+            onClick={() => createNow("delivery_api")}
+          >
+            {busy ? "Создаём…" : "Создать через Delivery API"}
+          </Button>
+          <Text size="small" className="text-ui-fg-subtle">
+            Delivery API создаёт отправление без артикула Ozon Seller. Выбранный
+            ПВЗ должен быть доступен для настроенного метода доставки.
+          </Text>
+        </div>
       )}
       {canceled && !alreadyCreated ? (
         <Text size="small" className="text-ui-fg-subtle">

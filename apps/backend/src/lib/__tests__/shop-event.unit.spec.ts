@@ -103,6 +103,38 @@ describe("shopEventErrorDetail", () => {
     expect(detail).not.toContain("buyer@example.com")
   })
 
+  it("keeps Ozon point diagnostics without storing raw location or contact data", () => {
+    const detail = shopEventJsonDetail({
+      diagnostics: {
+        attempted_provider: "delivery_api",
+        shipment_method_id: 42,
+        selected_seller_point_id: "88985",
+        selected_point_location: {
+          has_text: true,
+          has_latitude: true,
+          has_longitude: true,
+        },
+        point_match: {
+          match_status: "no_points_within_250m",
+          delivery_api_point_count: 2,
+          nearest_points: [
+            {
+              delivery_point_id: "77",
+              distance_m: 1700,
+              location_text_matches: false,
+            },
+          ],
+        },
+      },
+    })
+
+    expect(detail).toContain("no_points_within_250m")
+    expect(detail).toContain('"shipment_method_id": 42')
+    expect(detail).toContain('"delivery_point_id": "77"')
+    expect(detail).not.toContain("address")
+    expect(detail).not.toContain("phone")
+  })
+
   it("includes checkout responses needed to diagnose delivery availability", () => {
     const error = new Error("Ozon checkout: split 1 has no delivery slot") as Error & {
       ozonCheckoutResponses: unknown[]

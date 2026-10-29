@@ -17,7 +17,7 @@ import {
 } from "../lib/ozon-delivery"
 import {
   createOzonDeliveryApiOrder,
-  matchOzonDeliveryApiPoint,
+  matchOzonDeliveryApiPointWithDiagnostics,
   newOzonDeliveryIdempotencyKey,
   ozonDeliveryApiConfigFromRow,
 } from "../lib/ozon-delivery-api"
@@ -54,6 +54,7 @@ const activeOrderCreates = new Map<string, Promise<OzonOrderCreateResult>>()
 
 type OzonOrderCreateOptions = {
   force?: boolean
+  provider?: "delivery_api"
 }
 
 export async function createOzonOrderForMedusaOrder(
@@ -138,6 +139,9 @@ async function createOzonOrderForMedusaOrderInner(
   }
   const address = (order.shipping_address || {}) as Record<string, unknown>
   const pointId = String(metadata.ozon_point_id || address.company || "")
+  let deliveryApiAttempted =
+    options.provider === "delivery_api" ||
+    metadata.ozon_provider === "delivery_api"
   if (!pointId) {
     return { status: "skipped", message: "У заказа не найден пункт выдачи Ozon" }
   }
@@ -166,6 +170,33 @@ async function createOzonOrderForMedusaOrderInner(
     const logger = container.resolve(ContainerRegistrationKeys.LOGGER)
     const raw = error instanceof Error ? error.message : String(error)
     const message = ozonAdminErrorMessage(error)
+    const pointMatchDiagnostics =
+      error && typeof error === "object"
+        ? (error as { ozonPointMatchDiagnostics?: unknown })
+            .ozonPointMatchDiagnostics || null
+        : null
+    const pointLat = Number(metadata.ozon_point_lat)
+    const pointLon = Number(metadata.ozon_point_lon)
+    const diagnostics = {
+      attempted_provider: deliveryApiAttempted ? "delivery_api" : "seller",
+      requested_provider: options.provider || null,
+      delivery_api_configured: Boolean(deliveryConfig),
+      shipment_method_id: deliveryConfig?.shipmentMethodId || null,
+      selected_seller_point_id: pointId || null,
+      selected_point_location: {
+        has_text: Boolean(
+          String(metadata.ozon_point_address || address.address_1 || "").trim()
+        ),
+        has_latitude: Number.isFinite(pointLat),
+        has_longitude: Number.isFinite(pointLon),
+        coordinates_usable:
+          Number.isFinite(pointLat) &&
+          Number.isFinite(pointLon) &&
+          (pointLat !== 0 || pointLon !== 0),
+      },
+      seller_create_uncertain: metadata.ozon_seller_create_uncertain === true,
+      point_match: pointMatchDiagnostics,
+    }
     logger.warn(`Ozon order create failed for ${orderId}: ${raw}`)
     await recordShopEvent(container, {
       kind: "ozon_create",
@@ -174,6 +205,7 @@ async function createOzonOrderForMedusaOrderInner(
       message,
       detail: shopEventJsonDetail({
         error: shopEventErrorDetail(error),
+        diagnostics,
         previous_error: previousError
           ? shopEventErrorDetail(previousError)
           : null,
@@ -189,6 +221,7 @@ async function createOzonOrderForMedusaOrderInner(
       await saveMeta({
         ...metadata,
         ozon_create_error: raw.slice(0, 1500),
+        ozon_create_diagnostics: diagnostics,
         ozon_seller_create_uncertain:
           metadata.ozon_seller_create_uncertain === true ||
           ozonSellerCreateRequestStarted(error),
@@ -200,7 +233,12 @@ async function createOzonOrderForMedusaOrderInner(
     return { status: "failed", message } as const
   }
 
-  async function createWithDeliveryApi(reason: string, previousError?: unknown) {
+  async function createWithDeliveryApi(
+    reason: string,
+    previousError?: unknown,
+    persistProvider = false
+  ) {
+    deliveryApiAttempted = true
     if (!deliveryConfig) {
       return recordCreateFailure(
         new Error("Ozon Delivery API не настроен")
@@ -220,7 +258,11 @@ async function createOzonOrderForMedusaOrderInner(
       )
     }
     try {
-      const deliveryPoint = await matchOzonDeliveryApiPoint({
+      if (persistProvider && metadata.ozon_provider !== "delivery_api") {
+        metadata = { ...metadata, ozon_provider: "delivery_api" }
+        await saveMeta(metadata)
+      }
+      const pointMatch = await matchOzonDeliveryApiPointWithDiagnostics({
         config: deliveryConfig,
         address: String(
           metadata.ozon_point_address || address.address_1 || ""
@@ -228,12 +270,15 @@ async function createOzonOrderForMedusaOrderInner(
         lat: Number(metadata.ozon_point_lat),
         lon: Number(metadata.ozon_point_lon),
       })
-      if (!deliveryPoint) {
-        throw new MedusaError(
+      if (!pointMatch.point) {
+        const matchError = new MedusaError(
           MedusaError.Types.INVALID_DATA,
           "Не удалось безопасно сопоставить выбранный пункт выдачи с Ozon Delivery API"
-        )
+        ) as MedusaError & { ozonPointMatchDiagnostics?: unknown }
+        matchError.ozonPointMatchDiagnostics = pointMatch.diagnostics
+        throw matchError
       }
+      const deliveryPoint = pointMatch.point
       const idempotencyKey =
         String(metadata.ozon_delivery_idempotency_key || "").trim() ||
         newOzonDeliveryIdempotencyKey()
@@ -272,6 +317,7 @@ async function createOzonOrderForMedusaOrderInner(
         ozon_tracking: ids.trackingUrl,
         ozon_posting_status: created.status,
         ozon_create_error: null,
+        ozon_create_diagnostics: null,
         ozon_create_attempts: 0,
         ozon_create_retry_after: null,
         ozon_seller_create_uncertain: false,
@@ -310,6 +356,13 @@ async function createOzonOrderForMedusaOrderInner(
     }
   }
 
+  if (options.provider === "delivery_api") {
+    return createWithDeliveryApi(
+      "ручное создание через Ozon Delivery API",
+      undefined,
+      true
+    )
+  }
   if (metadata.ozon_provider === "delivery_api") {
     return createWithDeliveryApi("повтор Delivery API по сохранённому ключу")
   }
@@ -393,6 +446,7 @@ async function createOzonOrderForMedusaOrderInner(
       ozon_posting_number: ids.postingNumber,
       ozon_tracking: ids.trackingUrl,
       ozon_create_error: null,
+      ozon_create_diagnostics: null,
       ozon_create_attempts: 0,
       ozon_create_retry_after: null,
       ozon_seller_create_uncertain: false,

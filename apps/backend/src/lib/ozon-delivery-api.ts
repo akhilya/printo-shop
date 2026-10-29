@@ -61,6 +61,39 @@ export type OzonDeliveryApiPoint = {
   city?: string
 }
 
+export type OzonDeliveryApiPointMatchDiagnostics = {
+  match_status:
+    | "missing_coordinates"
+    | "invalid_coordinates"
+    | "no_points_for_method"
+    | "no_points_within_250m"
+    | "ambiguous_or_location_mismatch"
+    | "matched_by_location_text"
+    | "matched_by_coordinates"
+  shipment_method_id: number
+  source_location: {
+    has_text: boolean
+    has_latitude: boolean
+    has_longitude: boolean
+  }
+  delivery_api_point_count: number
+  nearby_point_count: number
+  location_text_match_count: number
+  nearest_points: Array<{
+    delivery_point_id: string
+    distance_m: number
+    within_250m: boolean
+    location_text_matches: boolean
+  }>
+}
+
+export type OzonDeliveryApiPointMatchInput = {
+  config: OzonDeliveryApiConfig
+  address?: string
+  lat?: number
+  lon?: number
+}
+
 type DeliveryTokenCache = {
   key: string
   token: string
@@ -531,47 +564,113 @@ function pointDistanceMeters(
   return 6_371_000 * 2 * Math.atan2(Math.sqrt(haversine), Math.sqrt(1 - haversine))
 }
 
-export async function matchOzonDeliveryApiPoint(input: {
-  config: OzonDeliveryApiConfig
-  address?: string
-  lat?: number
-  lon?: number
-}) {
+export async function matchOzonDeliveryApiPointWithDiagnostics(
+  input: OzonDeliveryApiPointMatchInput
+) {
   const lat = Number(input.lat)
   const lon = Number(input.lon)
-  if (!Number.isFinite(lat) || !Number.isFinite(lon) || (!lat && !lon)) {
-    return null
-  }
   const address = normalizePointAddress(input.address)
-  const nearby = (await listOzonDeliveryApiPoints(input.config))
+  const hasLatitude = Number.isFinite(lat)
+  const hasLongitude = Number.isFinite(lon)
+  const hasUsableCoordinates =
+    hasLatitude && hasLongitude && (lat !== 0 || lon !== 0)
+  const sourceLocation = {
+    has_text: Boolean(address),
+    has_latitude: hasLatitude,
+    has_longitude: hasLongitude,
+  }
+  const emptyDiagnostics = (
+    matchStatus: OzonDeliveryApiPointMatchDiagnostics["match_status"]
+  ): OzonDeliveryApiPointMatchDiagnostics => ({
+    match_status: matchStatus,
+    shipment_method_id: input.config.shipmentMethodId,
+    source_location: sourceLocation,
+    delivery_api_point_count: 0,
+    nearby_point_count: 0,
+    location_text_match_count: 0,
+    nearest_points: [],
+  })
+
+  if (!hasUsableCoordinates) {
+    return {
+      point: null,
+      diagnostics: emptyDiagnostics(
+        hasLatitude && hasLongitude
+          ? "invalid_coordinates"
+          : "missing_coordinates"
+      ),
+    }
+  }
+
+  const points = await listOzonDeliveryApiPoints(input.config)
+  const candidates = points
     .map((point) => ({
       point,
       distance: pointDistanceMeters({ lat, lon }, point),
       address: normalizePointAddress(point.address),
     }))
-    .filter((candidate) => candidate.distance <= 250)
     .sort((a, b) => a.distance - b.distance)
-  if (!nearby.length) return null
+  const nearby = candidates.filter((candidate) => candidate.distance <= 250)
+  const matchesLocationText = (candidate: (typeof candidates)[number]) =>
+    address.length >= 12 &&
+    candidate.address.length >= 12 &&
+    (candidate.address === address ||
+      candidate.address.includes(address) ||
+      address.includes(candidate.address))
+  const addressMatches = nearby.filter(matchesLocationText)
+  let point: OzonDeliveryApiPoint | null = null
+  let matchStatus: OzonDeliveryApiPointMatchDiagnostics["match_status"] =
+    "ambiguous_or_location_mismatch"
 
-  if (address.length >= 12) {
-    const addressMatches = nearby.filter(
-      (candidate) =>
-        candidate.address === address ||
-        (candidate.address.length >= 12 &&
-          (candidate.address.includes(address) || address.includes(candidate.address)))
-    )
-    if (addressMatches.length === 1) return addressMatches[0].point
-    if (addressMatches.length > 1) {
-      const [closest, next] = addressMatches
-      if (next.distance - closest.distance >= 25) return closest.point
+  if (addressMatches.length === 1) {
+    point = addressMatches[0].point
+    matchStatus = "matched_by_location_text"
+  } else if (addressMatches.length > 1) {
+    const [closest, next] = addressMatches
+    if (next.distance - closest.distance >= 25) {
+      point = closest.point
+      matchStatus = "matched_by_location_text"
     }
   }
 
-  const [closest, next] = nearby
-  if (closest.distance <= 12 && (!next || next.distance - closest.distance >= 25)) {
-    return closest.point
+  if (!point && nearby.length) {
+    const [closest, next] = nearby
+    if (
+      closest.distance <= 12 &&
+      (!next || next.distance - closest.distance >= 25)
+    ) {
+      point = closest.point
+      matchStatus = "matched_by_coordinates"
+    }
   }
-  return null
+
+  if (!points.length) matchStatus = "no_points_for_method"
+  else if (!nearby.length) matchStatus = "no_points_within_250m"
+
+  return {
+    point,
+    diagnostics: {
+      match_status: matchStatus,
+      shipment_method_id: input.config.shipmentMethodId,
+      source_location: sourceLocation,
+      delivery_api_point_count: points.length,
+      nearby_point_count: nearby.length,
+      location_text_match_count: addressMatches.length,
+      nearest_points: candidates.slice(0, 5).map((candidate) => ({
+        delivery_point_id: candidate.point.id,
+        distance_m: Math.round(candidate.distance),
+        within_250m: candidate.distance <= 250,
+        location_text_matches: matchesLocationText(candidate),
+      })),
+    } satisfies OzonDeliveryApiPointMatchDiagnostics,
+  }
+}
+
+export async function matchOzonDeliveryApiPoint(
+  input: OzonDeliveryApiPointMatchInput
+) {
+  const result = await matchOzonDeliveryApiPointWithDiagnostics(input)
+  return result.point
 }
 
 export async function getOzonDeliveryApiPoint(
