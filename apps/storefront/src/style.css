@@ -2171,6 +2171,17 @@ a.btn:active {
   padding-inline: var(--space-4);
 }
 
+.order-verify-note,
+.order-verify .err,
+.order-verify-back {
+  flex-basis: 100%;
+}
+
+.order-verify-note,
+.order-verify .err {
+  margin: 0;
+}
+
 .promo-page {
   display: flex;
   flex-direction: column;

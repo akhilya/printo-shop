@@ -13,11 +13,15 @@ const justPaid = computed(() => String(route.query.paid || "") === "1")
 const access = computed(() =>
   String(route.query.t || route.query.token || "").trim()
 )
+const hasValidNumber = computed(() => /^\d{10}$/.test(numberParam.value))
 const query = ref(numberParam.value)
 const order = ref(null)
 const loading = ref(false)
 bindPageBusy(loading)
 const error = ref("")
+const contact = ref("")
+const verifyBusy = ref(false)
+const verifyError = ref("")
 const writeEmail = ref("")
 const writeMessage = ref("")
 const writeBusy = ref(false)
@@ -59,6 +63,11 @@ async function load(number, quiet = false) {
     error.value = value ? "Номер заказа — 10 цифр." : ""
     return
   }
+  if (!access.value) {
+    order.value = null
+    error.value = ""
+    return
+  }
   if (!quiet) {
     loading.value = true
     error.value = ""
@@ -68,7 +77,10 @@ async function load(number, quiet = false) {
     if (!res.ok) {
       if (!quiet) {
         order.value = null
-        error.value = "Заказ не найден."
+        error.value =
+          res.status === 404
+            ? "Ссылка не открылась. Подтвердите заказ ещё раз."
+            : "Не удалось загрузить заказ."
       }
       return
     }
@@ -86,6 +98,46 @@ async function load(number, quiet = false) {
     error.value = "Не удалось загрузить заказ."
   } finally {
     loading.value = false
+  }
+}
+
+async function onVerify(event) {
+  event.preventDefault()
+  if (!hasValidNumber.value || verifyBusy.value) return
+  if (!reportForm(event.currentTarget)) return
+
+  verifyBusy.value = true
+  verifyError.value = ""
+  error.value = ""
+  try {
+    const res = await fetch(
+      `${BACKEND_URL}/store/shop-orders/${encodeURIComponent(numberParam.value)}/access`,
+      {
+        method: "POST",
+        headers: { ...storeHeaders(), "Content-Type": "application/json" },
+        body: JSON.stringify({ contact: contact.value }),
+      }
+    )
+    const data = await res.json().catch(() => ({}))
+    if (!res.ok || !data.token) {
+      verifyError.value =
+        res.status === 429
+          ? "Слишком много попыток. Попробуйте позже."
+          : res.status === 400
+            ? data.message || "Укажите почту или телефон с оформления."
+            : "Не удалось найти заказ с этими данными. Проверьте номер и контакт."
+      return
+    }
+
+    contact.value = ""
+    await router.replace({
+      path: `/order/${numberParam.value}`,
+      query: { ...(justPaid.value ? { paid: "1" } : {}), t: data.token },
+    })
+  } catch {
+    verifyError.value = "Не удалось проверить данные. Попробуйте ещё раз."
+  } finally {
+    verifyBusy.value = false
   }
 }
 
@@ -137,11 +189,14 @@ function onLookup(event) {
   event.preventDefault()
   if (!reportForm(event.currentTarget)) return
   const value = query.value.replace(/\D/g, "")
-  if (value === numberParam.value) {
-    load(value)
+  if (!/^\d{10}$/.test(value)) {
+    error.value = "Номер заказа — 10 цифр."
     return
   }
-  router.push(value ? `/order/${value}` : "/order")
+  error.value = ""
+  contact.value = ""
+  verifyError.value = ""
+  router.push(`/order/${value}`)
 }
 
 onMounted(async () => {
@@ -162,7 +217,11 @@ watch([numberParam, access], async () => {
 <template>
   <article class="checkout-done">
     <h1>{{ heading }}</h1>
-    <form v-if="!order && !loading" class="order-lookup" @submit="onLookup">
+    <form
+      v-if="!order && !loading && !hasValidNumber"
+      class="order-lookup"
+      @submit="onLookup"
+    >
       <label>
         Номер заказа
         <input
@@ -175,9 +234,36 @@ watch([numberParam, access], async () => {
           data-validate="shop-number"
         />
       </label>
+      <p v-if="error" class="err">{{ error }}</p>
       <button class="btn" type="submit">Найти</button>
     </form>
-    <p v-else-if="error" class="err">{{ error }}</p>
+    <form
+      v-else-if="!order && !loading"
+      class="order-lookup order-verify"
+      @submit="onVerify"
+    >
+      <p class="muted order-verify-note">
+        Укажите почту или телефон, который оставили при оформлении. После проверки
+        откроются детали заказа.
+      </p>
+      <label>
+        Почта или телефон
+        <input
+          v-model="contact"
+          type="text"
+          required
+          maxlength="254"
+          autocomplete="off"
+        />
+      </label>
+      <p v-if="error || verifyError" class="err">{{ verifyError || error }}</p>
+      <button class="btn" type="submit" :disabled="verifyBusy">
+        {{ verifyBusy ? "Проверяем" : "Открыть заказ" }}
+      </button>
+      <router-link class="order-verify-back" to="/order">
+        Найти другой заказ
+      </router-link>
+    </form>
     <template v-else-if="order">
       <p v-if="justPaid" class="checkout-done-id">{{ order.number }}</p>
       <p class="muted">{{ order.status?.label }}</p>
