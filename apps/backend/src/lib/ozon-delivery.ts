@@ -154,7 +154,13 @@ type OzonAppTokenCache = {
   expiresAt: number
 }
 
+type OzonAppTokenRefresh = {
+  key: string
+  promise: Promise<string>
+}
+
 let ozonAppTokenCache: OzonAppTokenCache | null = null
+let ozonAppTokenRefresh: OzonAppTokenRefresh | null = null
 
 type OzonTokenPersist = (tokens: {
   accessToken: string
@@ -165,6 +171,7 @@ let ozonTokenPersist: OzonTokenPersist | null = null
 
 export function resetOzonAppTokenCache() {
   ozonAppTokenCache = null
+  ozonAppTokenRefresh = null
 }
 
 type PvzCacheEntry = {
@@ -377,36 +384,50 @@ export async function fetchOzonAppToken(input: {
   ) {
     return ozonAppTokenCache.token
   }
-  const tokens = await postOzonOauth({
-    grant_type: "refresh_token",
-    client_id: clientId,
-    client_secret: clientSecret,
-    refresh_token: refreshToken,
-  }).catch(async (error) => {
-    const raw = error instanceof Error ? error.message : String(error || "")
-    if (/invalid_refresh_token/i.test(raw)) {
-      resetOzonAppTokenCache()
-      await persistOzonTokens({ accessToken: "", refreshToken: "" })
-    }
-    throw error
-  })
-  const nextRefresh = tokens.refreshToken || refreshToken
-  ozonAppTokenCache = {
-    key: `${clientId}:${clientSecret}:${nextRefresh}`,
-    token: tokens.accessToken,
-    expiresAt: tokens.expiresAt,
+  if (ozonAppTokenRefresh?.key === key) {
+    return ozonAppTokenRefresh.promise
   }
-  if (tokens.refreshToken && tokens.refreshToken !== refreshToken) {
-    try {
-      await persistOzonTokens({
-        accessToken: tokens.accessToken,
-        refreshToken: tokens.refreshToken,
-      })
-    } catch {
-      // Keep the live access token even if the new refresh token was not saved.
+
+  const promise = (async () => {
+    const tokens = await postOzonOauth({
+      grant_type: "refresh_token",
+      client_id: clientId,
+      client_secret: clientSecret,
+      refresh_token: refreshToken,
+    }).catch(async (error) => {
+      const raw = error instanceof Error ? error.message : String(error || "")
+      if (/invalid_refresh_token/i.test(raw)) {
+        ozonAppTokenCache = null
+        await persistOzonTokens({ accessToken: "", refreshToken: "" })
+      }
+      throw error
+    })
+    const nextRefresh = tokens.refreshToken || refreshToken
+    ozonAppTokenCache = {
+      key: `${clientId}:${clientSecret}:${nextRefresh}`,
+      token: tokens.accessToken,
+      expiresAt: tokens.expiresAt,
+    }
+    if (tokens.refreshToken && tokens.refreshToken !== refreshToken) {
+      try {
+        await persistOzonTokens({
+          accessToken: tokens.accessToken,
+          refreshToken: tokens.refreshToken,
+        })
+      } catch {
+        // Keep the live access token even if the new refresh token was not saved.
+      }
+    }
+    return tokens.accessToken
+  })()
+  ozonAppTokenRefresh = { key, promise }
+  try {
+    return await promise
+  } finally {
+    if (ozonAppTokenRefresh?.promise === promise) {
+      ozonAppTokenRefresh = null
     }
   }
-  return tokens.accessToken
 }
 
 export async function resolveSellerAccessToken(creds: OzonCreds) {

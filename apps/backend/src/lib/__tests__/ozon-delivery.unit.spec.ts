@@ -218,6 +218,45 @@ describe("fetchOzonAppToken", () => {
     })
   })
 
+  it("shares a single refresh request between concurrent Seller API calls", async () => {
+    const persist = jest.fn(async () => undefined)
+    setOzonTokenPersist(persist)
+    let resolveResponse!: (response: Response) => void
+    const response = new Promise<Response>((resolve) => {
+      resolveResponse = resolve
+    })
+    global.fetch = jest.fn(() => response) as typeof fetch
+    const input = {
+      clientId: "app-uuid",
+      clientSecret: "app-secret",
+      refreshToken: "refresh-1",
+    }
+
+    const first = fetchOzonAppToken(input)
+    const second = fetchOzonAppToken(input)
+    expect(global.fetch).toHaveBeenCalledTimes(1)
+    resolveResponse({
+      ok: true,
+      status: 200,
+      text: async () =>
+        JSON.stringify({
+          access_token: "aaa.bbb.ccc",
+          refresh_token: "refresh-2",
+          expires_in: 3600,
+        }),
+    } as Response)
+
+    await expect(Promise.all([first, second])).resolves.toEqual([
+      "aaa.bbb.ccc",
+      "aaa.bbb.ccc",
+    ])
+    expect(persist).toHaveBeenCalledTimes(1)
+    expect(persist).toHaveBeenCalledWith({
+      accessToken: "aaa.bbb.ccc",
+      refreshToken: "refresh-2",
+    })
+  })
+
   it("clears the stored refresh token when Ozon rejects it", async () => {
     const persist = jest.fn(async () => undefined)
     setOzonTokenPersist(persist)
