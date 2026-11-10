@@ -69,6 +69,82 @@ describe("Ozon Delivery API requests", () => {
   afterEach(() => {
     global.fetch = originalFetch
     resetOzonDeliveryApiCache()
+    jest.restoreAllMocks()
+  })
+
+  it("refreshes tokens when Ozon returns an absolute Unix expiry", async () => {
+    const now = 1_800_000_000_000
+    const dateNow = jest.spyOn(Date, "now").mockReturnValue(now)
+    const emptyMethods = { shipment_methods: [], next_cursor: "" }
+    const fetchMock = jest
+      .fn()
+      .mockResolvedValueOnce(
+        jsonResponse({
+          access_token: "delivery-token-1",
+          expires_in: Math.floor(now / 1000) + 900,
+        })
+      )
+      .mockResolvedValueOnce(jsonResponse(emptyMethods))
+      .mockResolvedValueOnce(
+        jsonResponse({ access_token: "delivery-token-2", expires_in: 3600 })
+      )
+      .mockResolvedValueOnce(jsonResponse(emptyMethods))
+    global.fetch = fetchMock as typeof fetch
+
+    await listOzonDeliveryApiShipmentMethods({
+      clientId: config.clientId,
+      clientSecret: config.clientSecret,
+    })
+    dateNow.mockReturnValue(now + 700_000)
+    await listOzonDeliveryApiShipmentMethods({
+      clientId: config.clientId,
+      clientSecret: config.clientSecret,
+    })
+
+    const tokenRequests = fetchMock.mock.calls.filter(([url]) =>
+      String(url).endsWith("/oauth/token")
+    )
+    expect(tokenRequests).toHaveLength(2)
+    expect(fetchMock.mock.calls[1][1]?.headers).toMatchObject({
+      Authorization: "Bearer delivery-token-1",
+    })
+    expect(fetchMock.mock.calls[3][1]?.headers).toMatchObject({
+      Authorization: "Bearer delivery-token-2",
+    })
+  })
+
+  it("refreshes and retries once when a Delivery API request returns 401", async () => {
+    const fetchMock = jest
+      .fn()
+      .mockResolvedValueOnce(
+        jsonResponse({ access_token: "expired-token", expires_in: 3600 })
+      )
+      .mockResolvedValueOnce(jsonResponse({ code: "UNAUTHORIZED" }, 401))
+      .mockResolvedValueOnce(
+        jsonResponse({ access_token: "fresh-token", expires_in: 3600 })
+      )
+      .mockResolvedValueOnce(
+        jsonResponse({ shipment_methods: [], next_cursor: "" })
+      )
+    global.fetch = fetchMock as typeof fetch
+
+    await expect(
+      listOzonDeliveryApiShipmentMethods({
+        clientId: config.clientId,
+        clientSecret: config.clientSecret,
+      })
+    ).resolves.toEqual([])
+
+    const apiRequests = fetchMock.mock.calls.filter(([url]) =>
+      String(url).endsWith("/v1/shipment-method/search")
+    )
+    expect(apiRequests).toHaveLength(2)
+    expect(apiRequests[0][1]?.headers).toMatchObject({
+      Authorization: "Bearer expired-token",
+    })
+    expect(apiRequests[1][1]?.headers).toMatchObject({
+      Authorization: "Bearer fresh-token",
+    })
   })
 
   it("uses the Delivery API OAuth scopes and persists the idempotency key", async () => {

@@ -11,6 +11,8 @@ const OZON_DELIVERY_SCOPES = [
   "delivery-api.posting",
   "delivery-api.shipment-method",
 ]
+const DELIVERY_TOKEN_REFRESH_BUFFER_MS = 5 * 60 * 1000
+const DELIVERY_TOKEN_DEFAULT_TTL_MS = 50 * 60 * 1000
 
 export type OzonDeliveryParcel = {
   weightG: number
@@ -188,6 +190,23 @@ export function resetOzonDeliveryApiCache() {
   cookiesByHost.clear()
   deliveryPointsCache.clear()
   deliveryPointsInFlight.clear()
+}
+
+function deliveryTokenCacheKey(
+  config: Pick<OzonDeliveryApiConfig, "clientId" | "clientSecret">
+) {
+  return `${config.clientId}:${config.clientSecret}:${OZON_DELIVERY_SCOPES.join(",")}`
+}
+
+function deliveryTokenExpiresAt(value: unknown, now = Date.now()) {
+  const expiresIn = Number(value)
+  if (!Number.isFinite(expiresIn) || expiresIn <= 0) {
+    return now + DELIVERY_TOKEN_DEFAULT_TTL_MS
+  }
+  // Ozon may return an absolute Unix expiry timestamp in `expires_in`.
+  if (expiresIn >= 1_000_000_000_000) return expiresIn
+  if (expiresIn >= 1_000_000_000) return expiresIn * 1000
+  return now + expiresIn * 1000
 }
 
 function setCookies(host: string, headers: Headers) {
@@ -394,9 +413,14 @@ function deliveryApiRequestErrorDiagnostics(
   }
 }
 
-async function fetchAccessToken(config: Pick<OzonDeliveryApiConfig, "clientId" | "clientSecret">) {
-  const key = `${config.clientId}:${config.clientSecret}:${OZON_DELIVERY_SCOPES.join(",")}`
-  if (tokenCache?.key === key && tokenCache.expiresAt > Date.now() + 30_000) {
+async function fetchAccessToken(
+  config: Pick<OzonDeliveryApiConfig, "clientId" | "clientSecret">
+) {
+  const key = deliveryTokenCacheKey(config)
+  if (
+    tokenCache?.key === key &&
+    tokenCache.expiresAt > Date.now() + DELIVERY_TOKEN_REFRESH_BUFFER_MS
+  ) {
     return tokenCache.token
   }
   const response = await ozonDeliveryFetch({
@@ -425,13 +449,10 @@ async function fetchAccessToken(config: Pick<OzonDeliveryApiConfig, "clientId" |
       "Ozon Delivery API не вернул токен доступа"
     )
   }
-  const expiresIn = Number(payload.expires_in)
   tokenCache = {
     key,
     token: accessToken,
-    expiresAt:
-      Date.now() +
-      (Number.isFinite(expiresIn) && expiresIn > 0 ? expiresIn * 1000 : 50 * 60 * 1000),
+    expiresAt: deliveryTokenExpiresAt(payload.expires_in),
   }
   return accessToken
 }
@@ -442,18 +463,30 @@ async function deliveryPostRaw(
   body: Record<string, unknown>,
   headers: Record<string, string> = {}
 ) {
-  const accessToken = await fetchAccessToken(credentials)
-  const response = await ozonDeliveryFetch({
-    url: `${OZON_DELIVERY_API_URL}${path}`,
-    method: "POST",
-    headers: {
-      Authorization: `Bearer ${accessToken}`,
-      "Content-Type": "application/json",
-      Accept: "application/json",
-      ...headers,
-    },
-    body: JSON.stringify(body),
-  })
+  const cacheKey = deliveryTokenCacheKey(credentials)
+  const requestBody = JSON.stringify(body)
+  const postWithToken = (accessToken: string) =>
+    ozonDeliveryFetch({
+      url: `${OZON_DELIVERY_API_URL}${path}`,
+      method: "POST",
+      headers: {
+        Authorization: `Bearer ${accessToken}`,
+        "Content-Type": "application/json",
+        Accept: "application/json",
+        ...headers,
+      },
+      body: requestBody,
+    })
+
+  let accessToken = await fetchAccessToken(credentials)
+  let response = await postWithToken(accessToken)
+  if (response.status === 401) {
+    if (tokenCache?.key === cacheKey && tokenCache.token === accessToken) {
+      tokenCache = null
+    }
+    accessToken = await fetchAccessToken(credentials)
+    response = await postWithToken(accessToken)
+  }
   const buffer = Buffer.from(await response.arrayBuffer())
   if (!response.ok) {
     const responseText = buffer.toString("utf8")
