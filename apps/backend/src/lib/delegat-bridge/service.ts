@@ -90,6 +90,7 @@ export async function getHealth(container: MedusaContainer) {
     capabilities: [
       "products.upsert",
       "products.bulk",
+      "products.batch_read",
       "categories.upsert",
       "prices.bulk",
       "stocks.bulk",
@@ -1241,29 +1242,23 @@ export async function upsertProductsBulk(
   return { success: results.every((row) => row.success), results }
 }
 
-export async function getProduct(container: MedusaContainer, productId: string) {
-  const query = container.resolve(ContainerRegistrationKeys.QUERY)
-  const { data } = await query.graph({
-    entity: "product",
-    fields: [
-      "id",
-      "title",
-      "description",
-      "status",
-      "images.url",
-      "categories.id",
-      "categories.name",
-      "variants.id",
-      "variants.sku",
-      "variants.prices.amount",
-      "variants.prices.currency_code",
-    ],
-    filters: { id: productId },
-  })
-  const product = data[0] as GraphRow | undefined
-  if (!product) {
-    return null
-  }
+const PRODUCT_READ_FIELDS = [
+  "id",
+  "title",
+  "description",
+  "status",
+  "images.url",
+  "categories.id",
+  "categories.name",
+  "variants.id",
+  "variants.sku",
+  "variants.prices.amount",
+  "variants.prices.currency_code",
+]
+
+export const BATCH_PRODUCT_READ_MAX_ROWS = 50
+
+function presentProductRead(product: GraphRow) {
   const variant = product.variants?.[0] as GraphRow | undefined
   return {
     success: true,
@@ -1276,6 +1271,63 @@ export async function getProduct(container: MedusaContainer, productId: string) 
     image_urls: (product.images ?? []).map((img: GraphRow) => img.url),
     category_id: product.categories?.[0]?.id,
     category_name: product.categories?.[0]?.name,
+  }
+}
+
+export async function getProduct(container: MedusaContainer, productId: string) {
+  const query = container.resolve(ContainerRegistrationKeys.QUERY)
+  const { data } = await query.graph({
+    entity: "product",
+    fields: PRODUCT_READ_FIELDS,
+    filters: { id: productId },
+  })
+  const product = data[0] as GraphRow | undefined
+  if (!product) {
+    return null
+  }
+  return presentProductRead(product)
+}
+
+export async function getProductsBatch(
+  container: MedusaContainer,
+  productIds: string[]
+) {
+  const lookupIds = [...new Set(productIds.filter((productId) => productId.length > 0))]
+  const productsById = new Map<string, ReturnType<typeof presentProductRead>>()
+
+  if (lookupIds.length) {
+    const query = container.resolve(ContainerRegistrationKeys.QUERY)
+    const { data } = await query.graph({
+      entity: "product",
+      fields: PRODUCT_READ_FIELDS,
+      filters: { id: lookupIds },
+    })
+    for (const product of (data ?? []) as GraphRow[]) {
+      productsById.set(String(product.id), presentProductRead(product))
+    }
+  }
+
+  return {
+    success: true,
+    results: productIds.map((externalProductId, index) => {
+      const product = externalProductId
+        ? productsById.get(externalProductId)
+        : undefined
+      if (!product) {
+        return {
+          index,
+          external_product_id: externalProductId,
+          found: false,
+          error: "product_not_found",
+        }
+      }
+      return {
+        index,
+        external_product_id: externalProductId,
+        found: true,
+        product,
+      }
+    }),
   }
 }
 
