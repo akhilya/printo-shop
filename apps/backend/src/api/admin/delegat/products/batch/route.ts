@@ -5,8 +5,8 @@ import type {
 import {
   BATCH_PRODUCT_READ_MAX_ROWS,
   formatError,
-  getProductsBatch,
 } from "../../../../../lib/delegat-bridge/service"
+import { delegatReadProductsBatchWorkflow } from "../../../../../workflows/delegat-read-products-batch"
 
 export async function POST(req: AuthenticatedMedusaRequest, res: MedusaResponse) {
   try {
@@ -26,7 +26,9 @@ export async function POST(req: AuthenticatedMedusaRequest, res: MedusaResponse)
       return
     }
 
-    const payload = await getProductsBatch(req.scope, ids)
+    const { result: payload } = await delegatReadProductsBatchWorkflow(req.scope).run({
+      input: { ids },
+    })
     res.json(payload)
   } catch (error) {
     res.status(500).json({
